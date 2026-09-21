@@ -43,6 +43,8 @@ const RESELLER_NAV: ReadonlyArray<NavItem> = [
   { href: ROUTES.reseller.products, label: 'Products' },
   { href: ROUTES.reseller.wallet, label: 'Wallet' },
   { href: ROUTES.reseller.orders, label: 'Orders' },
+  { href: ROUTES.reseller.settingsApiKeys, label: 'API Keys' },
+  { href: ROUTES.reseller.settingsWebhooks, label: 'Webhooks' },
   { href: ROUTES.reseller.settings, label: 'Settings' },
 ];
 

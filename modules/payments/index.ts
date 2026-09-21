@@ -208,6 +208,23 @@ async function failPayment(supabase: DbClient, order: Order, reason: string): Pr
   }
 }
 
+function enqueueOrderWebhook(
+  supabase: DbClient,
+  tenantId: string | null,
+  event: 'order.payment_verified' | 'order.failed',
+  data: Record<string, unknown>,
+): void {
+  void import('@/modules/public-api/webhooks')
+    .then(({ enqueueWebhook }) => {
+      enqueueWebhook(supabase, tenantId, event, data);
+    })
+    .catch((error: unknown) => {
+      logger.error('webhook enqueue failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    });
+}
+
 function triggerFulfillment(supabase: DbClient, orderId: string): void {
   void import('@/modules/fulfillment')
     .then(({ processQueuedOrder }) => processQueuedOrder(supabase, orderId))
@@ -358,6 +375,7 @@ export async function verifyBinancePayClaim(
 
   await finalizeClaim(supabase, claim.id, { verified: true }, evidence);
   await succeedPayment(supabase, pending, 'binance pay verified');
+  enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
   triggerFulfillment(supabase, pending.id);
   return successResult('verified');
 }
@@ -447,6 +465,7 @@ export async function verifyBep20Claim(
 
   await finalizeClaim(supabase, claim.id, { verified: true }, evidence);
   await succeedPayment(supabase, pending, 'bep20 transfer verified');
+  enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
   triggerFulfillment(supabase, pending.id);
   return successResult('verified');
 }
@@ -528,6 +547,7 @@ export async function manualOverridePayment(
 
   if (action === 'verify') {
     await succeedPayment(supabase, order, `manual override: ${reason}`);
+    enqueueOrderWebhook(supabase, order.tenantId, 'order.payment_verified', { orderId: order.id });
     triggerFulfillment(supabase, order.id);
   } else if (order.paymentStatus !== 'failed') {
     await failPayment(supabase, order, `manual override: ${reason}`);

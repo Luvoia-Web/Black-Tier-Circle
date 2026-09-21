@@ -94,9 +94,11 @@ export type CreateOrderInput = {
   readonly channel: OrderChannel;
   readonly tenantId?: string;
   readonly botId: string;
-  readonly customerId: string;
+  readonly customerId?: string;
   readonly productId: string;
   readonly idempotencyKey: string;
+  readonly externalOrderRef?: string;
+  readonly quantity?: number;
 };
 
 export type ListOrdersFilters = {

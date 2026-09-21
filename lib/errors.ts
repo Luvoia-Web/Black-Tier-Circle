@@ -108,3 +108,13 @@ export class NotFoundError extends AppError {
     this.name = 'NotFoundError';
   }
 }
+
+export class RateLimitError extends AppError {
+  public readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super('RATE_LIMITED', message, 429, { retryAfterSeconds });
+    this.name = 'RateLimitError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}

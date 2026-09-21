@@ -42,6 +42,11 @@ export const ROUTES = {
     orders: '/reseller/orders',
     orderDetail: (orderId: string) => `/reseller/orders/${orderId}`,
     settings: '/reseller/settings',
+    settingsApiKeys: '/reseller/settings/api-keys',
+    settingsWebhooks: '/reseller/settings/webhooks',
+  },
+  public: {
+    apiDocs: '/api-docs',
   },
 } as const;
 
@@ -93,6 +98,10 @@ export const API_ROUTES = {
   ownerOrders: `${API_PREFIX}/owner/orders`,
   resellerOrders: `${API_PREFIX}/reseller/orders`,
   resellerOrder: (orderId: string) => `${API_PREFIX}/reseller/orders/${orderId}`,
+  resellerApiKeys: `${API_PREFIX}/reseller/api-keys`,
+  resellerApiKey: (keyId: string) => `${API_PREFIX}/reseller/api-keys/${keyId}`,
+  resellerWebhooks: `${API_PREFIX}/reseller/webhooks`,
+  resellerWebhook: (webhookId: string) => `${API_PREFIX}/reseller/webhooks/${webhookId}`,
 } as const;
 
 /**

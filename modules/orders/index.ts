@@ -8,6 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { AppError, NotFoundError, TenantError, ValidationError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getProduct } from '@/modules/catalog';
 import { getListing } from '@/modules/pricing';
@@ -62,6 +63,23 @@ function asEventRow(data: unknown): OrderEventRow {
 
 const RESERVATION_TTL_MS = 24 * 60 * 60 * 1000;
 
+function enqueueOrderWebhook(
+  supabase: DbClient,
+  tenantId: string | null,
+  event: 'order.cancelled',
+  data: Record<string, unknown>,
+): void {
+  void import('@/modules/public-api/webhooks')
+    .then(({ enqueueWebhook }) => {
+      enqueueWebhook(supabase, tenantId, event, data);
+    })
+    .catch((error: unknown) => {
+      logger.error('webhook enqueue failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    });
+}
+
 /**
  * Creates an order with price snapshots and optional wallet reservation.
  * Duplicate idempotency keys return the existing order.
@@ -83,7 +101,14 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
     throw new AppError('ORDER_LOOKUP_FAILED', existing.error.message, 500);
   }
   if (existing.data !== null) {
-    return mapOrderRow(asOrderRow(existing.data));
+    const existingOrder = mapOrderRow(asOrderRow(existing.data));
+    if (existingOrder.productId !== input.productId) {
+      throw new ValidationError(
+        'IDEMPOTENCY_CONFLICT',
+        'Idempotency key was already used for a different product',
+      );
+    }
+    return existingOrder;
   }
 
   const product = await getProduct(supabase, input.productId);
@@ -91,7 +116,15 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
     throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
   }
 
-  const isReseller = input.channel === 'reseller_bot';
+  const quantity = input.quantity ?? 1;
+  if (quantity < 1 || quantity > product.maxPurchaseQty) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Requested quantity is not available');
+  }
+  if (!product.stockUnlimited && (product.stockCount ?? 0) < quantity) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
+  }
+
+  const isReseller = input.channel === 'reseller_bot' || input.channel === 'api';
   if (isReseller) {
     if (input.tenantId === undefined) {
       throw new ValidationError('TENANT_REQUIRED', 'Reseller orders require a tenant');
@@ -106,10 +139,11 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
     }
   }
 
-  const quotedRetailPrice = isReseller
+  const unitRetail = isReseller
     ? (await getListing(supabase, input.tenantId as string, input.productId)).retailPriceMinor
     : product.retailPriceMinor;
-  const quotedWholesalePrice = product.wholesalePriceMinor;
+  const quotedRetailPrice = unitRetail * BigInt(quantity);
+  const quotedWholesalePrice = product.wholesalePriceMinor * BigInt(quantity);
   const paymentStatus = 'awaiting';
   const fundingStatus = isReseller ? 'reserved' : 'not_applicable';
   const orderId = randomUUID();
@@ -122,14 +156,14 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
       channel: input.channel,
       tenant_id: isReseller ? (input.tenantId ?? null) : null,
       bot_id: input.botId === 'owner' ? null : input.botId,
-      customer_id: input.customerId,
+      customer_id: input.customerId ?? null,
       product_id: input.productId,
       product_version: product.version,
       quoted_retail_price: quotedRetailPrice.toString(),
       quoted_wholesale_price: quotedWholesalePrice.toString(),
       currency: 'USDT',
       payment_method: null,
-      external_order_ref: null,
+      external_order_ref: input.externalOrderRef ?? null,
       payment_status: paymentStatus,
       funding_status: fundingStatus,
       fulfillment_status: 'queued',
@@ -301,6 +335,7 @@ export async function cancelOrder(supabase: DbClient, orderId: string, reason: s
     trigger: 'manual',
     note: reason,
   });
+  enqueueOrderWebhook(supabase, order.tenantId, 'order.cancelled', { orderId });
   if (order.fundingStatus === 'reserved') {
     await releaseReservation(supabase, orderId, reason);
     await recordTransition(supabase, orderId, 'funding', 'reserved', 'released', {

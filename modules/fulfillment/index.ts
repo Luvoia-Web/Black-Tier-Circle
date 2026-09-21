@@ -55,6 +55,23 @@ export type {
 
 const GENERIC_FULFILLMENT_ERROR = 'Fulfillment could not be completed';
 
+function enqueueOrderWebhook(
+  supabase: DbClient,
+  tenantId: string | null,
+  event: 'order.fulfilled' | 'order.delivered' | 'order.failed' | 'order.cancelled',
+  data: Record<string, unknown>,
+): void {
+  void import('@/modules/public-api/webhooks')
+    .then(({ enqueueWebhook }) => {
+      enqueueWebhook(supabase, tenantId, event, data);
+    })
+    .catch((error: unknown) => {
+      logger.error('webhook enqueue failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    });
+}
+
 function asAttemptRow(data: unknown): FulfillmentAttemptRow {
   return data as FulfillmentAttemptRow;
 }
@@ -266,6 +283,7 @@ async function markFulfillmentFailed(supabase: DbClient, order: Order, reason: s
       trigger: 'worker',
       note: reason,
     });
+    enqueueOrderWebhook(supabase, latest.tenantId, 'order.failed', { orderId: latest.id });
   }
   await releaseIfReserved(supabase, latest, reason);
 }
@@ -418,6 +436,7 @@ export async function deliverViaBot(supabase: DbClient, order: Order, signedUrl:
         trigger: 'worker',
         note: 'delivered via telegram',
       });
+      enqueueOrderWebhook(supabase, order.tenantId, 'order.delivered', { orderId: order.id });
     }
   } catch (error: unknown) {
     logger.error('delivery via bot failed', {
@@ -479,6 +498,7 @@ export async function deliverManualCompletion(supabase: DbClient, order: Order):
         trigger: 'worker',
         note: 'manual completion notice sent',
       });
+      enqueueOrderWebhook(supabase, order.tenantId, 'order.delivered', { orderId: order.id });
     }
   } catch (error: unknown) {
     logger.error('manual completion delivery failed', {
@@ -534,6 +554,7 @@ export async function fulfillFile(
       trigger: 'worker',
       note: 'file ready for delivery',
     });
+    enqueueOrderWebhook(supabase, afterConsume.tenantId, 'order.fulfilled', { orderId: afterConsume.id });
   }
   await deliverViaBot(supabase, await getOrder(supabase, order.id), signedUrl);
 }
@@ -675,6 +696,7 @@ export async function markManualFulfilled(
     trigger: 'manual',
     note: note ?? 'owner marked fulfilled',
   });
+  enqueueOrderWebhook(supabase, order.tenantId, 'order.fulfilled', { orderId });
 
   const attempts = await listFulfillmentAttempts(supabase, orderId);
   const latestAttempt = attempts[0];
