@@ -1,27 +1,49 @@
 /**
  * @file app/(dashboard)/layout.tsx
  *
- * Dashboard layout stub for owner and reseller homes.
- *
- * Phase 1 will gate this layout by session role. Phase 0 renders
- * children without an auth check.
+ * Shared dashboard layout with sidebar and top bar.
+ * Middleware already gates these routes; this layout loads the profile for chrome.
  *
  * @module Dashboard
  */
 
 import type { ReactNode } from 'react';
+import { redirect } from 'next/navigation';
+import { DashboardShell } from '@/components/dashboard-shell';
+import { NotFoundError } from '@/lib/errors';
+import { ROUTES } from '@/lib/navigation';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { asDbClient } from '@/lib/auth/session';
+import { getProfile, type UserProfile } from '@/modules/identity';
 
 type DashboardLayoutProps = {
   readonly children: ReactNode;
 };
 
-export default function DashboardLayout({ children }: DashboardLayoutProps): JSX.Element {
+export default async function DashboardLayout({ children }: DashboardLayoutProps): Promise<JSX.Element> {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user === null) {
+    redirect(ROUTES.login);
+  }
+
+  const admin = createAdminSupabaseClient();
+  let profile: UserProfile;
+  try {
+    profile = await getProfile(asDbClient(admin), user.id);
+  } catch (error: unknown) {
+    if (error instanceof NotFoundError) {
+      redirect(ROUTES.login);
+    }
+    throw error;
+  }
+
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-zinc-800 px-6 py-4 text-sm text-zinc-400">
-        Black Tier Circle
-      </header>
+    <DashboardShell displayName={profile.displayName} role={profile.role}>
       {children}
-    </div>
+    </DashboardShell>
   );
 }
