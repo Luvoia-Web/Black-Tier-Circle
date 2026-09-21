@@ -63,8 +63,7 @@ const EMPTY: ProductFormValues = {
   supplierMetadata: '',
 };
 
-const inputClass =
-  'rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+const inputClass = 'btc-input';
 
 /**
  * Owner product create/edit form with a live reseller margin calculator.
@@ -100,7 +99,7 @@ export function ProductForm({
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="max-w-2xl space-y-4">
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         SKU
         <input
           required
@@ -110,7 +109,7 @@ export function ProductForm({
           className={`${inputClass} ${mode === 'edit' ? 'opacity-70' : ''}`}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Title
         <input
           required
@@ -121,7 +120,7 @@ export function ProductForm({
           className={inputClass}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Description
         <textarea
           maxLength={2000}
@@ -131,7 +130,7 @@ export function ProductForm({
           className={inputClass}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Category
         <input
           maxLength={50}
@@ -140,7 +139,7 @@ export function ProductForm({
           className={inputClass}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Delivery type
         <select
           value={values.deliveryType}
@@ -158,7 +157,7 @@ export function ProductForm({
       </label>
       {values.deliveryType === 'supplier_api' ? (
         <>
-          <label className="flex flex-col gap-1 text-sm text-gray-400">
+          <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
             Supplier SKU
             <input
               required
@@ -167,9 +166,9 @@ export function ProductForm({
               onChange={(event) => setValues({ ...values, supplierSku: event.target.value })}
               className={inputClass}
             />
-            <span className="text-xs text-gray-500">Product identifier as known to the external supplier</span>
+            <span className="text-xs text-[var(--text-3)]">Product identifier as known to the external supplier</span>
           </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-400">
+          <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
             Supplier metadata (optional JSON)
             <textarea
               rows={4}
@@ -182,7 +181,7 @@ export function ProductForm({
         </>
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm text-gray-400">
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
           Wholesale price
           <input
             required
@@ -191,9 +190,9 @@ export function ProductForm({
             onChange={(event) => setValues({ ...values, wholesaleUsdt: event.target.value })}
             className={inputClass}
           />
-          <span className="text-xs text-gray-500">Enter in USDT (e.g. 10.50)</span>
+          <span className="text-xs text-[var(--text-3)]">Enter in USDT (e.g. 10.50)</span>
         </label>
-        <label className="flex flex-col gap-1 text-sm text-gray-400">
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
           Retail price
           <input
             required
@@ -202,11 +201,11 @@ export function ProductForm({
             onChange={(event) => setValues({ ...values, retailUsdt: event.target.value })}
             className={inputClass}
           />
-          <span className="text-xs text-gray-500">Enter in USDT (e.g. 10.50)</span>
+          <span className="text-xs text-[var(--text-3)]">Enter in USDT (e.g. 10.50)</span>
         </label>
       </div>
-      {marginCopy ? <p className="text-sm text-emerald-400">{marginCopy}</p> : null}
-      <label className="flex items-center gap-2 text-sm text-gray-300">
+      {marginCopy ? <p className="text-sm text-[var(--green)]">{marginCopy}</p> : null}
+      <label className="flex items-center gap-2 text-sm text-[var(--text-2)]">
         <input
           type="checkbox"
           checked={values.stockUnlimited}
@@ -215,7 +214,7 @@ export function ProductForm({
         Unlimited stock
       </label>
       {values.stockUnlimited ? null : (
-        <label className="flex flex-col gap-1 text-sm text-gray-400">
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
           Stock count
           <input
             required
@@ -227,7 +226,7 @@ export function ProductForm({
           />
         </label>
       )}
-      <label className="flex items-center gap-2 text-sm text-gray-300">
+      <label className="flex items-center gap-2 text-sm text-[var(--text-2)]">
         <input
           type="checkbox"
           checked={values.resellerEligible}
@@ -235,7 +234,7 @@ export function ProductForm({
         />
         Reseller eligible
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Max purchase quantity
         <input
           type="number"
@@ -246,7 +245,7 @@ export function ProductForm({
           className={inputClass}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-gray-400">
+      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
         Estimated delivery (minutes)
         <input
           type="number"
@@ -257,14 +256,14 @@ export function ProductForm({
         />
       </label>
       {error ? (
-        <p className="rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
           {error}
         </p>
       ) : null}
       <button
         type="submit"
         disabled={submitting}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+        className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60"
       >
         {submitting ? 'Saving…' : mode === 'create' ? 'Create product' : 'Save changes'}
       </button>

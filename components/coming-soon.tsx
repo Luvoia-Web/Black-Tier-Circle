@@ -21,7 +21,7 @@ export function ComingSoon({ title }: ComingSoonProps): JSX.Element {
   return (
     <>
       <PageHeader title={title} description="This area ships in a later phase." />
-      <div className="rounded-lg border border-gray-800 bg-gray-900 px-6 py-12 text-center text-sm text-gray-400">
+      <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center text-sm text-[var(--text-2)]">
         No activity yet
       </div>
     </>

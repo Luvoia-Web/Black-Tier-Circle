@@ -42,5 +42,5 @@ export function SupplierHealthBadge(): JSX.Element {
     })();
   }, []);
 
-  return <span className="text-sm text-gray-300">{label}</span>;
+  return <span className="text-sm text-[var(--text-2)]">{label}</span>;
 }

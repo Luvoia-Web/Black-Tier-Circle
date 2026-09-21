@@ -48,17 +48,17 @@ export function PaymentOverrideForm({ orderId }: OverrideFormProps): JSX.Element
   }
 
   return (
-    <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-      <h2 className="text-lg font-medium text-gray-100">Manual override</h2>
-      <p className="mt-1 text-sm text-gray-400">Requires a reason of at least 10 characters.</p>
+    <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <h2 className="text-lg font-medium text-[var(--text-1)]">Manual override</h2>
+      <p className="mt-1 text-sm text-[var(--text-2)]">Requires a reason of at least 10 characters.</p>
       <textarea
         value={reason}
         onChange={(event) => setReason(event.target.value)}
-        className="mt-3 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100"
+        className="mt-3 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-sm text-[var(--text-1)]"
         rows={3}
         placeholder="Explain why this payment is being overridden"
       />
-      {error ? <p className="mt-2 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-2 text-sm text-[var(--red)]">{error}</p> : null}
       <div className="mt-3 flex gap-2">
         <button
           type="button"
@@ -78,7 +78,7 @@ export function PaymentOverrideForm({ orderId }: OverrideFormProps): JSX.Element
         </button>
       </div>
       {confirmAction ? (
-        <div className="mt-4 rounded-md border border-yellow-700 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+        <div className="mt-4 rounded-md border border-yellow-700 bg-[var(--amber-soft)] p-4 text-sm text-yellow-100">
           <p>
             Confirm {confirmAction === 'verify' ? 'force verify' : 'force fail'}? This writes an audit log entry.
           </p>
@@ -89,11 +89,11 @@ export function PaymentOverrideForm({ orderId }: OverrideFormProps): JSX.Element
               onClick={() => {
                 void submit(confirmAction);
               }}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-white"
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-white"
             >
               Confirm
             </button>
-            <button type="button" onClick={() => setConfirmAction(null)} className="rounded-md bg-gray-800 px-3 py-1.5">
+            <button type="button" onClick={() => setConfirmAction(null)} className="rounded-md bg-[var(--bg-raised)] px-3 py-1.5">
               Cancel
             </button>
           </div>

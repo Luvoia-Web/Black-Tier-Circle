@@ -48,46 +48,46 @@ export default async function OwnerPaymentDetailPage({ params }: PageProps): Pro
           title={`Payment ${order.id.slice(0, 8).toUpperCase()}`}
           description={product.title}
           actions={
-            <Link href={ROUTES.owner.payments} className="text-sm text-indigo-400 hover:text-indigo-300">
+            <Link href={ROUTES.owner.payments} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
               Back to payments
             </Link>
           }
         />
-        <section className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Order summary</h2>
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Order summary</h2>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-400">Amount</dt>
+              <dt className="text-[var(--text-2)]">Amount</dt>
               <dd>{formatUsdt(order.quotedRetailPriceMinor)}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Channel</dt>
+              <dt className="text-[var(--text-2)]">Channel</dt>
               <dd>{order.channel}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Payment</dt>
+              <dt className="text-[var(--text-2)]">Payment</dt>
               <dd>{order.paymentStatus}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Fulfillment</dt>
+              <dt className="text-[var(--text-2)]">Fulfillment</dt>
               <dd>{order.fulfillmentStatus}</dd>
             </div>
           </dl>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Payment claim</h2>
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Payment claim</h2>
           {status.claim ? (
             <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-gray-400">Method</dt>
+                <dt className="text-[var(--text-2)]">Method</dt>
                 <dd>{status.claim.paymentMethod}</dd>
               </div>
               <div>
-                <dt className="text-gray-400">Evidence</dt>
+                <dt className="text-[var(--text-2)]">Evidence</dt>
                 <dd>{maskRef(status.claim.binanceOrderId ?? status.claim.txHash)}</dd>
               </div>
               <div>
-                <dt className="text-gray-400">Result</dt>
+                <dt className="text-[var(--text-2)]">Result</dt>
                 <dd>
                   {status.claim.verifiedAt
                     ? 'Verified'
@@ -98,12 +98,12 @@ export default async function OwnerPaymentDetailPage({ params }: PageProps): Pro
               </div>
             </dl>
           ) : (
-            <p className="mt-3 text-sm text-gray-400">No claim submitted yet.</p>
+            <p className="mt-3 text-sm text-[var(--text-2)]">No claim submitted yet.</p>
           )}
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Status timeline</h2>
-          <ol className="mt-3 space-y-2 text-sm text-gray-300">
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Status timeline</h2>
+          <ol className="mt-3 space-y-2 text-sm text-[var(--text-2)]">
             {events.map((event) => (
               <li key={event.id}>
                 {event.createdAt.toLocaleString()} — {event.track}: {event.fromStatus ?? '∅'} → {event.toStatus}

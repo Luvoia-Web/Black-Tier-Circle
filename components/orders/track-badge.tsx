@@ -6,7 +6,9 @@
  * @module Components
  */
 
-function classFor(status: string): string {
+import { Badge, type BadgeVariant } from '@/components/ui/Badge';
+
+function variantFor(status: string): BadgeVariant {
   if (
     status === 'verified' ||
     status === 'ready' ||
@@ -14,15 +16,10 @@ function classFor(status: string): string {
     status === 'debited' ||
     status === 'success'
   ) {
-    return 'bg-emerald-500/10 text-emerald-400';
+    return 'success';
   }
-  if (
-    status === 'failed' ||
-    status === 'unreachable' ||
-    status === 'canceled' ||
-    status === 'expired'
-  ) {
-    return 'bg-red-500/10 text-red-400';
+  if (status === 'failed' || status === 'unreachable' || status === 'canceled' || status === 'expired') {
+    return 'danger';
   }
   if (
     status === 'manual_pending' ||
@@ -33,9 +30,9 @@ function classFor(status: string): string {
     status === 'supplier_pending' ||
     status === 'outcome_unknown'
   ) {
-    return 'bg-yellow-500/10 text-yellow-400';
+    return 'warning';
   }
-  return 'bg-gray-500/10 text-gray-300';
+  return 'neutral';
 }
 
 type TrackBadgeProps = {
@@ -48,9 +45,5 @@ type TrackBadgeProps = {
  * @param props - Status string
  */
 export function TrackBadge({ status }: TrackBadgeProps): JSX.Element {
-  return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${classFor(status)}`}>
-      {status.replaceAll('_', ' ')}
-    </span>
-  );
+  return <Badge variant={variantFor(status)}>{status.replaceAll('_', ' ')}</Badge>;
 }

@@ -13,7 +13,7 @@ import Link from 'next/link';
 
 function Code({ children }: { readonly children: string }): JSX.Element {
   return (
-    <pre className="overflow-x-auto rounded-md border border-gray-800 bg-gray-950 p-4 text-xs text-gray-200">
+    <pre className="overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--bg-page)] p-4 text-xs text-[var(--text-1)]">
       <code>{children}</code>
     </pre>
   );
@@ -29,19 +29,19 @@ type EndpointProps = {
 
 function Endpoint({ method, path, scope, body, response }: EndpointProps): JSX.Element {
   return (
-    <section className="space-y-3 rounded-lg border border-gray-800 bg-gray-900 p-5">
-      <p className="text-sm font-medium text-indigo-300">
-        <span className="mr-2 rounded bg-indigo-500/20 px-2 py-0.5 text-xs">{method}</span>
+    <section className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <p className="text-sm font-medium text-[var(--accent-soft)]">
+        <span className="mr-2 rounded bg-[var(--accent-glow)] px-2 py-0.5 text-xs">{method}</span>
         {path}
       </p>
-      <p className="text-xs text-gray-400">Scope: {scope}</p>
+      <p className="text-xs text-[var(--text-2)]">Scope: {scope}</p>
       {body ? (
         <>
-          <p className="text-xs uppercase tracking-wide text-gray-500">Request</p>
+          <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">Request</p>
           <Code>{body}</Code>
         </>
       ) : null}
-      <p className="text-xs uppercase tracking-wide text-gray-500">Response</p>
+      <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">Response</p>
       <Code>{response}</Code>
     </section>
   );
@@ -52,23 +52,23 @@ function Endpoint({ method, path, scope, body, response }: EndpointProps): JSX.E
  */
 export default function ApiDocsPage(): JSX.Element {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
       <div className="mx-auto max-w-4xl space-y-10 px-6 py-12">
         <header>
-          <p className="text-sm text-indigo-400">Black Tier Circle</p>
+          <p className="text-sm text-[var(--accent-soft)]">Black Tier Circle</p>
           <h1 className="mt-2 text-3xl font-semibold">Public API v1</h1>
-          <p className="mt-2 text-gray-400">
+          <p className="mt-2 text-[var(--text-2)]">
             Versioned, key-authenticated REST API for reseller integrations. Breaking changes go to{' '}
             <code>/api/v2/</code> only.
           </p>
-          <Link href={ROUTES.login} className="mt-4 inline-block text-sm text-indigo-400 hover:text-indigo-300">
+          <Link href={ROUTES.login} className="mt-4 inline-block text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
             Back to login
           </Link>
         </header>
 
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">1. Authentication</h2>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-[var(--text-2)]">
             Send the raw API key on every request. Keys look like <code>btc_live_</code> or{' '}
             <code>btc_test_</code> plus 32 hex characters. Raw keys are shown once at creation.
           </p>
@@ -77,18 +77,18 @@ export default function ApiDocsPage(): JSX.Element {
 
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">2. Rate limits</h2>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-gray-300">
+          <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-2)]">
             <li>Default: {API_CONFIG.rateLimits.defaultRequestsPerMinute}/minute</li>
             <li>Reads: {API_CONFIG.rateLimits.readRequestsPerMinute}/minute</li>
             <li>Order create: {API_CONFIG.rateLimits.orderCreationPerMinute}/minute</li>
             <li>Payment verify: {API_CONFIG.rateLimits.paymentVerificationPerMinute}/minute</li>
           </ul>
-          <p className="text-sm text-gray-400">429 responses include a Retry-After header.</p>
+          <p className="text-sm text-[var(--text-2)]">429 responses include a Retry-After header.</p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">3. Idempotency</h2>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-[var(--text-2)]">
             POST {API_CONFIG.baseUrl}/orders requires {API_CONFIG.idempotencyHeader}. The same key plus the same
             productId returns the original order.
           </p>
@@ -163,17 +163,17 @@ export default function ApiDocsPage(): JSX.Element {
 
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">6. Webhooks</h2>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-[var(--text-2)]">
             We POST JSON to your HTTPS URL with header {API_CONFIG.webhooks.signatureHeader} set to HMAC-SHA256
             (hex) of the raw body using the webhook secret. Verify with a timing-safe compare.
           </p>
           <Code>{`{ "event": "order.payment_verified", "timestamp": "2026-09-21T00:00:00.000Z", "data": { "orderId": "…", "tenantId": "…" } }`}</Code>
-          <p className="text-sm text-gray-400">Events: {API_CONFIG.webhooks.events.join(', ')}</p>
+          <p className="text-sm text-[var(--text-2)]">Events: {API_CONFIG.webhooks.events.join(', ')}</p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-semibold">7. SDKs</h2>
-          <p className="text-sm text-gray-400">Official SDKs coming soon. Use any HTTP client with the headers above.</p>
+          <p className="text-sm text-[var(--text-2)]">Official SDKs coming soon. Use any HTTP client with the headers above.</p>
         </section>
       </div>
     </div>

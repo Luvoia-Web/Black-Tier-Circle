@@ -151,7 +151,7 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
           onSubmit={onSubmit}
         />
       ) : (
-        <p className="text-sm text-gray-400">{error ?? 'Loading…'}</p>
+        <p className="text-sm text-[var(--text-2)]">{error ?? 'Loading…'}</p>
       )}
     </>
   );

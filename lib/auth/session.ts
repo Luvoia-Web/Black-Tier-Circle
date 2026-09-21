@@ -80,6 +80,9 @@ export type ResellerSession = AuthenticatedSession & {
 /**
  * Requires an authenticated reseller and loads their tenant from the session user.
  * Tenant ID always comes from the database, never from the request body.
+ *
+ * Phase 9 auth audit: JWT via getUser() (not getSession()), role=reseller,
+ * and tenant.status must be active. Every reseller query uses this tenant.id.
  */
 export async function requireReseller(): Promise<ResellerSession> {
   const session = await requireUser();
@@ -87,8 +90,14 @@ export async function requireReseller(): Promise<ResellerSession> {
     throw new AuthError('FORBIDDEN', 'Reseller access required', 403);
   }
   const tenant = await getTenantByUserId(asDbClient(session.admin), session.user.id);
-  if (tenant.status === 'suspended') {
-    throw new AuthError('ACCOUNT_SUSPENDED', 'This account has been suspended', 403);
+  if (tenant.status !== 'active') {
+    throw new AuthError(
+      tenant.status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'TENANT_NOT_ACTIVE',
+      tenant.status === 'suspended'
+        ? 'This account has been suspended'
+        : 'Reseller account is not active',
+      403,
+    );
   }
   return { ...session, tenant };
 }

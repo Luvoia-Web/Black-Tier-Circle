@@ -11,6 +11,7 @@ import { enqueueTelegramUpdate, verifyTelegramSecret } from '@/integrations/tele
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import {
   getOwnerBotToken,
   getOwnerBotWebhookSecret,
@@ -41,6 +42,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const header = req.headers.get('x-telegram-bot-api-secret-token');
     if (secret === null || !verifyTelegramSecret(secret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
+    }
+    try {
+      assertRateLimit('tg-webhook:owner', 100);
+    } catch {
+      return NextResponse.json({ ok: false, description: 'Rate limit exceeded' }, { status: 429 });
     }
     if (!isOwnerBotConfigured()) {
       return NextResponse.json({ ok: false }, { status: 401 });

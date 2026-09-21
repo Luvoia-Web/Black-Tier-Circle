@@ -27,7 +27,7 @@ type KeyRow = {
 };
 
 const inputClass =
-  'rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+  'rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
 
 /**
  * Lists, creates, and revokes reseller API keys.
@@ -43,6 +43,7 @@ export default function ResellerApiKeysPage(): JSX.Element {
   const [expiresAt, setExpiresAt] = useState('');
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showRevoked, setShowRevoked] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -129,7 +130,7 @@ export default function ResellerApiKeysPage(): JSX.Element {
       key: 'env',
       header: 'Environment',
       render: (row) => (
-        <span className={row.environment === 'live' ? 'text-emerald-400' : 'text-yellow-300'}>
+        <span className={row.environment === 'live' ? 'text-[var(--green)]' : 'text-[var(--amber)]'}>
           {row.environment}
         </span>
       ),
@@ -156,7 +157,7 @@ export default function ResellerApiKeysPage(): JSX.Element {
       header: '',
       render: (row) =>
         row.isActive ? (
-          <button type="button" className="text-sm text-red-400 hover:text-red-300" onClick={() => void revoke(row.id)}>
+          <button type="button" className="text-sm text-[var(--red)] hover:text-red-300" onClick={() => void revoke(row.id)}>
             Revoke
           </button>
         ) : null,
@@ -166,28 +167,41 @@ export default function ResellerApiKeysPage(): JSX.Element {
   return (
     <>
       <PageHeader
-        title="API keys"
-        description="Authenticate the public reseller API without using the Telegram bot."
+        title="Developer API"
+        description="Generate keys in the bot or here. Full docs at /api-docs"
         actions={
-          <button
-            type="button"
-            className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-            onClick={() => setShowForm(true)}
-          >
-            Create New Key
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-[var(--border-soft)] px-3 py-2 text-sm text-[var(--text-1)]"
+              onClick={() => void load()}
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)]"
+              onClick={() => setShowForm(true)}
+            >
+              Create New Key
+            </button>
+          </div>
         }
       />
-      {error ? <p className="mb-4 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-4 text-sm text-[var(--red)]">{error}</p> : null}
+      <label className="mb-4 flex items-center gap-2 text-sm text-[var(--text-2)]">
+        <input type="checkbox" checked={showRevoked} onChange={(event) => setShowRevoked(event.target.checked)} />
+        Show revoked
+      </label>
       {rawKey ? (
         <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
           <p className="text-sm font-semibold text-amber-200">
             This key will only be shown once. Copy it now and store it securely.
           </p>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-gray-950 p-3 text-sm text-gray-100">{rawKey}</pre>
+          <pre className="mt-3 overflow-x-auto rounded-md bg-[var(--bg-page)] p-3 text-sm text-[var(--text-1)]">{rawKey}</pre>
           <button
             type="button"
-            className="mt-3 text-sm text-indigo-400"
+            className="mt-3 text-sm text-[var(--accent-soft)]"
             onClick={() => void navigator.clipboard.writeText(rawKey)}
           >
             Copy key
@@ -195,7 +209,7 @@ export default function ResellerApiKeysPage(): JSX.Element {
         </div>
       ) : null}
       {showForm ? (
-        <form onSubmit={(event) => void createKey(event)} className="mb-6 space-y-4 rounded-lg border border-gray-800 bg-gray-900 p-4">
+        <form onSubmit={(event) => void createKey(event)} className="mb-6 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
           <label className="block text-sm">
             Label
             <input className={`${inputClass} mt-1 w-full`} value={label} onChange={(e) => setLabel(e.target.value)} required />
@@ -203,21 +217,21 @@ export default function ResellerApiKeysPage(): JSX.Element {
           <div className="flex gap-3 text-sm">
             <button
               type="button"
-              className={`rounded-md px-3 py-2 ${environment === 'test' ? 'bg-yellow-500/20 text-yellow-200' : 'bg-gray-800 text-gray-400'}`}
+              className={`rounded-md px-3 py-2 ${environment === 'test' ? 'bg-yellow-500/20 text-yellow-200' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
               onClick={() => setEnvironment('test')}
             >
               Test
             </button>
             <button
               type="button"
-              className={`rounded-md px-3 py-2 ${environment === 'live' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-gray-800 text-gray-400'}`}
+              className={`rounded-md px-3 py-2 ${environment === 'live' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
               onClick={() => setEnvironment('live')}
             >
               Live
             </button>
           </div>
           <fieldset className="space-y-2 text-sm">
-            <legend className="mb-1 text-gray-400">Scopes</legend>
+            <legend className="mb-1 text-[var(--text-2)]">Scopes</legend>
             {API_CONFIG.allScopes.map((scope) => (
               <label key={scope} className="flex items-center gap-2">
                 <input
@@ -242,24 +256,24 @@ export default function ResellerApiKeysPage(): JSX.Element {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {saving ? 'Creating…' : 'Create key'}
             </button>
-            <button type="button" className="text-sm text-gray-400" onClick={() => setShowForm(false)}>
+            <button type="button" className="text-sm text-[var(--text-2)]" onClick={() => setShowForm(false)}>
               Cancel
             </button>
           </div>
         </form>
       ) : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading…</p>
       ) : (
         <DataTable
           columns={columns}
-          rows={keys}
+          rows={keys.filter((key) => showRevoked || key.isActive)}
           rowKey={(row) => row.id}
-          emptyMessage="No API keys yet. Create one to let an external system place orders for this reseller account."
+          emptyMessage="No API keys issued yet"
         />
       )}
     </>

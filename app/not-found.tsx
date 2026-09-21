@@ -11,15 +11,12 @@ import { ROUTES } from '@/lib/navigation';
 
 export default function NotFound(): JSX.Element {
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-4 bg-gray-950 p-8 text-gray-100">
-      <p className="text-sm text-indigo-400">404</p>
-      <h1 className="text-3xl font-semibold">Page not found</h1>
-      <p className="text-gray-400">The page you requested does not exist.</p>
-      <Link
-        href={ROUTES.home}
-        className="w-fit rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      >
-        Back to home
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--bg-page)] p-8 text-center">
+      <p className="text-8xl font-black text-[var(--text-3)]">404</p>
+      <h1 className="text-xl font-semibold text-[var(--text-1)]">Page not found</h1>
+      <p className="max-w-sm text-sm text-[var(--text-2)]">The page you requested does not exist.</p>
+      <Link href={ROUTES.home} className="btc-btn-primary">
+        Go to Dashboard
       </Link>
     </main>
   );

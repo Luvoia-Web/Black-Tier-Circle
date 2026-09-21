@@ -23,6 +23,8 @@ export type ResellerListing = {
   /** Reseller's retail price in USDT minor units — must be >= product wholesale price */
   retailPriceMinor: bigint;
   isVisible: boolean;
+  /** True when the reseller set a per-product price (wins over bulk markup). */
+  priceOverride: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -44,6 +46,7 @@ export type ResellerListingRow = {
   readonly product_id: string;
   readonly retail_price: string | number | bigint;
   readonly is_visible: boolean;
+  readonly price_override?: boolean | null;
   readonly created_at: string;
   readonly updated_at: string;
 };

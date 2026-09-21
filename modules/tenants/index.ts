@@ -176,6 +176,30 @@ export async function updateTenantStatus(
 }
 
 /**
+ * Reseller: update the store display name from the session tenant.
+ */
+export async function updateTenantDisplayName(
+  supabase: DbClient,
+  tenantId: string,
+  displayName: string,
+): Promise<Tenant> {
+  const trimmed = displayName.trim();
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    throw new AppError('INVALID_STORE_NAME', 'Store name must be between 2 and 80 characters', 400);
+  }
+  const { data, error } = await supabase
+    .from('tenants')
+    .update({ display_name: trimmed, updated_at: new Date().toISOString() })
+    .eq('id', tenantId)
+    .select('*')
+    .single();
+  if (error || data === null) {
+    throw new AppError('TENANT_UPDATE_FAILED', error?.message ?? 'Unable to update store name', 500);
+  }
+  return mapTenantRow(asTenantRow(data));
+}
+
+/**
  * Combines tenants with profile names. Emails are filled by the API using Auth admin.
  *
  * @param supabase - Service-role database client

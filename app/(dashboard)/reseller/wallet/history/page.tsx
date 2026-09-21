@@ -128,40 +128,40 @@ export default function ResellerWalletHistoryPage(): JSX.Element {
           <button
             type="button"
             onClick={downloadCsv}
-            className="rounded-md bg-gray-800 px-4 py-2 text-sm text-gray-100 hover:bg-gray-700"
+            className="rounded-md bg-[var(--bg-raised)] px-4 py-2 text-sm text-[var(--text-1)] hover:bg-[var(--bg-hover)]"
           >
             Download CSV
           </button>
         }
       />
       <div className="mb-4 flex flex-wrap gap-3">
-        <label className="text-sm text-gray-300">
+        <label className="text-sm text-[var(--text-2)]">
           From
           <input
             type="date"
             value={from}
             onChange={(event) => setFrom(event.target.value)}
-            className="ml-2 rounded-md border border-gray-700 bg-gray-950 px-2 py-1"
+            className="ml-2 rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-2 py-1"
           />
         </label>
-        <label className="text-sm text-gray-300">
+        <label className="text-sm text-[var(--text-2)]">
           To
           <input
             type="date"
             value={to}
             onChange={(event) => setTo(event.target.value)}
-            className="ml-2 rounded-md border border-gray-700 bg-gray-950 px-2 py-1"
+            className="ml-2 rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-2 py-1"
           />
         </label>
       </div>
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
       <DataTable columns={columns} rows={paged} rowKey={(row) => row.id} emptyMessage="No ledger entries in this range" />
       <div className="mt-4 flex gap-3">
         <button
           type="button"
           disabled={page <= 1}
           onClick={() => setPage((value) => Math.max(1, value - 1))}
-          className="text-sm text-gray-300 disabled:opacity-40"
+          className="text-sm text-[var(--text-2)] disabled:opacity-40"
         >
           Previous
         </button>
@@ -169,7 +169,7 @@ export default function ResellerWalletHistoryPage(): JSX.Element {
           type="button"
           disabled={page * pageSize >= entries.length}
           onClick={() => setPage((value) => value + 1)}
-          className="text-sm text-gray-300 disabled:opacity-40"
+          className="text-sm text-[var(--text-2)] disabled:opacity-40"
         >
           Next
         </button>

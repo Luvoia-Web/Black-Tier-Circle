@@ -10,6 +10,7 @@
 import { Bot } from 'grammy';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { logger } from '@/lib/logger';
+import { sanitizeForTelegram } from '@/lib/sanitize';
 
 /**
  * Sends a file to the customer using a short-lived signed URL.
@@ -28,7 +29,7 @@ export async function sendFileDelivery(
   const bot = new Bot(botToken);
   try {
     await bot.api.sendDocument(chatId, signedUrl, {
-      caption: FULFILLMENT_CONFIG.delivery.fileDeliveryCaption(productTitle),
+      caption: FULFILLMENT_CONFIG.delivery.fileDeliveryCaption(sanitizeForTelegram(productTitle, 200)),
       parse_mode: 'Markdown',
     });
   } catch (error: unknown) {
@@ -77,8 +78,10 @@ export async function sendSupplierDelivery(
   const bot = new Bot(botToken);
   const isUrl = /^https?:\/\//i.test(deliveryData.trim());
   try {
+    const safeTitle = sanitizeForTelegram(productTitle, 200);
+    const safeContent = sanitizeForTelegram(deliveryData, 3000);
     if (isUrl) {
-      await bot.api.sendMessage(chatId, `✅ *${productTitle}* is ready.`, {
+      await bot.api.sendMessage(chatId, `✅ *${safeTitle}* is ready.`, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[{ text: 'Access Your Content', url: deliveryData.trim() }]],
@@ -86,11 +89,7 @@ export async function sendSupplierDelivery(
       });
       return;
     }
-    await bot.api.sendMessage(
-      chatId,
-      `✅ *${productTitle}* is ready.\n\n${deliveryData}`,
-      { parse_mode: 'Markdown' },
-    );
+    await bot.api.sendMessage(chatId, `✅ *${safeTitle}* is ready.\n\n${safeContent}`, { parse_mode: 'Markdown' });
   } catch (error: unknown) {
     logger.error('telegram supplier delivery failed', {
       chatId,

@@ -8,11 +8,11 @@
  * @module Dashboard
  */
 
-import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { OrderDetailModal } from '@/components/ui/OrderDetailModal';
 import { PageHeader } from '@/components/ui/page-header';
-import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import { API_ROUTES } from '@/lib/navigation';
 
 type Tab = 'pending' | 'verified' | 'failed' | 'all';
 
@@ -39,15 +39,15 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
 
 function statusClass(status: string): string {
   if (status === 'verified') {
-    return 'bg-emerald-500/10 text-emerald-400';
+    return 'bg-[var(--green-soft)] text-[var(--green)]';
   }
   if (status === 'failed' || status === 'expired') {
-    return 'bg-red-500/10 text-red-400';
+    return 'bg-[var(--red-soft)] text-[var(--red)]';
   }
   if (status === 'pending_verification') {
-    return 'bg-yellow-500/10 text-yellow-400';
+    return 'bg-[var(--amber-soft)] text-[var(--amber)]';
   }
-  return 'bg-gray-500/10 text-gray-300';
+  return 'bg-[var(--bg-raised)] text-[var(--text-2)]';
 }
 
 /**
@@ -59,6 +59,7 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -126,19 +127,19 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
     {
       key: 'actions',
       header: 'Actions',
-      render: (row) =>
-        row.paymentStatus === 'pending_verification' ? (
-          <Link
-            href={ROUTES.owner.paymentDetail(row.orderId)}
-            className="text-indigo-400 hover:text-indigo-300"
-          >
-            Review
-          </Link>
-        ) : (
-          <Link href={ROUTES.owner.paymentDetail(row.orderId)} className="text-gray-400 hover:text-gray-200">
-            View
-          </Link>
-        ),
+      render: (row) => (
+        <button
+          type="button"
+          onClick={() => setSelectedOrderId(row.orderId)}
+          className={
+            row.paymentStatus === 'pending_verification'
+              ? 'text-[var(--accent-soft)] hover:text-[var(--accent)]'
+              : 'text-[var(--text-2)] hover:text-[var(--text-1)]'
+          }
+        >
+          {row.paymentStatus === 'pending_verification' ? 'Review' : 'View'}
+        </button>
+      ),
     },
   ];
 
@@ -157,7 +158,7 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
         title="Payment Monitoring"
         description="Review Binance Pay and BEP20 claims"
         actions={
-          <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">{modeLabel}</span>
+          <span className="rounded-full border border-[var(--border-soft)] px-3 py-1 text-xs text-[var(--text-2)]">{modeLabel}</span>
         }
       />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -168,14 +169,14 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
               type="button"
               onClick={() => setTab(item.id)}
               className={`rounded-md px-3 py-1.5 text-sm ${
-                tab === item.id ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                tab === item.id ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)] hover:bg-[var(--bg-hover)]'
               }`}
             >
               {item.label}
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-400">
+        <label className="flex items-center gap-2 text-sm text-[var(--text-2)]">
           <input
             type="checkbox"
             checked={autoRefresh}
@@ -184,12 +185,19 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
           Auto-refresh (30s)
         </label>
       </div>
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading…</p>
       ) : (
         <DataTable columns={columns} rows={rows} emptyMessage={emptyMessage} rowKey={(row) => row.orderId} />
       )}
+      <OrderDetailModal
+        orderId={selectedOrderId}
+        onClose={() => setSelectedOrderId(null)}
+        onActionComplete={() => {
+          void load();
+        }}
+      />
     </>
   );
 }

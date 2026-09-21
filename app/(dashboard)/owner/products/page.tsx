@@ -132,13 +132,13 @@ export default function OwnerProductsPage(): JSX.Element {
             <div className="flex flex-wrap gap-2">
               <Link
                 href={ROUTES.owner.productEdit(row.id)}
-                className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                className="text-xs font-medium text-[var(--accent-soft)] hover:text-[var(--accent)]"
               >
                 Edit
               </Link>
               <Link
                 href={ROUTES.owner.productDetail(row.id)}
-                className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                className="text-xs font-medium text-[var(--accent-soft)] hover:text-[var(--accent)]"
               >
                 View details
               </Link>
@@ -149,7 +149,7 @@ export default function OwnerProductsPage(): JSX.Element {
                   onClick={() =>
                     void setStatus(row.id, row.status === 'published' ? 'paused' : 'published')
                   }
-                  className="text-xs font-medium text-gray-300 hover:text-white disabled:opacity-60"
+                  className="text-xs font-medium text-[var(--text-2)] hover:text-white disabled:opacity-60"
                 >
                   {busy ? 'Updating…' : toggleLabel}
                 </button>
@@ -170,7 +170,7 @@ export default function OwnerProductsPage(): JSX.Element {
         actions={
           <Link
             href={ROUTES.owner.productNew}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           >
             Add Product
           </Link>
@@ -184,8 +184,8 @@ export default function OwnerProductsPage(): JSX.Element {
             onClick={() => setTab(item.id)}
             className={`rounded-md px-3 py-1.5 text-sm ${
               tab === item.id
-                ? 'bg-indigo-600 text-white'
-                : 'border border-gray-800 bg-gray-900 text-gray-300 hover:bg-gray-800'
+                ? 'bg-[var(--accent)] text-white'
+                : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-2)] hover:bg-[var(--bg-raised)]'
             }`}
           >
             {item.label}
@@ -193,12 +193,12 @@ export default function OwnerProductsPage(): JSX.Element {
         ))}
       </div>
       {error ? (
-        <p className="mb-4 rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
           {error}
         </p>
       ) : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading products…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading products…</p>
       ) : (
         <DataTable
           columns={columns}

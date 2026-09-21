@@ -22,36 +22,42 @@ type DataTableProps<T> = {
 };
 
 /**
- * Renders a dark-theme data table or the provided empty message.
+ * Renders a token-styled data table or the provided empty message.
  *
  * @param props - Columns, rows, and empty copy
  */
 export function DataTable<T>({ columns, rows, emptyMessage, rowKey }: DataTableProps<T>): JSX.Element {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-gray-800 bg-gray-900 px-6 py-12 text-center text-sm text-gray-400">
+      <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center text-sm text-[var(--text-2)]">
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-800">
-      <table className="min-w-full divide-y divide-gray-800 text-left text-sm">
-        <thead className="bg-gray-900">
+    <div className="overflow-x-auto rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)]">
+      <table className="min-w-full text-left text-sm">
+        <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key} className="px-4 py-3 font-medium text-gray-400">
+              <th
+                key={column.key}
+                className="border-b border-[var(--border)] bg-[var(--bg-page)] px-4 py-3 text-xs font-medium text-[var(--text-2)]"
+              >
                 {column.header}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-800 bg-gray-950">
+        <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className="hover:bg-gray-900/80">
+            <tr
+              key={rowKey(row)}
+              className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-raised)]"
+            >
               {columns.map((column) => (
-                <td key={column.key} className="px-4 py-3 text-gray-100">
+                <td key={column.key} className="px-4 py-3 text-sm text-[var(--text-1)]">
                   {column.render(row)}
                 </td>
               ))}
@@ -62,3 +68,5 @@ export function DataTable<T>({ columns, rows, emptyMessage, rowKey }: DataTableP
     </div>
   );
 }
+
+export default DataTable;

@@ -1,7 +1,9 @@
 /**
  * @file app/(dashboard)/layout.tsx
  *
- * Shared dashboard layout with sidebar and top bar.
+ * Dashboard layout — sidebar + topbar + main content.
+ * Matches Sweatpals/Mobbin reference: collapsible sidebar, clean topbar,
+ * dark/light mode toggle via data-theme on <html>.
  * Middleware already gates these routes; this layout loads the profile for chrome.
  *
  * @module Dashboard

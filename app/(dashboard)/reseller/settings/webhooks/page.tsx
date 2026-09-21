@@ -26,7 +26,7 @@ type WebhookRow = {
 };
 
 const inputClass =
-  'rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+  'rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
 
 function maskUrl(url: string): string {
   try {
@@ -144,10 +144,10 @@ export default function ResellerWebhooksPage(): JSX.Element {
       header: '',
       render: (row) => (
         <div className="flex gap-3">
-          <button type="button" className="text-sm text-indigo-400" onClick={() => void toggleActive(row)}>
+          <button type="button" className="text-sm text-[var(--accent-soft)]" onClick={() => void toggleActive(row)}>
             {row.isActive ? 'Disable' : 'Enable'}
           </button>
-          <button type="button" className="text-sm text-red-400" onClick={() => void remove(row.id)}>
+          <button type="button" className="text-sm text-[var(--red)]" onClick={() => void remove(row.id)}>
             Delete
           </button>
         </div>
@@ -163,24 +163,24 @@ export default function ResellerWebhooksPage(): JSX.Element {
         actions={
           <button
             type="button"
-            className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)]"
             onClick={() => setShowForm(true)}
           >
             Add Webhook
           </button>
         }
       />
-      {error ? <p className="mb-4 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-4 text-sm text-[var(--red)]">{error}</p> : null}
       {rawSecret ? (
         <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
           <p className="text-sm font-semibold text-amber-200">
             This key will only be shown once. Copy it now and store it securely.
           </p>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-gray-950 p-3 text-sm text-gray-100">{rawSecret}</pre>
+          <pre className="mt-3 overflow-x-auto rounded-md bg-[var(--bg-page)] p-3 text-sm text-[var(--text-1)]">{rawSecret}</pre>
         </div>
       ) : null}
       {showForm ? (
-        <form onSubmit={(event) => void createWebhook(event)} className="mb-6 space-y-4 rounded-lg border border-gray-800 bg-gray-900 p-4">
+        <form onSubmit={(event) => void createWebhook(event)} className="mb-6 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
           <label className="block text-sm">
             URL (https:// required)
             <input
@@ -192,7 +192,7 @@ export default function ResellerWebhooksPage(): JSX.Element {
             />
           </label>
           <fieldset className="space-y-2 text-sm">
-            <legend className="mb-1 text-gray-400">Events</legend>
+            <legend className="mb-1 text-[var(--text-2)]">Events</legend>
             {API_CONFIG.webhooks.events.map((eventName) => (
               <label key={eventName} className="flex items-center gap-2">
                 <input
@@ -208,18 +208,18 @@ export default function ResellerWebhooksPage(): JSX.Element {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Add webhook'}
             </button>
-            <button type="button" className="text-sm text-gray-400" onClick={() => setShowForm(false)}>
+            <button type="button" className="text-sm text-[var(--text-2)]" onClick={() => setShowForm(false)}>
               Cancel
             </button>
           </div>
         </form>
       ) : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading…</p>
       ) : (
         <DataTable
           columns={columns}

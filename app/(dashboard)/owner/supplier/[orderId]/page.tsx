@@ -54,60 +54,60 @@ export default async function OwnerSupplierOrderPage({ params }: PageProps): Pro
           title={`Supplier order ${order.id.slice(0, 8).toUpperCase()}`}
           description={product.title}
           actions={
-            <Link href={ROUTES.owner.supplier} className="text-sm text-indigo-400 hover:text-indigo-300">
+            <Link href={ROUTES.owner.supplier} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
               Back to supplier
             </Link>
           }
         />
-        <section className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Order summary</h2>
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Order summary</h2>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-400">Product</dt>
+              <dt className="text-[var(--text-2)]">Product</dt>
               <dd>{product.title}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Retail</dt>
+              <dt className="text-[var(--text-2)]">Retail</dt>
               <dd>{formatUsdt(order.quotedRetailPriceMinor)}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Fulfillment</dt>
+              <dt className="text-[var(--text-2)]">Fulfillment</dt>
               <dd>
                 <TrackBadge status={order.fulfillmentStatus} />
               </dd>
             </div>
             <div>
-              <dt className="text-gray-400">Delivery</dt>
+              <dt className="text-[var(--text-2)]">Delivery</dt>
               <dd>
                 <TrackBadge status={order.deliveryStatus} />
               </dd>
             </div>
           </dl>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Supplier fulfillment</h2>
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Supplier fulfillment</h2>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-400">Supplier order ID</dt>
+              <dt className="text-[var(--text-2)]">Supplier order ID</dt>
               <dd>{supplierRef ?? '—'}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Submitted at</dt>
+              <dt className="text-[var(--text-2)]">Submitted at</dt>
               <dd>{latestAttempt ? latestAttempt.startedAt.toLocaleString() : '—'}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Last status</dt>
+              <dt className="text-[var(--text-2)]">Last status</dt>
               <dd>{latestAttempt?.status ?? '—'}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Delivery data</dt>
+              <dt className="text-[var(--text-2)]">Delivery data</dt>
               <dd>{maskDeliveryData(deliveryResult)}</dd>
             </div>
           </dl>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Reconciliation history</h2>
-          <ol className="mt-3 space-y-2 text-sm text-gray-300">
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Reconciliation history</h2>
+          <ol className="mt-3 space-y-2 text-sm text-[var(--text-2)]">
             {events
               .filter((event) => event.track === 'fulfillment')
               .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
@@ -119,8 +119,8 @@ export default async function OwnerSupplierOrderPage({ params }: PageProps): Pro
               ))}
           </ol>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="mb-3 text-lg font-medium text-gray-100">Manual actions</h2>
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="mb-3 text-lg font-medium text-[var(--text-1)]">Manual actions</h2>
           <SupplierOrderActions orderId={order.id} canAct={canAct} />
         </section>
       </>

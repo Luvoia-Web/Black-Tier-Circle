@@ -7,13 +7,15 @@
  */
 
 import { handleRouteError, jsonSuccess } from '@/lib/http';
-import { createAuthRouteClient } from '@/lib/supabase/server';
 import { ROUTES } from '@/lib/navigation';
+import { assertRateLimit, clientIp } from '@/lib/request-rate-limit';
+import { createAuthRouteClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   try {
+    assertRateLimit(`auth:${clientIp(request)}`, 5);
     const { supabase, applyCookies } = createAuthRouteClient();
     await supabase.auth.signOut();
     return applyCookies(jsonSuccess({ redirectTo: ROUTES.login }));

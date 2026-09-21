@@ -22,6 +22,7 @@ import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { getBep20PayoutAddress, PAYMENT_CONFIG } from '@/lib/payment-config';
+import { sanitizeInput } from '@/lib/sanitize';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import { getProduct, listProducts } from '@/modules/catalog';
@@ -32,6 +33,7 @@ import {
   verifyBinancePayClaim,
 } from '@/modules/payments';
 import { listResellerListings } from '@/modules/pricing';
+import { getTenantSettings, storeAllowsBotOrders } from '@/modules/tenant-settings';
 import type { Product } from '@/modules/catalog/types';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
@@ -212,6 +214,19 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   let customer: CustomerRecord | null = null;
   const pendingByChat = new Map<string, { orderId: string; method?: 'binance_pay' | 'usdt_bep20' }>();
 
+  async function assertStoreOpen(chatId: number | string): Promise<boolean> {
+    if (context.tenantId === null) {
+      return true;
+    }
+    const settings = await getTenantSettings(context.supabase, context.tenantId);
+    if (storeAllowsBotOrders(settings)) {
+      return true;
+    }
+    const raw = settings.maintenanceMsg?.trim() ?? 'This store is temporarily closed for maintenance.';
+    await bot.api.sendMessage(chatId, sanitizeInput(raw).slice(0, 1000));
+    return false;
+  }
+
   async function showMainMenu(chatId: number | string, text: string): Promise<void> {
     await bot.api.sendMessage(chatId, text, { reply_markup: MAIN_MENU_KEYBOARD });
   }
@@ -287,6 +302,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function showProductList(chatId: number | string): Promise<void> {
+    if (!(await assertStoreOpen(chatId))) {
+      return;
+    }
     const catalog = await loadCatalog(context);
     const summary = catalog.map((item) => ({
       title: item.product.title,
@@ -321,6 +339,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function handleBuy(chatId: number | string, productId: string, updateId: number): Promise<void> {
+    if (!(await assertStoreOpen(chatId))) {
+      return;
+    }
     if (customer === null) {
       throw new Error('missing customer');
     }
@@ -358,7 +379,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   bot.command('start', async (ctx) => {
-    const name = ctx.from?.first_name ?? '';
+    const name = sanitizeInput(ctx.from?.first_name ?? '').slice(0, 64);
     await ctx.reply(MESSAGES.welcome(name), { reply_markup: MAIN_MENU_KEYBOARD });
   });
 

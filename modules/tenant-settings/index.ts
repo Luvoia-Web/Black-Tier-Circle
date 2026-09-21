@@ -1,0 +1,205 @@
+/**
+ * @file modules/tenant-settings/index.ts
+ *
+ * Tenant settings: store status, support copy, encrypted Binance keys, markup.
+ *
+ * SECURITY: tenant_id always comes from the session. Binance keys are encrypted
+ * with the same AES-256-GCM helper as bot tokens and never returned in plaintext.
+ *
+ * @module TenantSettings
+ */
+
+import { encrypt } from '@/lib/encryption';
+import { AppError } from '@/lib/errors';
+import type { DbClient } from '@/lib/supabase/query';
+import type { StoreStatus, TenantSettings, TenantSettingsRow, UpdateTenantSettingsInput } from './types';
+
+export type { StoreStatus, TenantSettings, UpdateTenantSettingsInput } from './types';
+
+const DEFAULT_USDT_MIN = '1.000000';
+
+function asRow(data: unknown): TenantSettingsRow {
+  return data as TenantSettingsRow;
+}
+
+function asStoreStatus(value: string | null | undefined): StoreStatus {
+  return value === 'maintenance' ? 'maintenance' : 'open';
+}
+
+function markupFromRow(value: string | number | null | undefined): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapRow(row: TenantSettingsRow): TenantSettings {
+  return {
+    tenantId: row.tenant_id,
+    storeName: row.store_name,
+    storeStatus: asStoreStatus(row.store_status),
+    maintenanceMsg: row.maintenance_msg,
+    supportContact: row.support_contact,
+    supportChatUrl: row.support_chat_url,
+    supportPhone: row.support_phone,
+    supportMessage: row.support_message,
+    termsOfService: row.terms_of_service,
+    refundPolicy: row.refund_policy,
+    privacyPolicy: row.privacy_policy,
+    binanceMerchantUid: row.binance_merchant_uid,
+    binancePayConfigured: Boolean(row.binance_api_key_encrypted && row.binance_api_secret_encrypted),
+    usdtWalletBep20: row.usdt_wallet_bep20,
+    usdtMinimumBep20:
+      row.usdt_minimum_bep20 === null || row.usdt_minimum_bep20 === undefined
+        ? DEFAULT_USDT_MIN
+        : String(row.usdt_minimum_bep20),
+    resellerSignupEnabled: row.reseller_signup_enabled === true,
+    resellerSignupMessage: row.reseller_signup_message,
+    markupPercent: markupFromRow(row.markup_percent),
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function defaultSettings(tenantId: string): TenantSettings {
+  const now = new Date();
+  return {
+    tenantId,
+    storeName: null,
+    storeStatus: 'open',
+    maintenanceMsg: null,
+    supportContact: null,
+    supportChatUrl: null,
+    supportPhone: null,
+    supportMessage: null,
+    termsOfService: null,
+    refundPolicy: null,
+    privacyPolicy: null,
+    binanceMerchantUid: null,
+    binancePayConfigured: false,
+    usdtWalletBep20: null,
+    usdtMinimumBep20: DEFAULT_USDT_MIN,
+    resellerSignupEnabled: false,
+    resellerSignupMessage: null,
+    markupPercent: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Returns true when the bot may accept customer purchases.
+ */
+export function storeAllowsBotOrders(settings: Pick<TenantSettings, 'storeStatus'>): boolean {
+  return settings.storeStatus === 'open';
+}
+
+/**
+ * Loads tenant settings, creating a default row when none exists.
+ */
+export async function getTenantSettings(supabase: DbClient, tenantId: string): Promise<TenantSettings> {
+  const existing = await supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
+  if (existing.error) {
+    throw new AppError('TENANT_SETTINGS_LOOKUP_FAILED', existing.error.message, 500);
+  }
+  if (existing.data !== null) {
+    return mapRow(asRow(existing.data));
+  }
+
+  const now = new Date().toISOString();
+  const inserted = await supabase
+    .from('tenant_settings')
+    .insert({
+      tenant_id: tenantId,
+      store_status: 'open',
+      markup_percent: 0,
+      usdt_minimum_bep20: 1.0,
+      reseller_signup_enabled: false,
+      created_at: now,
+      updated_at: now,
+    })
+    .select('*')
+    .single();
+  if (inserted.error || inserted.data === null) {
+    return defaultSettings(tenantId);
+  }
+  return mapRow(asRow(inserted.data));
+}
+
+/**
+ * Updates tenant settings. Encrypts Binance API credentials before storage.
+ */
+export async function updateTenantSettings(
+  supabase: DbClient,
+  tenantId: string,
+  input: UpdateTenantSettingsInput,
+): Promise<TenantSettings> {
+  await getTenantSettings(supabase, tenantId);
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.storeName !== undefined) {
+    patch.store_name = input.storeName;
+  }
+  if (input.storeStatus !== undefined) {
+    patch.store_status = input.storeStatus;
+  }
+  if (input.maintenanceMsg !== undefined) {
+    patch.maintenance_msg = input.maintenanceMsg;
+  }
+  if (input.supportContact !== undefined) {
+    patch.support_contact = input.supportContact;
+  }
+  if (input.supportChatUrl !== undefined) {
+    patch.support_chat_url = input.supportChatUrl;
+  }
+  if (input.supportPhone !== undefined) {
+    patch.support_phone = input.supportPhone;
+  }
+  if (input.supportMessage !== undefined) {
+    patch.support_message = input.supportMessage;
+  }
+  if (input.termsOfService !== undefined) {
+    patch.terms_of_service = input.termsOfService;
+  }
+  if (input.refundPolicy !== undefined) {
+    patch.refund_policy = input.refundPolicy;
+  }
+  if (input.privacyPolicy !== undefined) {
+    patch.privacy_policy = input.privacyPolicy;
+  }
+  if (input.binanceMerchantUid !== undefined) {
+    patch.binance_merchant_uid = input.binanceMerchantUid;
+  }
+  if (input.binanceApiKey !== undefined && input.binanceApiKey.length > 0) {
+    patch.binance_api_key_encrypted = encrypt(input.binanceApiKey);
+  }
+  if (input.binanceApiSecret !== undefined && input.binanceApiSecret.length > 0) {
+    patch.binance_api_secret_encrypted = encrypt(input.binanceApiSecret);
+  }
+  if (input.usdtWalletBep20 !== undefined) {
+    patch.usdt_wallet_bep20 = input.usdtWalletBep20;
+  }
+  if (input.usdtMinimumBep20 !== undefined) {
+    patch.usdt_minimum_bep20 = input.usdtMinimumBep20;
+  }
+  if (input.resellerSignupEnabled !== undefined) {
+    patch.reseller_signup_enabled = input.resellerSignupEnabled;
+  }
+  if (input.resellerSignupMessage !== undefined) {
+    patch.reseller_signup_message = input.resellerSignupMessage;
+  }
+  if (input.markupPercent !== undefined) {
+    patch.markup_percent = input.markupPercent;
+  }
+
+  const { data, error } = await supabase
+    .from('tenant_settings')
+    .update(patch)
+    .eq('tenant_id', tenantId)
+    .select('*')
+    .single();
+  if (error || data === null) {
+    throw new AppError('TENANT_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update settings', 500);
+  }
+  return mapRow(asRow(data));
+}

@@ -6,9 +6,7 @@
  * @module Dashboard
  */
 
-import Link from 'next/link';
-import { PageHeader } from '@/components/ui/page-header';
-import { StatCard } from '@/components/ui/stat-card';
+import { OwnerHome, type OwnerRecentOrder } from '@/components/dashboard/owner-home';
 import { formatUsdt } from '@/lib/money';
 import { ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -20,6 +18,22 @@ import { listOrders } from '@/modules/orders';
 import { listTenants } from '@/modules/tenants';
 import { redirect } from 'next/navigation';
 
+function isPaidOrder(paymentStatus: string, fulfillmentStatus: string): boolean {
+  return paymentStatus === 'verified' || fulfillmentStatus === 'ready';
+}
+
+function isPendingOrder(paymentStatus: string): boolean {
+  return paymentStatus === 'awaiting' || paymentStatus === 'pending_verification';
+}
+
+function isLowStock(stockUnlimited: boolean, stockCount: number | null): boolean {
+  return !stockUnlimited && stockCount !== null && stockCount <= 2;
+}
+
+function isCompletedOrder(fulfillmentStatus: string, deliveryStatus: string): boolean {
+  return fulfillmentStatus === 'ready' && deliveryStatus === 'sent';
+}
+
 export default async function OwnerDashboardPage(): Promise<JSX.Element> {
   const supabase = createServerSupabaseClient();
   const {
@@ -29,52 +43,38 @@ export default async function OwnerDashboardPage(): Promise<JSX.Element> {
     redirect(ROUTES.login);
   }
   const db = asDbClient(createAdminSupabaseClient());
-  const profile = await getProfile(db, user.id);
-  const publishedProducts = await listProducts(db, {
-    status: 'published',
-  });
+  await getProfile(db, user.id);
+  const publishedProducts = await listProducts(db, { status: 'published' });
   const tenants = await listTenants(db);
-  const activeResellers = tenants.filter((tenant) => tenant.status === 'active').length;
   const orders = await listOrders(db, { limit: 200 });
-  const activeOrders = orders.filter((order) => {
-    const terminal =
-      order.fulfillmentStatus === 'canceled' ||
-      order.fulfillmentStatus === 'failed' ||
-      (order.fulfillmentStatus === 'ready' && order.deliveryStatus === 'sent');
-    return !terminal;
-  }).length;
-  const pendingManual = orders.filter((order) => order.fulfillmentStatus === 'manual_pending').length;
-  const revenueMinor = orders
-    .filter((order) => order.fulfillmentStatus === 'ready')
-    .reduce((sum, order) => sum + order.quotedWholesalePriceMinor, 0n);
+  const titleById = new Map(publishedProducts.map((product) => [product.id, product.title]));
+  const paidOrders = orders.filter((order) => isPaidOrder(order.paymentStatus, order.fulfillmentStatus));
+  const pendingOrders = orders.filter((order) => isPendingOrder(order.paymentStatus));
+  const completedCount = orders.filter((order) =>
+    isCompletedOrder(order.fulfillmentStatus, order.deliveryStatus),
+  ).length;
+  const revenueMinor = paidOrders.reduce((sum, order) => sum + order.quotedWholesalePriceMinor, 0n);
+  const recentOrders: ReadonlyArray<OwnerRecentOrder> = orders.slice(0, 8).map((order) => ({
+    id: order.id,
+    productTitle: titleById.get(order.productId) ?? order.productId.slice(0, 8).toUpperCase(),
+    customer: order.customerId ? order.customerId.slice(0, 8) : 'Direct',
+    amount: formatUsdt(order.quotedWholesalePriceMinor),
+    method: order.paymentMethod ?? '—',
+    status: order.paymentStatus,
+  }));
 
   return (
-    <>
-      <PageHeader
-        title={`Welcome back, ${profile.displayName}`}
-        description="Owner operations overview"
-        actions={
-          <Link
-            href={ROUTES.owner.resellersInvite}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            Invite Reseller
-          </Link>
-        }
-      />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Total Resellers" value={String(activeResellers)} />
-        <StatCard label="Total Products" value={String(publishedProducts.length)} />
-        <StatCard label="Active Orders" value={String(activeOrders)} />
-        <StatCard label="Pending Manual" value={String(pendingManual)} />
-        <StatCard label="Total Revenue (USDT)" value={formatUsdt(revenueMinor).replace(' USDT', '')} />
-      </div>
-      <section className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-gray-400">Recent activity</h2>
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-6 py-12 text-center text-sm text-gray-400">
-          No activity yet
-        </div>
-      </section>
-    </>
+    <OwnerHome
+      revenueUsdt={formatUsdt(revenueMinor).replace(' USDT', '')}
+      paidOrders={paidOrders.length}
+      pendingOrders={pendingOrders.length}
+      productCount={publishedProducts.length}
+      inStockCount={publishedProducts.filter((product) => product.stockUnlimited || (product.stockCount ?? 0) > 0).length}
+      lowStockCount={publishedProducts.filter((product) => isLowStock(product.stockUnlimited, product.stockCount)).length}
+      activeResellers={tenants.filter((tenant) => tenant.status === 'active').length}
+      totalResellers={tenants.length}
+      completionPercent={orders.length === 0 ? 0 : Math.round((completedCount / orders.length) * 100)}
+      recentOrders={recentOrders}
+    />
   );
 }

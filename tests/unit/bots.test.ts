@@ -14,6 +14,7 @@ import { connectBot, getOrCreateCustomer } from '@/modules/bots';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -52,7 +53,16 @@ describe('getOrCreateCustomer', () => {
 });
 
 describe('connectBot', () => {
+  it('throws WEBHOOK_URL_NOT_PUBLIC when the app URL is localhost', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
+    const db = createMemoryDb();
+    await expect(
+      connectBot(db, { tenantId: '00000000-0000-4000-8000-000000000010', botToken: '111:AAFakeTelegramBotToken' }),
+    ).rejects.toMatchObject({ code: 'WEBHOOK_URL_NOT_PUBLIC' });
+  });
+
   it('throws AppError with invalid token', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://example.test');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({

@@ -63,36 +63,36 @@ export default function InviteResellerPage(): JSX.Element {
     <>
       <PageHeader title="Invite reseller" description="Generate a sign-up link. Share it directly until email is wired." />
       <form onSubmit={(event) => void onSubmit(event)} className="max-w-lg space-y-4">
-        <label className="flex flex-col gap-1 text-sm text-gray-400">
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
           Reseller email
           <input
             type="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-[var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
         </label>
         {error ? (
-          <p className="rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+          <p className="rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">{error}</p>
         ) : null}
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? 'Sending…' : 'Send Invite'}
         </button>
       </form>
       {inviteUrl ? (
-        <div className="mt-8 max-w-lg rounded-lg border border-gray-800 bg-gray-900 p-4">
-          <p className="text-sm text-gray-400">Share this link with your reseller. They will use it to create their account.</p>
-          <p className="mt-2 font-mono text-sm text-gray-100 break-all">{inviteUrl}</p>
-          <p className="mt-2 text-xs text-yellow-400">Link expires in 7 days</p>
+        <div className="mt-8 max-w-lg rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+          <p className="text-sm text-[var(--text-2)]">Share this link with your reseller. They will use it to create their account.</p>
+          <p className="mt-2 font-mono text-sm text-[var(--text-1)] break-all">{inviteUrl}</p>
+          <p className="mt-2 text-xs text-[var(--amber)]">Link expires in 7 days</p>
           <button
             type="button"
             onClick={() => void copyLink()}
-            className="mt-3 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-100 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="mt-3 rounded-md border border-[var(--border-soft)] bg-[var(--bg-raised)] px-3 py-1.5 text-sm text-[var(--text-1)] hover:bg-[var(--bg-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           >
             {copied ? 'Copied' : 'Copy link'}
           </button>

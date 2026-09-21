@@ -10,13 +10,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
-    "seed:owner": "tsx scripts/seed-owner.ts"
+    "seed:owner": "tsx scripts/seed-owner.ts",
+    "tunnel": "tsx scripts/dev-tunnel.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
     "autoprefixer": "^10.4.20",
     "grammy": "^1.34.0",
+    "lucide-react": "^1.47.0",
     "next": "14.2.21",
     "postcss": "^8.4.49",
     "react": "^18.3.1",

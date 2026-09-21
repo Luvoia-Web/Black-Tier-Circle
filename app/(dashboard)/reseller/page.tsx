@@ -1,84 +1,225 @@
 /**
  * @file app/(dashboard)/reseller/page.tsx
  *
- * Reseller dashboard home with pending-approval banner and placeholder stats.
+ * Reseller dashboard home: period stats, recent orders, and wallet ring.
  *
  * @module Dashboard
  */
 
-import { PageHeader } from '@/components/ui/page-header';
-import { StatCard } from '@/components/ui/stat-card';
-import { ROUTES } from '@/lib/navigation';
-import { createAdminSupabaseClient } from '@/lib/supabase/admin';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { asDbClient } from '@/lib/auth/session';
-import { getProfile } from '@/modules/identity';
-import { listOrders } from '@/modules/orders';
-import { listResellerListings } from '@/modules/pricing';
-import { getTenantByUserId } from '@/modules/tenants';
-import { getWallet } from '@/modules/wallet';
-import { formatUsdt } from '@/lib/money';
-import { NotFoundError } from '@/lib/errors';
-import { redirect } from 'next/navigation';
+'use client';
 
-export default async function ResellerDashboardPage(): Promise<JSX.Element> {
-  const supabase = createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user === null) {
-    redirect(ROUTES.login);
-  }
-  const admin = createAdminSupabaseClient();
-  const profile = await getProfile(asDbClient(admin), user.id);
-  let walletLabel = '0.00 USDT';
-  let activeOrders = 0;
-  let totalSales = 0;
-  let productsListed = 0;
-  try {
-    const tenant = await getTenantByUserId(asDbClient(admin), user.id);
-    const wallet = await getWallet(asDbClient(admin), tenant.id);
-    walletLabel = formatUsdt(wallet.balanceAvailable);
-    const orders = await listOrders(asDbClient(admin), { tenantId: tenant.id, limit: 200 });
-    activeOrders = orders.filter((order) => {
-      const terminal =
-        order.fulfillmentStatus === 'canceled' ||
-        order.fulfillmentStatus === 'failed' ||
-        (order.fulfillmentStatus === 'ready' && order.deliveryStatus === 'sent');
-      return !terminal;
-    }).length;
-    totalSales = orders.filter(
-      (order) => order.fulfillmentStatus === 'ready' && order.deliveryStatus === 'sent',
-    ).length;
-    const listings = await listResellerListings(asDbClient(admin), tenant.id);
-    productsListed = listings.length;
-  } catch (error: unknown) {
-    if (!(error instanceof NotFoundError)) {
-      throw error;
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+import { Package, ShoppingBag, Wallet } from 'lucide-react';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { Card } from '@/components/ui/Card';
+import { ErrorState, EmptyState, TableSkeleton } from '@/components/ui/fetch-states';
+import { PeriodPills } from '@/components/ui/period-pills';
+import { StatCard } from '@/components/ui/stat-card';
+import { formatUsdt } from '@/lib/money';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import type { DashboardPeriod } from '@/lib/period';
+
+type Overview = {
+  readonly period: DashboardPeriod;
+  readonly storeName: string;
+  readonly profileStatus: string;
+  readonly stats: {
+    readonly revenueMinor: string;
+    readonly paidOrders: number;
+    readonly pendingOrders: number;
+    readonly productsListed: number;
+    readonly walletAvailableMinor: string;
+  };
+  readonly recent: ReadonlyArray<{
+    readonly id: string;
+    readonly productTitle: string;
+    readonly total: string;
+    readonly paymentStatus: string;
+    readonly createdAt: string;
+  }>;
+};
+
+const QUICK_LINKS: ReadonlyArray<{ readonly href: string; readonly label: string }> = [
+  { href: ROUTES.reseller.orders, label: 'Orders' },
+  { href: ROUTES.reseller.deliveries, label: 'Deliveries' },
+  { href: ROUTES.reseller.deposits, label: 'Deposits' },
+  { href: ROUTES.reseller.products, label: 'Catalog' },
+  { href: ROUTES.reseller.settings, label: 'Settings' },
+];
+
+export default function ResellerDashboardPage(): JSX.Element {
+  const [period, setPeriod] = useState<DashboardPeriod>('today');
+  const [data, setData] = useState<Overview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [storeName, setStoreName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_ROUTES.resellerOverview}?period=${period}`);
+      const json = (await response.json()) as {
+        success: boolean;
+        data?: Overview;
+        error?: { message: string };
+      };
+      if (!json.success || !json.data) {
+        setError(json.error?.message ?? 'Unable to load dashboard');
+        return;
+      }
+      setData(json.data);
+      setStoreName(json.data.storeName);
+    } catch {
+      setError('Unable to load dashboard');
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function saveName(): Promise<void> {
+    setSavingName(true);
+    try {
+      await fetch(API_ROUTES.resellerSettings, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeName }),
+      });
+      await load();
+    } finally {
+      setSavingName(false);
     }
   }
 
   return (
-    <>
-      <PageHeader title={`Welcome back, ${profile.displayName}`} description="Reseller operations overview" />
-      {profile.status === 'pending' ? (
-        <div className="mb-6 rounded-md border border-yellow-600/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          Your account is pending owner approval. You can explore the dashboard but features will be unlocked once
-          approved.
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={storeName}
+            onChange={(event) => setStoreName(event.target.value)}
+            className="btc-input max-w-xs text-base font-semibold"
+            aria-label="Store name"
+          />
+          <button
+            type="button"
+            onClick={() => void saveName()}
+            disabled={savingName}
+            className="btc-btn-secondary"
+          >
+            {savingName ? 'Saving…' : 'Save name'}
+          </button>
+        </div>
+        <PeriodPills value={period} onChange={setPeriod} />
+      </div>
+      {data?.profileStatus === 'pending' ? (
+        <div className="rounded-[var(--r-md)] border border-[var(--amber)]/20 bg-[var(--amber-soft)] px-4 py-3 text-sm text-[var(--amber)]">
+          Your account is pending owner approval.
         </div>
       ) : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {loading || !data ? (
+        loading ? <TableSkeleton /> : null
+      ) : (
+        <ResellerDashboardBody data={data} />
+      )}
+    </div>
+  );
+}
+
+function ResellerDashboardBody({ data }: { readonly data: Overview }): JSX.Element {
+  const available = formatUsdt(BigInt(data.stats.walletAvailableMinor));
+  return (
+    <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Wallet Balance (USDT)" value={walletLabel.replace(' USDT', '')} />
-        <StatCard label="Active Orders" value={String(activeOrders)} />
-        <StatCard label="Total Sales" value={String(totalSales)} />
-        <StatCard label="Products Listed" value={String(productsListed)} />
+        <StatCard
+          label="Revenue (paid)"
+          value={formatUsdt(BigInt(data.stats.revenueMinor))}
+          icon={<Wallet size={16} />}
+        />
+        <StatCard
+          label="Paid Orders"
+          value={String(data.stats.paidOrders)}
+          trend={`${data.stats.pendingOrders} pending`}
+          icon={<ShoppingBag size={16} />}
+        />
+        <StatCard
+          label="Products Listed"
+          value={String(data.stats.productsListed)}
+          icon={<Package size={16} />}
+        />
+        <StatCard
+          label="Wallet Balance"
+          value={available}
+          trend="Available USDT (current)"
+          icon={<Wallet size={16} />}
+        />
       </div>
-      <section className="mt-8">
-        <h2 className="mb-3 text-sm font-medium text-gray-400">Recent orders</h2>
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-6 py-12 text-center text-sm text-gray-400">
-          No activity yet
-        </div>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2" padding="p-0">
+          <div className="border-b border-[var(--border)] px-5 py-4">
+            <h2 className="text-sm font-semibold">Recent orders</h2>
+          </div>
+          {data.recent.length === 0 ? (
+            <EmptyState message="No activity yet" />
+          ) : (
+            <ul>
+              {data.recent.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3 last:border-0 hover:bg-[var(--bg-raised)]"
+                >
+                  <div>
+                    <Link
+                      href={ROUTES.reseller.orderDetail(row.id)}
+                      className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]"
+                    >
+                      {row.productTitle}
+                    </Link>
+                    <p className="text-xs text-[var(--text-3)]">{new Date(row.createdAt).toLocaleString()}</p>
+                  </div>
+                  <span className="text-sm">{formatUsdt(BigInt(row.total))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card className="flex flex-col items-center">
+          <h2 className="mb-4 self-start text-sm font-semibold">Wallet</h2>
+          <DonutChart
+            value={100}
+            total={available.replace(' USDT', '')}
+            label="USDT available"
+            color="var(--green)"
+            segments={[{ value: 100, color: 'var(--green)', label: 'Available' }]}
+          />
+          <div className="mt-4 w-full space-y-1.5 text-xs text-[var(--text-2)]">
+            <p className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[var(--green)]" /> Available
+              </span>
+              <span>{available}</span>
+            </p>
+          </div>
+        </Card>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {QUICK_LINKS.map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className="rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs text-[var(--text-2)] hover:border-[var(--accent)] hover:text-[var(--text-1)]"
+          >
+            {link.label}
+          </Link>
+        ))}
+      </div>
     </>
   );
 }

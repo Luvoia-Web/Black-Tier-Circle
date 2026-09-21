@@ -97,7 +97,7 @@ export default function OwnerResellersPage(): JSX.Element {
               type="button"
               disabled={busy}
               onClick={() => void setStatus(row.tenantId, 'active')}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60"
             >
               {busy ? 'Updating…' : 'Activate'}
             </button>
@@ -110,7 +110,7 @@ export default function OwnerResellersPage(): JSX.Element {
             type="button"
             disabled={busy}
             onClick={() => void setStatus(row.tenantId, next)}
-            className="rounded-md border border-red-600/30 bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+            className="rounded-md border border-[var(--red)]/20 bg-red-600/20 px-3 py-1.5 text-xs font-medium text-[var(--red)] hover:bg-red-600/30 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-60"
           >
             {busy ? 'Updating…' : label}
           </button>
@@ -127,17 +127,17 @@ export default function OwnerResellersPage(): JSX.Element {
         actions={
           <Link
             href={ROUTES.owner.resellersInvite}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           >
             Invite Reseller
           </Link>
         }
       />
       {error ? (
-        <p className="mb-4 rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">{error}</p>
       ) : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading resellers…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading resellers…</p>
       ) : (
         <DataTable
           columns={columns}

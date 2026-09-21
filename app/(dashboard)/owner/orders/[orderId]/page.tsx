@@ -49,64 +49,64 @@ export default async function OwnerOrderDetailPage({ params }: PageProps): Promi
           title={`Order ${order.id.slice(0, 8).toUpperCase()}`}
           description={product.title}
           actions={
-            <Link href={ROUTES.owner.orders} className="text-sm text-indigo-400 hover:text-indigo-300">
+            <Link href={ROUTES.owner.orders} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
               Back to orders
             </Link>
           }
         />
-        <section className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Order summary</h2>
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Order summary</h2>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-400">Product</dt>
+              <dt className="text-[var(--text-2)]">Product</dt>
               <dd>{product.title}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Channel</dt>
+              <dt className="text-[var(--text-2)]">Channel</dt>
               <dd>{order.channel}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Customer</dt>
+              <dt className="text-[var(--text-2)]">Customer</dt>
               <dd>{customerLabel}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Retail</dt>
+              <dt className="text-[var(--text-2)]">Retail</dt>
               <dd>{formatUsdt(order.quotedRetailPriceMinor)}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Wholesale</dt>
+              <dt className="text-[var(--text-2)]">Wholesale</dt>
               <dd>{formatUsdt(order.quotedWholesalePriceMinor)}</dd>
             </div>
           </dl>
         </section>
         <section className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-            <h2 className="text-lg font-medium text-gray-100">Payment</h2>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-lg font-medium text-[var(--text-1)]">Payment</h2>
             <p className="mt-2">
               <TrackBadge status={order.paymentStatus} />
             </p>
-            <p className="mt-2 text-sm text-gray-400">
+            <p className="mt-2 text-sm text-[var(--text-2)]">
               Method: {order.paymentMethod ?? '—'} · Claim:{' '}
               {payment.claim?.verifiedAt
                 ? payment.claim.verifiedAt.toLocaleString()
                 : 'not verified'}
             </p>
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-            <h2 className="text-lg font-medium text-gray-100">Funding</h2>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-lg font-medium text-[var(--text-1)]">Funding</h2>
             <p className="mt-2">
               <TrackBadge status={order.fundingStatus} />
             </p>
-            <p className="mt-2 text-sm text-gray-400">
+            <p className="mt-2 text-sm text-[var(--text-2)]">
               Reserved wholesale: {formatUsdt(order.quotedWholesalePriceMinor)}
             </p>
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-            <h2 className="text-lg font-medium text-gray-100">Fulfillment</h2>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-lg font-medium text-[var(--text-1)]">Fulfillment</h2>
             <p className="mt-2">
               <TrackBadge status={fulfillment.fulfillment} />
             </p>
-            <ul className="mt-3 space-y-1 text-sm text-gray-300">
+            <ul className="mt-3 space-y-1 text-sm text-[var(--text-2)]">
               {fulfillment.fulfillmentAttempts.map((attempt) => (
                 <li key={attempt.id}>
                   #{attempt.attemptNumber} {attempt.method} — {attempt.status}
@@ -116,23 +116,23 @@ export default async function OwnerOrderDetailPage({ params }: PageProps): Promi
               {fulfillment.fulfillmentAttempts.length === 0 ? <li>No attempts yet.</li> : null}
             </ul>
             {supplierRefFromAttempts(fulfillment.fulfillmentAttempts) ? (
-              <p className="mt-3 text-sm text-gray-400">
+              <p className="mt-3 text-sm text-[var(--text-2)]">
                 Supplier ref: {supplierRefFromAttempts(fulfillment.fulfillmentAttempts)}{' '}
                 <Link
                   href={ROUTES.owner.supplierOrder(order.id)}
-                  className="text-indigo-400 hover:text-indigo-300"
+                  className="text-[var(--accent-soft)] hover:text-[var(--accent)]"
                 >
                   Open supplier detail
                 </Link>
               </p>
             ) : null}
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-            <h2 className="text-lg font-medium text-gray-100">Delivery</h2>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-lg font-medium text-[var(--text-1)]">Delivery</h2>
             <p className="mt-2">
               <TrackBadge status={fulfillment.delivery} />
             </p>
-            <ul className="mt-3 space-y-1 text-sm text-gray-300">
+            <ul className="mt-3 space-y-1 text-sm text-[var(--text-2)]">
               {fulfillment.deliveryAttempts.map((attempt) => (
                 <li key={attempt.id}>
                   #{attempt.attemptNumber} {attempt.channel} — {attempt.status}
@@ -143,9 +143,9 @@ export default async function OwnerOrderDetailPage({ params }: PageProps): Promi
             </ul>
           </div>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Timeline</h2>
-          <ol className="mt-3 space-y-2 text-sm text-gray-300">
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Timeline</h2>
+          <ol className="mt-3 space-y-2 text-sm text-[var(--text-2)]">
             {[...events]
               .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
               .map((event) => (

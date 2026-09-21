@@ -46,6 +46,7 @@ export type CustomerRecord = {
   firstName: string | null;
   username: string | null;
   isBlocked: boolean;
+  creditBalanceMinor: bigint;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -77,6 +78,7 @@ export type CustomerRow = {
   readonly first_name: string | null;
   readonly username: string | null;
   readonly is_blocked: boolean;
+  readonly credit_balance?: string | number | bigint | null;
   readonly created_at: string;
   readonly updated_at: string;
 };

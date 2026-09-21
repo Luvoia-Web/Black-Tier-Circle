@@ -61,53 +61,53 @@ export default async function ResellerOrderDetailPage({ params }: PageProps): Pr
         <PageHeader
           title={`Order ${order.id.slice(0, 8).toUpperCase()}`}
           actions={
-            <Link href={ROUTES.reseller.orders} className="text-sm text-indigo-400">
+            <Link href={ROUTES.reseller.orders} className="text-sm text-[var(--accent-soft)]">
               Back to orders
             </Link>
           }
         />
-        <section className="rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Order summary</h2>
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Order summary</h2>
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-gray-400">Product</dt>
+              <dt className="text-[var(--text-2)]">Product</dt>
               <dd>{product.title}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Amount</dt>
+              <dt className="text-[var(--text-2)]">Amount</dt>
               <dd>{formatUsdt(order.quotedRetailPriceMinor)}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Created</dt>
+              <dt className="text-[var(--text-2)]">Created</dt>
               <dd>{order.createdAt.toLocaleString()}</dd>
             </div>
             <div>
-              <dt className="text-gray-400">Customer</dt>
+              <dt className="text-[var(--text-2)]">Customer</dt>
               <dd>{customerLabel}</dd>
             </div>
           </dl>
         </section>
         <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Payment</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Payment</p>
             <TrackBadge status={order.paymentStatus} />
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Funding</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Funding</p>
             <TrackBadge status={order.fundingStatus} />
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Fulfillment</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Fulfillment</p>
             <TrackBadge status={order.fulfillmentStatus} />
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Delivery</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Delivery</p>
             <TrackBadge status={order.deliveryStatus} />
           </div>
         </section>
-        <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-          <h2 className="text-lg font-medium text-gray-100">Timeline</h2>
-          <ol className="mt-3 space-y-2 text-sm text-gray-300">
+        <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <h2 className="text-lg font-medium text-[var(--text-1)]">Timeline</h2>
+          <ol className="mt-3 space-y-2 text-sm text-[var(--text-2)]">
             {[...events]
               .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
               .map((event) => (

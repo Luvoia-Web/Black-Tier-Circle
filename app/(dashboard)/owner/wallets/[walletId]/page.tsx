@@ -104,7 +104,7 @@ export default function OwnerWalletDetailPage({ params }: PageProps): JSX.Elemen
       key: 'type',
       header: 'Type',
       render: (row) => (
-        <span className="rounded-full bg-gray-800 px-2 py-0.5 text-xs">{ledgerTypeLabel(row.entryType)}</span>
+        <span className="rounded-full bg-[var(--bg-raised)] px-2 py-0.5 text-xs">{ledgerTypeLabel(row.entryType)}</span>
       ),
     },
     {
@@ -132,43 +132,43 @@ export default function OwnerWalletDetailPage({ params }: PageProps): JSX.Elemen
         title="Wallet detail"
         description="Manual adjustments write an immutable ledger entry"
         actions={
-          <Link href={ROUTES.owner.wallets} className="text-sm text-indigo-400 hover:text-indigo-300">
+          <Link href={ROUTES.owner.wallets} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
             Back to wallets
           </Link>
         }
       />
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
       {wallet ? (
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Total</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Total</p>
             <p className="mt-1 text-xl font-semibold">{formatUsdt(BigInt(wallet.balanceTotal))}</p>
           </div>
-          <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-sm text-gray-400">Reserved</p>
-            <p className="mt-1 text-xl font-semibold text-gray-400">{formatUsdt(BigInt(wallet.balanceReserved))}</p>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-sm text-[var(--text-2)]">Reserved</p>
+            <p className="mt-1 text-xl font-semibold text-[var(--text-2)]">{formatUsdt(BigInt(wallet.balanceReserved))}</p>
           </div>
-          <div className="rounded-lg border border-indigo-700 bg-indigo-950/40 p-4">
-            <p className="text-sm text-indigo-300">Available</p>
+          <div className="rounded-lg border border-[var(--accent)]/40 bg-[var(--accent-glow)] p-4">
+            <p className="text-sm text-[var(--accent-soft)]">Available</p>
             <p className="mt-1 text-xl font-semibold">{formatUsdt(BigInt(wallet.balanceAvailable))}</p>
           </div>
         </div>
       ) : null}
 
-      <section className="mb-8 rounded-lg border border-gray-800 bg-gray-900 p-5">
-        <h2 className="text-sm font-medium text-gray-200">Manual adjustment</h2>
+      <section className="mb-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <h2 className="text-sm font-medium text-[var(--text-1)]">Manual adjustment</h2>
         <div className="mt-3 flex gap-2">
           <button
             type="button"
             onClick={() => setMode('credit')}
-            className={`rounded-md px-3 py-1 text-sm ${mode === 'credit' ? 'bg-emerald-700 text-white' : 'bg-gray-800 text-gray-300'}`}
+            className={`rounded-md px-3 py-1 text-sm ${mode === 'credit' ? 'bg-emerald-700 text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
           >
             Credit
           </button>
           <button
             type="button"
             onClick={() => setMode('debit')}
-            className={`rounded-md px-3 py-1 text-sm ${mode === 'debit' ? 'bg-red-800 text-white' : 'bg-gray-800 text-gray-300'}`}
+            className={`rounded-md px-3 py-1 text-sm ${mode === 'debit' ? 'bg-red-800 text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
           >
             Debit
           </button>
@@ -178,20 +178,20 @@ export default function OwnerWalletDetailPage({ params }: PageProps): JSX.Elemen
             placeholder="Amount (USDT)"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
-            className="rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm"
+            className="rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-sm"
           />
           <input
             placeholder="Note"
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            className="rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm"
+            className="rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-sm"
           />
         </div>
         <button
           type="button"
           disabled={saving}
           onClick={() => void submitAdjust()}
-          className="mt-3 rounded-md bg-indigo-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="mt-3 rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white disabled:opacity-50"
         >
           Apply
         </button>
@@ -203,11 +203,11 @@ export default function OwnerWalletDetailPage({ params }: PageProps): JSX.Elemen
           type="button"
           disabled={page <= 1}
           onClick={() => setPage((value) => Math.max(1, value - 1))}
-          className="text-sm text-gray-300 disabled:opacity-40"
+          className="text-sm text-[var(--text-2)] disabled:opacity-40"
         >
           Previous
         </button>
-        <button type="button" onClick={() => setPage((value) => value + 1)} className="text-sm text-gray-300">
+        <button type="button" onClick={() => setPage((value) => value + 1)} className="text-sm text-[var(--text-2)]">
           Next
         </button>
       </div>

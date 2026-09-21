@@ -2,6 +2,7 @@
  * @file components/dashboard-shell.tsx
  *
  * Client shell that composes sidebar, top bar, and main content.
+ * Matches the Sweatpals/Mobbin reference: collapsible sidebar, clean topbar.
  *
  * @module Components
  */
@@ -27,19 +28,29 @@ type DashboardShellProps = {
  */
 export function DashboardShell({ displayName, role, demoMode = false, children }: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-gray-950 text-gray-100">
-      <Sidebar role={role} open={open} onClose={() => setOpen(false)} />
+    <div className="flex min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
+      <Sidebar
+        role={role}
+        displayName={displayName}
+        open={open}
+        collapsed={collapsed}
+        onClose={() => setOpen(false)}
+        onToggleCollapsed={() => setCollapsed((current) => !current)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         {demoMode ? (
-          <div className="bg-yellow-500/15 px-4 py-2 text-center text-sm text-yellow-300">
-            ⚠️ Demo Mode — Payments are simulated. Add real API keys to go live.
+          <div className="bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
+            Demo Mode — Payments are simulated. Add real API keys to go live.
           </div>
         ) : null}
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="page-enter flex-1 p-6">{children}</main>
       </div>
     </div>
   );
 }
+
+export default DashboardShell;

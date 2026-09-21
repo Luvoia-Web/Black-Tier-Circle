@@ -26,12 +26,12 @@ type BotRow = {
 
 function statusClass(status: BotRow['status']): string {
   if (status === 'connected') {
-    return 'bg-emerald-500/10 text-emerald-400';
+    return 'bg-[var(--green-soft)] text-[var(--green)]';
   }
   if (status === 'error') {
-    return 'bg-red-500/10 text-red-400';
+    return 'bg-[var(--red-soft)] text-[var(--red)]';
   }
-  return 'bg-gray-500/10 text-gray-400';
+  return 'bg-[var(--bg-raised)] text-[var(--text-2)]';
 }
 
 /**
@@ -99,24 +99,24 @@ export default function OwnerBotsPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Bots" description="Owner store bot and connected reseller bots" />
-      <section className="mb-8 rounded-lg border border-gray-800 bg-gray-900 p-6">
-        <h2 className="text-sm font-medium text-gray-400">Owner store bot</h2>
-        <p className="mt-2 text-lg font-semibold text-gray-100">
+      <section className="mb-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
+        <h2 className="text-sm font-medium text-[var(--text-2)]">Owner store bot</h2>
+        <p className="mt-2 text-lg font-semibold text-[var(--text-1)]">
           {ownerConfigured ? 'Configured via environment' : 'Not configured'}
         </p>
-        <p className="mt-1 text-sm text-gray-400">
+        <p className="mt-1 text-sm text-[var(--text-2)]">
           {ownerConfigured
             ? 'The owner bot uses OWNER_BOT_TOKEN and the same customer UX as reseller bots, without a reseller wallet.'
             : 'Set OWNER_BOT_TOKEN and OWNER_BOT_WEBHOOK_SECRET to enable the owner store bot.'}
         </p>
       </section>
       {error ? (
-        <p className="mb-4 rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
           {error}
         </p>
       ) : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading bots…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading bots…</p>
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} emptyMessage="No reseller bots connected." />
       )}

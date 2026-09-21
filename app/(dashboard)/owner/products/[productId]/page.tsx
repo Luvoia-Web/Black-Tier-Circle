@@ -186,10 +186,10 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
   }
 
   if (loading) {
-    return <p className="text-sm text-gray-400">Loading product…</p>;
+    return <p className="text-sm text-[var(--text-2)]">Loading product…</p>;
   }
   if (!product) {
-    return <p className="text-sm text-red-400">{error ?? 'Product not found'}</p>;
+    return <p className="text-sm text-[var(--red)]">{error ?? 'Product not found'}</p>;
   }
 
   return (
@@ -200,54 +200,54 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
         actions={
           <Link
             href={ROUTES.owner.productEdit(product.id)}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           >
             Edit
           </Link>
         }
       />
       {error ? (
-        <p className="mb-4 rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
           {error}
         </p>
       ) : null}
       <dl className="mb-8 grid gap-4 sm:grid-cols-2">
         <div>
-          <dt className="text-xs uppercase text-gray-500">Status</dt>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Status</dt>
           <dd className="mt-1">
             <ProductStatusBadge status={product.status} />
           </dd>
         </div>
         <div>
-          <dt className="text-xs uppercase text-gray-500">Category</dt>
-          <dd className="mt-1 text-sm text-gray-100">{product.category ?? '—'}</dd>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Category</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">{product.category ?? '—'}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase text-gray-500">Wholesale</dt>
-          <dd className="mt-1 text-sm text-gray-100">{formatUsdt(BigInt(product.wholesalePriceMinor))}</dd>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Wholesale</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">{formatUsdt(BigInt(product.wholesalePriceMinor))}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase text-gray-500">Retail</dt>
-          <dd className="mt-1 text-sm text-gray-100">{formatUsdt(BigInt(product.retailPriceMinor))}</dd>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Retail</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">{formatUsdt(BigInt(product.retailPriceMinor))}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase text-gray-500">Delivery</dt>
-          <dd className="mt-1 text-sm text-gray-100">{product.deliveryType.replace('_', ' ')}</dd>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Delivery</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">{product.deliveryType.replace('_', ' ')}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase text-gray-500">Stock</dt>
-          <dd className="mt-1 text-sm text-gray-100">
+          <dt className="text-xs uppercase text-[var(--text-3)]">Stock</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">
             {product.stockUnlimited ? 'Unlimited' : String(product.stockCount ?? 0)}
           </dd>
         </div>
         <div className="sm:col-span-2">
-          <dt className="text-xs uppercase text-gray-500">Description</dt>
-          <dd className="mt-1 text-sm text-gray-100">{product.description ?? '—'}</dd>
+          <dt className="text-xs uppercase text-[var(--text-3)]">Description</dt>
+          <dd className="mt-1 text-sm text-[var(--text-1)]">{product.description ?? '—'}</dd>
         </div>
       </dl>
 
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-gray-300">Status</h2>
+        <h2 className="mb-3 text-sm font-medium text-[var(--text-2)]">Status</h2>
         <div className="flex flex-wrap gap-2">
           {product.status !== 'archived' ? (
             <>
@@ -256,7 +256,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
                   type="button"
                   disabled={busy}
                   onClick={() => void changeStatus('published')}
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-60"
+                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--accent-soft)] disabled:opacity-60"
                 >
                   Publish
                 </button>
@@ -265,7 +265,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
                   type="button"
                   disabled={busy}
                   onClick={() => void changeStatus('paused')}
-                  className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-100 hover:bg-gray-700 disabled:opacity-60"
+                  className="rounded-md border border-[var(--border-soft)] bg-[var(--bg-raised)] px-3 py-1.5 text-sm text-[var(--text-1)] hover:bg-[var(--bg-hover)] disabled:opacity-60"
                 >
                   Pause
                 </button>
@@ -277,7 +277,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
 
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-300">Files</h2>
+          <h2 className="text-sm font-medium text-[var(--text-2)]">Files</h2>
           <div>
             <input
               ref={fileInput}
@@ -295,14 +295,14 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
               type="button"
               disabled={busy}
               onClick={() => fileInput.current?.click()}
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-100 hover:bg-gray-700 disabled:opacity-60"
+              className="rounded-md border border-[var(--border-soft)] bg-[var(--bg-raised)] px-3 py-1.5 text-sm text-[var(--text-1)] hover:bg-[var(--bg-hover)] disabled:opacity-60"
             >
               Upload new file
             </button>
           </div>
         </div>
         {product.assets.length === 0 ? (
-          <p className="rounded-lg border border-gray-800 bg-gray-900 px-6 py-8 text-center text-sm text-gray-400">
+          <p className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-6 py-8 text-center text-sm text-[var(--text-2)]">
             No files attached yet.
           </p>
         ) : (
@@ -310,20 +310,20 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
             {product.assets.map((asset) => (
               <li
                 key={asset.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-800 bg-gray-900 px-4 py-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3"
               >
                 <div>
-                  <p className="text-sm text-gray-100">
+                  <p className="text-sm text-[var(--text-1)]">
                     {asset.isPreview ? 'Preview' : 'Delivery'} · {asset.contentType}
                   </p>
-                  <p className="text-xs text-gray-500">{formatBytes(asset.fileSizeBytes)}</p>
+                  <p className="text-xs text-[var(--text-3)]">{formatBytes(asset.fileSizeBytes)}</p>
                 </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void generateLink(asset.id)}
-                    className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                    className="text-xs font-medium text-[var(--accent-soft)] hover:text-[var(--accent)]"
                   >
                     Generate Download Link
                   </button>
@@ -331,7 +331,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
                     type="button"
                     disabled={busy}
                     onClick={() => void removeAsset(asset.id)}
-                    className="text-xs font-medium text-red-400 hover:text-red-300"
+                    className="text-xs font-medium text-[var(--red)] hover:text-red-300"
                   >
                     Delete
                   </button>
@@ -341,15 +341,15 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
           </ul>
         )}
         {downloadUrl ? (
-          <div className="mt-4 rounded-lg border border-gray-800 bg-gray-900 p-4">
-            <p className="text-xs text-yellow-400">
+          <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+            <p className="text-xs text-[var(--amber)]">
               Signed URL expires at {downloadExpiry ? new Date(downloadExpiry).toLocaleString() : '1 hour'}.
             </p>
-            <p className="mt-2 break-all font-mono text-xs text-gray-100">{downloadUrl}</p>
+            <p className="mt-2 break-all font-mono text-xs text-[var(--text-1)]">{downloadUrl}</p>
             <button
               type="button"
               onClick={() => void navigator.clipboard.writeText(downloadUrl)}
-              className="mt-2 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-100"
+              className="mt-2 rounded-md border border-[var(--border-soft)] bg-[var(--bg-raised)] px-3 py-1.5 text-xs text-[var(--text-1)]"
             >
               Copy link
             </button>
@@ -358,13 +358,13 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
       </section>
 
       <section className="rounded-lg border border-red-900/40 bg-red-950/20 p-4">
-        <h2 className="text-sm font-medium text-red-400">Danger zone</h2>
-        <p className="mt-1 text-sm text-gray-400">Archiving cannot be reversed from the dashboard.</p>
+        <h2 className="text-sm font-medium text-[var(--red)]">Danger zone</h2>
+        <p className="mt-1 text-sm text-[var(--text-2)]">Archiving cannot be reversed from the dashboard.</p>
         <button
           type="button"
           disabled={busy || product.status === 'archived'}
           onClick={() => void changeStatus('archived')}
-          className="mt-3 rounded-md border border-red-600/30 bg-red-600/20 px-3 py-1.5 text-sm text-red-400 hover:bg-red-600/30 disabled:opacity-60"
+          className="mt-3 rounded-md border border-[var(--red)]/20 bg-red-600/20 px-3 py-1.5 text-sm text-[var(--red)] hover:bg-red-600/30 disabled:opacity-60"
         >
           Archive product
         </button>

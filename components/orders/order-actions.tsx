@@ -61,8 +61,8 @@ export function OrderActions({
   const canCancel = fulfillmentStatus !== 'ready' && deliveryStatus !== 'sent' && fulfillmentStatus !== 'canceled';
 
   return (
-    <section className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
-      <h2 className="text-lg font-medium text-gray-100">Actions</h2>
+    <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <h2 className="text-lg font-medium text-[var(--text-1)]">Actions</h2>
       {fulfillmentStatus === 'manual_pending' ? (
         <div className="mt-3">
           <MarkFulfilledButton orderId={orderId} noteEnabled />
@@ -75,20 +75,20 @@ export function OrderActions({
           onClick={() => {
             void post(API_ROUTES.fulfillmentRetryDelivery(orderId));
           }}
-          className="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
         >
           Retry Delivery
         </button>
       ) : null}
       {paymentStatus === 'failed' || paymentStatus === 'pending_verification' ? (
         <p className="mt-3 text-sm">
-          <a href={ROUTES.owner.paymentDetail(orderId)} className="text-indigo-400 hover:text-indigo-300">
+          <a href={ROUTES.owner.paymentDetail(orderId)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
             Override Payment
           </a>
         </p>
       ) : null}
       <div className="mt-4">
-        <label className="text-sm text-gray-400" htmlFor="order-note">
+        <label className="text-sm text-[var(--text-2)]" htmlFor="order-note">
           Add note
         </label>
         <textarea
@@ -96,7 +96,7 @@ export function OrderActions({
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={3}
-          className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-sm"
         />
         <button
           type="button"
@@ -104,7 +104,7 @@ export function OrderActions({
           onClick={() => {
             void post(API_ROUTES.orderNote(orderId), { note });
           }}
-          className="mt-2 rounded-md bg-gray-700 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          className="mt-2 rounded-md bg-[var(--bg-hover)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
         >
           Save note
         </button>
@@ -112,7 +112,7 @@ export function OrderActions({
       {canCancel ? (
         <div className="mt-6 rounded-md border border-red-900 bg-red-950/40 p-4">
           <h3 className="text-sm font-medium text-red-300">Danger zone</h3>
-          <p className="mt-1 text-sm text-gray-400">Cancel this order and release any wallet reservation.</p>
+          <p className="mt-1 text-sm text-[var(--text-2)]">Cancel this order and release any wallet reservation.</p>
           <button
             type="button"
             disabled={saving}
@@ -125,7 +125,7 @@ export function OrderActions({
           </button>
         </div>
       ) : null}
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-[var(--red)]">{error}</p> : null}
     </section>
   );
 }

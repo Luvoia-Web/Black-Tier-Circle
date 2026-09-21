@@ -33,6 +33,7 @@ function mapListingRow(row: ResellerListingRow): ResellerListing {
     productId: row.product_id,
     retailPriceMinor: asMinorUnits(row.retail_price),
     isVisible: row.is_visible,
+    priceOverride: row.price_override === true,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -123,6 +124,7 @@ export async function createListing(
       product_id: input.productId,
       retail_price: input.retailPriceMinor.toString(),
       is_visible: true,
+      price_override: false,
     })
     .select('*')
     .single();
@@ -232,6 +234,7 @@ export async function updateListingPrice(
     .from('reseller_listings')
     .update({
       retail_price: newPriceMinor.toString(),
+      price_override: true,
       updated_at: new Date().toISOString(),
     })
     .eq('id', listingId)
@@ -314,4 +317,60 @@ export function getMarginPercent(wholesalePriceMinor: bigint, retailPriceMinor: 
   }
   const scaled = (getMarginMinor(wholesalePriceMinor, retailPriceMinor) * 10000n) / retailPriceMinor;
   return Number(scaled) / 100;
+}
+
+/**
+ * Applies a markup percent to wholesale using integer math.
+ * Example: 10 USDT wholesale + 25% → 12.50 USDT.
+ */
+export function applyMarkupToWholesale(wholesalePriceMinor: bigint, markupPercent: number): bigint {
+  const bounded = Math.max(0, Math.min(999.99, markupPercent));
+  const hundredths = BigInt(Math.round(bounded * 100));
+  const retail = (wholesalePriceMinor * (10000n + hundredths)) / 10000n;
+  return retail < wholesalePriceMinor ? wholesalePriceMinor : retail;
+}
+
+/**
+ * Effective selling price: per-product override wins over bulk markup.
+ */
+export function effectiveRetailPrice(
+  wholesalePriceMinor: bigint,
+  listingRetailMinor: bigint,
+  priceOverride: boolean,
+  markupPercent: number,
+): bigint {
+  if (priceOverride) {
+    return listingRetailMinor;
+  }
+  return applyMarkupToWholesale(wholesalePriceMinor, markupPercent);
+}
+
+/**
+ * Recalculates every listing price from wholesale + markup and clears overrides.
+ */
+export async function applyBulkMarkup(
+  supabase: DbClient,
+  tenantId: string,
+  markupPercent: number,
+): Promise<ResellerListingWithProduct[]> {
+  const listings = await listResellerListings(supabase, tenantId);
+  for (const listing of listings) {
+    const nextPrice = applyMarkupToWholesale(listing.product.wholesalePriceMinor, markupPercent);
+    assertRetailAtOrAboveWholesale(nextPrice, listing.product.wholesalePriceMinor);
+    const { error } = await supabase
+      .from('reseller_listings')
+      .update({
+        retail_price: nextPrice.toString(),
+        price_override: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', listing.id)
+      .eq('tenant_id', tenantId)
+      .select('*')
+      .single();
+    if (error) {
+      throw new AppError('LISTING_UPDATE_FAILED', error.message, 500);
+    }
+  }
+  return listResellerListings(supabase, tenantId);
 }

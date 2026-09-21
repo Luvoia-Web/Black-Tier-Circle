@@ -197,7 +197,7 @@ export default function OwnerTokensPage(): JSX.Element {
             type="button"
             disabled={pendingId === row.id}
             onClick={() => void revoke(row.id)}
-            className="text-sm text-red-400 hover:text-red-300 disabled:opacity-50"
+            className="text-sm text-[var(--red)] hover:text-red-300 disabled:opacity-50"
           >
             Revoke
           </button>
@@ -216,7 +216,7 @@ export default function OwnerTokensPage(): JSX.Element {
           <button
             type="button"
             onClick={() => setShowForm((open) => !open)}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)]"
           >
             Create Token
           </button>
@@ -224,25 +224,25 @@ export default function OwnerTokensPage(): JSX.Element {
       />
 
       {showForm ? (
-        <section className="mb-6 rounded-lg border border-gray-800 bg-gray-900 p-5">
+        <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
           <div className="grid gap-4 sm:grid-cols-3">
-            <label className="text-sm text-gray-300">
+            <label className="text-sm text-[var(--text-2)]">
               Amount (USDT)
               <input
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-gray-100"
+                className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-[var(--text-1)]"
               />
-              <span className="mt-1 block text-xs text-gray-500">
+              <span className="mt-1 block text-xs text-[var(--text-3)]">
                 {preview ? `= ${preview} minor units` : 'Enter a valid USDT amount'}
               </span>
             </label>
-            <label className="text-sm text-gray-300">
+            <label className="text-sm text-[var(--text-2)]">
               Assign to reseller
               <select
                 value={tenantId}
                 onChange={(event) => setTenantId(event.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-gray-100"
+                className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-[var(--text-1)]"
               >
                 <option value="">Any reseller</option>
                 {resellers.map((reseller) => (
@@ -252,13 +252,13 @@ export default function OwnerTokensPage(): JSX.Element {
                 ))}
               </select>
             </label>
-            <label className="text-sm text-gray-300">
+            <label className="text-sm text-[var(--text-2)]">
               Expires
               <input
                 type="datetime-local"
                 value={expiresAt}
                 onChange={(event) => setExpiresAt(event.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-gray-100"
+                className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-[var(--text-1)]"
               />
             </label>
           </div>
@@ -266,17 +266,17 @@ export default function OwnerTokensPage(): JSX.Element {
             type="button"
             disabled={creating}
             onClick={() => void createToken()}
-            className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="mt-4 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)] disabled:opacity-50"
           >
             {creating ? 'Creating…' : 'Generate token'}
           </button>
           {revealedToken ? (
             <div className="mt-4 rounded-md border border-amber-600/40 bg-amber-500/10 p-4">
               <p className="text-sm font-medium text-amber-300">This token will only be shown once. Copy it now.</p>
-              <p className="mt-2 font-mono text-lg tracking-widest text-gray-100">{revealedToken}</p>
+              <p className="mt-2 font-mono text-lg tracking-widest text-[var(--text-1)]">{revealedToken}</p>
               <button
                 type="button"
-                className="mt-2 text-sm text-indigo-400 hover:text-indigo-300"
+                className="mt-2 text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]"
                 onClick={() => void navigator.clipboard.writeText(revealedToken)}
               >
                 Copy token
@@ -293,7 +293,7 @@ export default function OwnerTokensPage(): JSX.Element {
             type="button"
             onClick={() => setTab(item.id)}
             className={`rounded-full px-3 py-1 text-sm ${
-              tab === item.id ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-300'
+              tab === item.id ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'
             }`}
           >
             {item.label}
@@ -301,9 +301,9 @@ export default function OwnerTokensPage(): JSX.Element {
         ))}
       </div>
 
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading tokens…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading tokens…</p>
       ) : (
         <DataTable
           columns={columns}

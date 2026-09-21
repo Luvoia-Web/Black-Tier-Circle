@@ -48,11 +48,11 @@ export function ForceReconcileButton({ orderId }: ForceReconcileButtonProps): JS
         onClick={() => {
           void submit();
         }}
-        className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
       >
         {saving ? 'Checking…' : 'Force Reconcile'}
       </button>
-      {error ? <p className="mt-1 text-xs text-red-400">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs text-[var(--red)]">{error}</p> : null}
     </div>
   );
 }

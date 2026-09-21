@@ -11,6 +11,7 @@ import { AppError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { logger } from '@/lib/logger';
 import { asDbClient } from '@/lib/auth/session';
+import { assertRateLimit, clientIp } from '@/lib/request-rate-limit';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { InviteAcceptSchema } from '@/lib/validations/auth';
 import {
@@ -26,6 +27,7 @@ export async function POST(request: Request): Promise<Response> {
   let createdTenantId: string | null = null;
 
   try {
+    assertRateLimit(`auth:${clientIp(request)}`, 5);
     const body = InviteAcceptSchema.parse(await readJsonBody(request));
     const { data: inviteData, error: inviteError } = await admin
       .from('invitations')

@@ -21,6 +21,7 @@ import { decryptBotToken, enqueueTelegramUpdate, verifyTelegramSecret } from '@/
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getBotConnectionById } from '@/modules/bots';
 
@@ -45,6 +46,11 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
     const connection = await getBotConnectionById(db, params.botId);
     if (!verifyTelegramSecret(connection.webhookSecret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
+    }
+    try {
+      assertRateLimit(`tg-webhook:${params.botId}`, 100);
+    } catch {
+      return NextResponse.json({ ok: false, description: 'Rate limit exceeded' }, { status: 429 });
     }
 
     let update: Update;

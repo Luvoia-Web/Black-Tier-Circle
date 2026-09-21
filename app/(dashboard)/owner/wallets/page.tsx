@@ -109,12 +109,12 @@ export default function OwnerWalletsPage(): JSX.Element {
       header: '',
       render: (row) => (
         <div className="flex gap-3">
-          <Link href={ROUTES.owner.walletDetail(row.walletId)} className="text-sm text-indigo-400 hover:text-indigo-300">
+          <Link href={ROUTES.owner.walletDetail(row.walletId)} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
             View
           </Link>
           <button
             type="button"
-            className="text-sm text-gray-300 hover:text-white"
+            className="text-sm text-[var(--text-2)] hover:text-white"
             onClick={() => {
               setAdjustId(row.walletId);
               setMode('credit');
@@ -130,58 +130,58 @@ export default function OwnerWalletsPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Reseller wallets" description="USDT balances, reservations, and manual adjustments" />
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
       {loading ? (
-        <p className="text-sm text-gray-400">Loading wallets…</p>
+        <p className="text-sm text-[var(--text-2)]">Loading wallets…</p>
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(row) => row.walletId} emptyMessage="No reseller wallets yet" />
       )}
 
       {adjustId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-lg border border-gray-800 bg-gray-900 p-5">
-            <h2 className="text-lg font-medium text-gray-100">Adjust balance</h2>
+          <div className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+            <h2 className="text-lg font-medium text-[var(--text-1)]">Adjust balance</h2>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 onClick={() => setMode('credit')}
-                className={`rounded-md px-3 py-1 text-sm ${mode === 'credit' ? 'bg-emerald-700 text-white' : 'bg-gray-800 text-gray-300'}`}
+                className={`rounded-md px-3 py-1 text-sm ${mode === 'credit' ? 'bg-emerald-700 text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
               >
                 Credit
               </button>
               <button
                 type="button"
                 onClick={() => setMode('debit')}
-                className={`rounded-md px-3 py-1 text-sm ${mode === 'debit' ? 'bg-red-800 text-white' : 'bg-gray-800 text-gray-300'}`}
+                className={`rounded-md px-3 py-1 text-sm ${mode === 'debit' ? 'bg-red-800 text-white' : 'bg-[var(--bg-raised)] text-[var(--text-2)]'}`}
               >
                 Debit
               </button>
             </div>
-            <label className="mt-4 block text-sm text-gray-300">
+            <label className="mt-4 block text-sm text-[var(--text-2)]">
               Amount (USDT)
               <input
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2"
+                className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2"
               />
             </label>
-            <label className="mt-3 block text-sm text-gray-300">
+            <label className="mt-3 block text-sm text-[var(--text-2)]">
               Note
               <input
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2"
+                className="mt-1 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2"
               />
             </label>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className="text-sm text-gray-400" onClick={() => setAdjustId(null)}>
+              <button type="button" className="text-sm text-[var(--text-2)]" onClick={() => setAdjustId(null)}>
                 Cancel
               </button>
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void submitAdjust()}
-                className="rounded-md bg-indigo-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Apply'}
               </button>

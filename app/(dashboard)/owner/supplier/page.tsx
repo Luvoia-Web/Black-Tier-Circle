@@ -80,7 +80,7 @@ export default async function OwnerSupplierPage(): Promise<JSX.Element> {
       key: 'ref',
       header: 'Order ID',
       render: (row) => (
-        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-indigo-400 hover:text-indigo-300">
+        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
           {row.order.id.slice(0, 8).toUpperCase()}
         </Link>
       ),
@@ -101,7 +101,7 @@ export default async function OwnerSupplierPage(): Promise<JSX.Element> {
       key: 'ref',
       header: 'Order ID',
       render: (row) => (
-        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-indigo-400 hover:text-indigo-300">
+        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
           {row.order.id.slice(0, 8).toUpperCase()}
         </Link>
       ),
@@ -123,7 +123,7 @@ export default async function OwnerSupplierPage(): Promise<JSX.Element> {
         description="External supplier connector monitoring"
         actions={
           <div className="flex flex-col items-end gap-1">
-            <span className="rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-100">{getSupplierModeLabel()}</span>
+            <span className="rounded-full bg-[var(--bg-raised)] px-3 py-1 text-sm text-[var(--text-1)]">{getSupplierModeLabel()}</span>
             <SupplierHealthBadge />
           </div>
         }
@@ -134,14 +134,14 @@ export default async function OwnerSupplierPage(): Promise<JSX.Element> {
         <StatCard label="Completed today" value={String(completedToday)} />
         <StatCard label="Failed today" value={String(failedToday)} />
       </div>
-      <h2 className="mb-3 mt-8 text-sm font-medium text-yellow-400">Outcome unknown (needs attention)</h2>
+      <h2 className="mb-3 mt-8 text-sm font-medium text-[var(--amber)]">Outcome unknown (needs attention)</h2>
       <DataTable
         columns={unknownColumns}
         rows={unknownRows}
         emptyMessage="No orders waiting on supplier reconciliation."
         rowKey={(row) => row.order.id}
       />
-      <h2 className="mb-3 mt-8 text-sm font-medium text-gray-400">Recent supplier orders</h2>
+      <h2 className="mb-3 mt-8 text-sm font-medium text-[var(--text-2)]">Recent supplier orders</h2>
       <DataTable
         columns={recentColumns}
         rows={recentRows}

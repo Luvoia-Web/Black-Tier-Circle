@@ -1,7 +1,7 @@
 /**
  * @file tailwind.config.ts
  *
- * Tailwind CSS content paths for App Router pages.
+ * Tailwind CSS content paths for App Router pages and shared components.
  *
  * @module Config
  */
@@ -9,7 +9,11 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './modules/**/*.{ts,tsx}'],
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
   theme: {
     extend: {},
   },

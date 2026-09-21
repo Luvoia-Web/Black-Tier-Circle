@@ -58,7 +58,7 @@ export function MarkFulfilledButton({ orderId, noteEnabled = false }: MarkFulfil
           onChange={(event) => setNote(event.target.value)}
           rows={2}
           placeholder="Optional note"
-          className="mb-2 w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100"
+          className="mb-2 w-full rounded-md border border-[var(--border-soft)] bg-[var(--bg-page)] px-3 py-2 text-sm text-[var(--text-1)]"
         />
       ) : null}
       <button
@@ -69,9 +69,9 @@ export function MarkFulfilledButton({ orderId, noteEnabled = false }: MarkFulfil
       >
         Mark Fulfilled
       </button>
-      {error ? <p className="mt-2 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mt-2 text-sm text-[var(--red)]">{error}</p> : null}
       {confirming ? (
-        <div className="mt-3 rounded-md border border-yellow-700 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+        <div className="mt-3 rounded-md border border-yellow-700 bg-[var(--amber-soft)] p-3 text-sm text-yellow-100">
           <p>Mark this order as fulfilled? The customer will be notified.</p>
           <div className="mt-2 flex gap-2">
             <button
@@ -80,11 +80,11 @@ export function MarkFulfilledButton({ orderId, noteEnabled = false }: MarkFulfil
               onClick={() => {
                 void submit();
               }}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-white"
+              className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-white"
             >
               Confirm
             </button>
-            <button type="button" onClick={() => setConfirming(false)} className="rounded-md bg-gray-800 px-3 py-1.5">
+            <button type="button" onClick={() => setConfirming(false)} className="rounded-md bg-[var(--bg-raised)] px-3 py-1.5">
               Cancel
             </button>
           </div>

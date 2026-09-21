@@ -2,10 +2,244 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── DESIGN TOKENS ─────────────────────────────────────────── */
 :root {
+  /* Backgrounds */
+  --bg-page:     #0c0c10;
+  --bg-card:     #13131a;
+  --bg-raised:   #1a1a24;
+  --bg-hover:    #1f1f2e;
+  --bg-overlay:  #242433;
+
+  /* Accents */
+  --accent:      #7c3aed;   /* violet-700 — primary */
+  --accent-soft: #8b5cf6;   /* violet-500 */
+  --accent-glow: rgba(124,58,237,0.18);
+  --green:       #10b981;   /* emerald-500 */
+  --green-soft:  rgba(16,185,129,0.12);
+  --amber:       #f59e0b;
+  --amber-soft:  rgba(245,158,11,0.12);
+  --red:         #ef4444;
+  --red-soft:    rgba(239,68,68,0.12);
+  --blue:        #3b82f6;
+  --blue-soft:   rgba(59,130,246,0.12);
+
+  /* Text */
+  --text-1: #f0f0f8;   /* headings, values */
+  --text-2: #9898b0;   /* labels, secondary */
+  --text-3: #5a5a72;   /* muted, disabled */
+
+  /* Borders */
+  --border:       #1e1e2c;
+  --border-soft:  #252536;
+  --border-focus: #7c3aed;
+
+  /* Sidebar */
+  --sidebar-w: 220px;
+  --sidebar-bg: #0a0a0e;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 24px rgba(124,58,237,0.12);
+}
+
+/* ─── LIGHT MODE ─────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-page:    #f4f4f8;
+  --bg-card:    #ffffff;
+  --bg-raised:  #f0f0f6;
+  --bg-hover:   #e8e8f0;
+  --bg-overlay: #e0e0ec;
+
+  --text-1: #0f0f18;
+  --text-2: #52526a;
+  --text-3: #9090a8;
+
+  --border:      #e2e2ec;
+  --border-soft: #ebebf5;
+  --sidebar-bg:  #ffffff;
+
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+/* ─── BASE STYLES ─────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
   color-scheme: dark;
 }
 
+[data-theme="light"] {
+  color-scheme: light;
+}
+
 body {
-  @apply min-h-screen bg-gray-950 text-gray-100 antialiased;
+  background: var(--bg-page);
+  color: var(--text-1);
+  font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ─── SCROLLBAR ───────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 4px; }
+
+/* ─── SKELETON PULSE ──────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.skeleton {
+  background: var(--bg-raised);
+  border-radius: var(--r-sm);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ─── TRANSITIONS ─────────────────────────────────────────────── */
+a, button { transition: all 0.15s ease; }
+
+/* ─── SHARED FORM / BUTTON PRIMITIVES ─────────────────────────── */
+@layer components {
+  .btc-input {
+    width: 100%;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-raised);
+    color: var(--text-1);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btc-input::placeholder {
+    color: var(--text-3);
+  }
+  .btc-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 1px rgb(124 58 237 / 0.3);
+  }
+  .btc-select {
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-raised);
+    color: var(--text-1);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+  }
+  .btc-select:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 1px rgb(124 58 237 / 0.3);
+  }
+  .btc-btn-primary {
+    border-radius: var(--r-md);
+    background: var(--accent);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .btc-btn-primary:hover {
+    background: var(--accent-soft);
+  }
+  .btc-btn-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .btc-btn-secondary {
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-raised);
+    color: var(--text-1);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+  .btc-btn-secondary:hover {
+    border-color: var(--accent);
+  }
+  .btc-card {
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+  }
+  .btc-pill-active {
+    border-radius: 9999px;
+    background: var(--accent);
+    color: #fff;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+  }
+  .btc-pill {
+    border-radius: 9999px;
+    color: var(--text-2);
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+  }
+  .btc-pill:hover {
+    background: var(--bg-raised);
+  }
+}
+
+/* ─── DONUT / PAGE ANIMATIONS ─────────────────────────────────── */
+@keyframes donut-fill {
+  from { stroke-dashoffset: var(--circumference); }
+  to   { stroke-dashoffset: var(--offset); }
+}
+
+.donut-ring {
+  animation: donut-fill 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: center;
+  transform: rotate(-90deg);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter {
+  animation: fade-in 0.2s ease forwards;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes slide-in-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slide-out-down {
+  from { transform: translateY(0); opacity: 1; }
+  to   { transform: translateY(100%); opacity: 0; }
+}
+
+.drawer-enter { animation: slide-in-right 0.2s ease forwards; }
+.drawer-exit  { animation: slide-out-right 0.15s ease forwards; }
+
+@media (max-width: 767px) {
+  .drawer-enter { animation: slide-in-up 0.2s ease forwards; }
+  .drawer-exit  { animation: slide-out-down 0.15s ease forwards; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .donut-ring, .page-enter, .drawer-enter, .drawer-exit { animation: none; }
 }

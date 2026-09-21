@@ -57,7 +57,7 @@ export default async function OwnerFulfillmentPage(): Promise<JSX.Element> {
       key: 'ref',
       header: 'Order',
       render: (row) => (
-        <Link href={ROUTES.owner.orderDetail(row.order.id)} className="text-indigo-400 hover:text-indigo-300">
+        <Link href={ROUTES.owner.orderDetail(row.order.id)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
           {row.order.id.slice(0, 8).toUpperCase()}
         </Link>
       ),
@@ -76,7 +76,7 @@ export default async function OwnerFulfillmentPage(): Promise<JSX.Element> {
         <span>
           {row.order.createdAt.toLocaleString()}
           {isManualFulfillmentOverdue(row.order.createdAt) ? (
-            <span className="ml-2 text-xs text-yellow-400">Reminder due</span>
+            <span className="ml-2 text-xs text-[var(--amber)]">Reminder due</span>
           ) : null}
         </span>
       ),
@@ -98,7 +98,7 @@ export default async function OwnerFulfillmentPage(): Promise<JSX.Element> {
         <StatCard label="Completed today" value={String(completedToday)} />
         <StatCard label="Failed today" value={String(failedToday)} />
       </div>
-      <h2 className="mb-3 mt-8 text-sm font-medium text-gray-400">Manual pending (oldest first)</h2>
+      <h2 className="mb-3 mt-8 text-sm font-medium text-[var(--text-2)]">Manual pending (oldest first)</h2>
       <DataTable columns={columns} rows={rows} emptyMessage="No manual orders waiting." rowKey={(row) => row.order.id} />
     </>
   );

@@ -20,12 +20,13 @@
  */
 
 import { sendFileDelivery, sendTextDelivery } from '@/integrations/telegram/delivery';
+import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import {
   fulfillSupplier as fulfillSupplierOrder,
   retrySupplierDelivery,
 } from './supplier';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
-import { AppError, FulfillmentError } from '@/lib/errors';
+import { AppError, FulfillmentError, NotFoundError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { getOwnerBotToken } from '@/lib/owner-bot';
 import { decrypt } from '@/lib/encryption';
@@ -480,8 +481,13 @@ export async function deliverViaBot(supabase: DbClient, order: Order, signedUrl:
  *
  * @param supabase - Database client
  * @param order - Fulfilled order
+ * @param deliveryContent - Optional reseller-supplied delivery payload
  */
-export async function deliverManualCompletion(supabase: DbClient, order: Order): Promise<void> {
+export async function deliverManualCompletion(
+  supabase: DbClient,
+  order: Order,
+  deliveryContent?: string,
+): Promise<void> {
   const fulfillments = await listFulfillmentAttempts(supabase, order.id);
   const fulfillment = fulfillments[0];
   if (fulfillment === undefined) {
@@ -506,7 +512,11 @@ export async function deliverManualCompletion(supabase: DbClient, order: Order):
     if (!token) {
       throw new Error('bot unavailable');
     }
-    await sendTextDelivery(token, customer.telegramChatId, FULFILLMENT_CONFIG.delivery.orderDelivered);
+    const message =
+      deliveryContent && deliveryContent.length > 0
+        ? `✅ *Your order has been delivered!*\n\n${sanitizeForTelegram(deliveryContent)}`
+        : FULFILLMENT_CONFIG.delivery.orderDelivered;
+    await sendTextDelivery(token, customer.telegramChatId, message);
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'telegram text sent' });
     const latest = await getOrder(supabase, order.id);
     if (latest.deliveryStatus === 'sending') {
@@ -682,6 +692,7 @@ export async function markManualFulfilled(
   orderId: string,
   actorId: string,
   note?: string,
+  deliveryContent?: string,
 ): Promise<void> {
   const order = await getOrder(supabase, orderId);
   if (order.fulfillmentStatus !== 'manual_pending') {
@@ -709,7 +720,7 @@ export async function markManualFulfilled(
   }
 
   const ready = await getOrder(supabase, orderId);
-  await deliverManualCompletion(supabase, ready);
+  await deliverManualCompletion(supabase, ready, deliveryContent);
   await writeAuditLog(supabase, {
     actorId,
     action: 'fulfillment.manual.complete',
@@ -717,6 +728,27 @@ export async function markManualFulfilled(
     reason: note ?? 'owner marked fulfilled',
     afterVal: { fulfillmentStatus: 'ready' },
   });
+}
+
+/**
+ * Reseller delivers manual content for an order owned by their tenant.
+ */
+export async function deliverResellerManualOrder(
+  supabase: DbClient,
+  orderId: string,
+  tenantId: string,
+  actorId: string,
+  content: string,
+): Promise<void> {
+  const cleaned = sanitizeInput(content);
+  if (cleaned.length < 1 || cleaned.length > 3500) {
+    throw new ValidationError('INVALID_DELIVERY', 'Delivery content must be between 1 and 3500 characters');
+  }
+  const order = await getOrder(supabase, orderId);
+  if (order.tenantId !== tenantId) {
+    throw new NotFoundError('order');
+  }
+  await markManualFulfilled(supabase, orderId, actorId, 'reseller delivered', cleaned);
 }
 
 /**

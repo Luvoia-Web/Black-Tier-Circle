@@ -7,7 +7,7 @@
  */
 
 import { decrypt, encrypt } from '@/lib/encryption';
-import { AppError, NotFoundError, TenantError, ValidationError } from '@/lib/errors';
+import { AppError, NotFoundError, TenantError, ValidationError, WalletError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
@@ -46,6 +46,25 @@ export { OWNER_STORE_BOT_ID };
 
 const SANDBOX_NOW = new Date('2026-01-01T00:00:00.000Z');
 
+/**
+ * Rejects Telegram webhook registration when the app origin is not publicly reachable.
+ *
+ * Telegram will not deliver updates to localhost or loopback addresses.
+ * Local development must run `npm run tunnel` so NEXT_PUBLIC_APP_URL is an HTTPS origin.
+ *
+ * @throws AppError WEBHOOK_URL_NOT_PUBLIC when the origin is localhost or 127.0.0.1
+ */
+function assertWebhookUrlIsPublic(): void {
+  const appUrl = getAppUrl();
+  if (appUrl.includes('localhost') || appUrl.includes('127.0.0.1')) {
+    throw new AppError(
+      'WEBHOOK_URL_NOT_PUBLIC',
+      'Bot connection requires a public URL. Run "npm run tunnel" in a separate terminal first, then restart the dev server.',
+      400,
+    );
+  }
+}
+
 function asConnectionRow(data: unknown): BotConnectionRow {
   return data as BotConnectionRow;
 }
@@ -82,9 +101,12 @@ export function getSandboxBot(tenantId: string): BotConnection {
  *
  * @param supabase - Service-role database client
  * @param input - Tenant id and plaintext token (encrypted immediately)
+ * @throws AppError WEBHOOK_URL_NOT_PUBLIC when NEXT_PUBLIC_APP_URL is localhost
  * SECURITY: bot token encrypted immediately, never returned
  */
 export async function connectBot(supabase: DbClient, input: ConnectBotInput): Promise<BotConnection> {
+  assertWebhookUrlIsPublic();
+
   const token = input.botToken.trim();
   if (token.length === 0) {
     throw new ValidationError('INVALID_BOT_TOKEN', 'Bot token is required');
@@ -410,16 +432,14 @@ export async function getCustomerById(supabase: DbClient, customerId: string): P
   return mapCustomerRow(asCustomerRow(data));
 }
 
-/**
- * Blocks a customer from placing orders via the bot.
- *
- * @param supabase - Database client
- * @param customerId - Customer UUID
- */
-export async function blockCustomer(supabase: DbClient, customerId: string): Promise<void> {
+export async function setCustomerBlocked(
+  supabase: DbClient,
+  customerId: string,
+  blocked: boolean,
+): Promise<void> {
   const { data, error } = await supabase
     .from('customers')
-    .update({ is_blocked: true, updated_at: new Date().toISOString() })
+    .update({ is_blocked: blocked, updated_at: new Date().toISOString() })
     .eq('id', customerId)
     .select('id')
     .maybeSingle();
@@ -429,6 +449,49 @@ export async function blockCustomer(supabase: DbClient, customerId: string): Pro
   if (data === null) {
     throw new NotFoundError('customer');
   }
+}
+
+/**
+ * Adjusts mapped buyer credit on the customers row.
+ */
+export async function adjustCustomerCredit(
+  supabase: DbClient,
+  customerId: string,
+  deltaMinor: bigint,
+): Promise<bigint> {
+  const { data, error } = await supabase.rpc('adjust_customer_credit', {
+    p_customer_id: customerId,
+    p_delta: deltaMinor.toString(),
+  });
+  const row = Array.isArray(data) ? data[0] : null;
+  const result =
+    row && typeof row === 'object'
+      ? (row as { success?: boolean; new_balance?: string | number | bigint; error_code?: string | null })
+      : null;
+  if (error || !result?.success) {
+    throw new WalletError(
+      result?.error_code ?? 'CREDIT_ADJUST_FAILED',
+      'Failed to adjust customer credit',
+    );
+  }
+  const balance = result.new_balance;
+  if (typeof balance === 'bigint') {
+    return balance;
+  }
+  if (typeof balance === 'string' || typeof balance === 'number') {
+    return BigInt(balance);
+  }
+  throw new WalletError('CREDIT_ADJUST_FAILED', 'Failed to adjust customer credit');
+}
+
+/**
+ * Blocks a customer from placing orders via the bot.
+ *
+ * @param supabase - Database client
+ * @param customerId - Customer UUID
+ */
+export async function blockCustomer(supabase: DbClient, customerId: string): Promise<void> {
+  await setCustomerBlocked(supabase, customerId, true);
 }
 
 /**

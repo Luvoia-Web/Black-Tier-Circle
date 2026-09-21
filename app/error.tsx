@@ -8,6 +8,8 @@
 
 'use client';
 
+import { useEffect, useMemo } from 'react';
+
 type ErrorPageProps = {
   readonly error: Error & { digest?: string };
   readonly reset: () => void;
@@ -16,18 +18,43 @@ type ErrorPageProps = {
 /**
  * Generic error page for unexpected render failures.
  */
-export default function ErrorPage({ reset }: ErrorPageProps): JSX.Element {
+export default function ErrorPage({ error, reset }: ErrorPageProps): JSX.Element {
+  const correlationId = useMemo(() => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `err-${Date.now()}`;
+  }, []);
+
+  useEffect(() => {
+    console.error(
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'error',
+        service: 'black-tier-circle',
+        message: 'render error boundary',
+        correlationId,
+        code: error.digest ?? 'RENDER_ERROR',
+      }),
+    );
+  }, [correlationId, error.digest]);
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-4 bg-gray-950 p-8 text-gray-100">
-      <h1 className="text-3xl font-semibold">Something went wrong</h1>
-      <p className="text-gray-400">An unexpected error occurred. Try again, or return later if it persists.</p>
-      <button
-        type="button"
-        onClick={reset}
-        className="w-fit rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      >
-        Try again
-      </button>
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--bg-page)] p-8 text-center">
+      <p className="text-8xl font-black text-[var(--text-3)]">!</p>
+      <h1 className="text-xl font-semibold text-[var(--text-1)]">Something went wrong</h1>
+      <p className="max-w-sm text-sm text-[var(--text-2)]">
+        An unexpected error occurred. Try again, or contact support if it persists.
+      </p>
+      <p className="text-xs text-[var(--text-3)]">Reference: {correlationId}</p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <button type="button" onClick={reset} className="btc-btn-primary">
+          Try again
+        </button>
+        <a href="mailto:support@blacktiercircle.com" className="btc-btn-secondary">
+          Contact support
+        </a>
+      </div>
     </main>
   );
 }

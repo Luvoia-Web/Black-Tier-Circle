@@ -10,9 +10,11 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { Eye } from 'lucide-react';
 import { MarkFulfilledButton } from '@/components/orders/mark-fulfilled-button';
 import { TrackBadge } from '@/components/orders/track-badge';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { OrderDetailModal } from '@/components/ui/OrderDetailModal';
 import { PageHeader } from '@/components/ui/page-header';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { OwnerOrderTab } from '@/modules/fulfillment';
@@ -61,6 +63,7 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -95,7 +98,7 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
       key: 'ref',
       header: 'Order',
       render: (row) => (
-        <Link href={ROUTES.owner.orderDetail(row.orderId)} className="text-indigo-400 hover:text-indigo-300">
+        <Link href={ROUTES.owner.orderDetail(row.orderId)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
           {row.orderId.slice(0, 8).toUpperCase()}
         </Link>
       ),
@@ -112,7 +115,7 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
       render: (row) => (
         <span>
           {new Date(row.createdAt).toLocaleString()}
-          {row.overdue ? <span className="ml-2 text-xs text-yellow-400">Overdue</span> : null}
+          {row.overdue ? <span className="ml-2 text-xs text-[var(--amber)]">Overdue</span> : null}
         </span>
       ),
     },
@@ -122,26 +125,40 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
       render: (row) =>
         row.fulfillmentStatus === 'manual_pending' ? <MarkFulfilledButton orderId={row.orderId} /> : null,
     },
+    {
+      key: 'view',
+      header: '',
+      render: (row) => (
+        <button
+          type="button"
+          aria-label="View order"
+          onClick={() => setSelectedOrderId(row.orderId)}
+          className="text-[var(--text-3)] hover:text-[var(--text-1)]"
+        >
+          <Eye size={16} />
+        </button>
+      ),
+    },
   ];
 
   return (
     <>
       <PageHeader title="Orders" description="All customer orders across channels" />
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
-          <p className="text-xs text-gray-400">Total today</p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-xs text-[var(--text-2)]">Total today</p>
           <p className="text-xl font-semibold">{stats.totalToday}</p>
         </div>
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
-          <p className="text-xs text-gray-400">Pending payment</p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-xs text-[var(--text-2)]">Pending payment</p>
           <p className="text-xl font-semibold">{stats.pendingPayment}</p>
         </div>
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
-          <p className="text-xs text-gray-400">Pending fulfillment</p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-xs text-[var(--text-2)]">Pending fulfillment</p>
           <p className="text-xl font-semibold">{stats.pendingFulfillment}</p>
         </div>
-        <div className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
-          <p className="text-xs text-gray-400">Completed today</p>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <p className="text-xs text-[var(--text-2)]">Completed today</p>
           <p className="text-xl font-semibold">{stats.completedToday}</p>
         </div>
       </div>
@@ -151,8 +168,8 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
-            className={`rounded-md px-3 py-1.5 text-sm ${
-              tab === item.id ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-300'
+            className={`rounded-full px-3 py-1 text-xs ${
+              tab === item.id ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-2)] hover:bg-[var(--bg-raised)]'
             }`}
           >
             {item.label}
@@ -163,11 +180,18 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search by order ID (first 8 chars)"
-        className="mb-4 w-full max-w-sm rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm"
+        className="btc-input mb-4 max-w-sm"
       />
-      {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
-      {loading ? <p className="text-sm text-gray-400">Loading…</p> : null}
+      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
+      {loading ? <p className="text-sm text-[var(--text-2)]">Loading…</p> : null}
       <DataTable columns={columns} rows={rows} emptyMessage="No orders in this tab." rowKey={(row) => row.orderId} />
+      <OrderDetailModal
+        orderId={selectedOrderId}
+        onClose={() => setSelectedOrderId(null)}
+        onActionComplete={() => {
+          void load();
+        }}
+      />
     </>
   );
 }
