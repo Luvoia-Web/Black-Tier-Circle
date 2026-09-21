@@ -1,9 +1,4 @@
 {
-  "crons": [
-    { "path": "/api/bots/health", "schedule": "*/30 * * * *" },
-    { "path": "/api/fulfillment/process", "schedule": "*/2 * * * *" },
-    { "path": "/api/supplier/reconcile", "schedule": "*/15 * * * *" }
-  ],
   "functions": {
     "app/api/webhooks/telegram/[botId]/route.ts": {
       "maxDuration": 10
