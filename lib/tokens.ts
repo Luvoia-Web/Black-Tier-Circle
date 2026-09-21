@@ -12,6 +12,16 @@
 
 import { randomBytes } from 'node:crypto';
 
+/**
+ * Generates a webhook secret for Telegram `secret_token`.
+ *
+ * @returns 64-character hex string (32 bytes)
+ * SECURITY: Uses crypto.randomBytes — never Math.random().
+ */
+export function generateWebhookSecret(): string {
+  return randomBytes(32).toString('hex');
+}
+
 const TOKEN_LENGTH = 12;
 const TWELVE_DIGIT_MIN = 100_000_000_000n;
 const TWELVE_DIGIT_SPAN = 900_000_000_000n;

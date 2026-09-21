@@ -8,12 +8,6 @@
 
 import { z } from 'zod';
 
-export const LoginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-  next: z.string().optional(),
-});
-
 export const InviteCreateSchema = z.object({
   email: z.string().email(),
 });
@@ -29,7 +23,6 @@ export const UpdateTenantStatusSchema = z.object({
   status: z.enum(['active', 'suspended']),
 });
 
-export type LoginInput = z.infer<typeof LoginSchema>;
 export type InviteCreateInput = z.infer<typeof InviteCreateSchema>;
 export type InviteAcceptInput = z.infer<typeof InviteAcceptSchema>;
 export type UpdateTenantStatusInput = z.infer<typeof UpdateTenantStatusSchema>;

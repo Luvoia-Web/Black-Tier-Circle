@@ -23,6 +23,7 @@ export const ROUTES = {
     productDetail: (id: string) => `/owner/products/${id}`,
     productEdit: (id: string) => `/owner/products/${id}/edit`,
     orders: '/owner/orders',
+    bots: '/owner/bots',
     settings: '/owner/settings',
     tokens: '/owner/tokens',
     wallets: '/owner/wallets',
@@ -42,7 +43,6 @@ export const ROUTES = {
 export const API_PREFIX = '/api';
 
 export const API_ROUTES = {
-  authLogin: `${API_PREFIX}/auth/login`,
   authLogout: `${API_PREFIX}/auth/logout`,
   invitationsCreate: `${API_PREFIX}/invitations/create`,
   invitationsAccept: `${API_PREFIX}/invitations/accept`,
@@ -70,6 +70,11 @@ export const API_ROUTES = {
   adminWallet: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}`,
   adminWalletCredit: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}/credit`,
   adminWalletDebit: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}/debit`,
+  adminBots: `${API_PREFIX}/admin/bots`,
+  botsConnect: `${API_PREFIX}/bots/connect`,
+  botsDisconnect: `${API_PREFIX}/bots/disconnect`,
+  botsStatus: `${API_PREFIX}/bots/status`,
+  botsHealth: `${API_PREFIX}/bots/health`,
 } as const;
 
 /**

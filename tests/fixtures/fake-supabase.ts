@@ -225,6 +225,35 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ success: true, error_code: null }], error: null };
     }
 
+    if (fn === 'release_wallet_reservation') {
+      const orderId = String(args.p_order_id);
+      const reservations = tableOf('wallet_reservations');
+      const existing = reservations.find(
+        (row) => String(row.order_id) === orderId && String(row.status) === 'active',
+      );
+      if (!existing) {
+        return { data: [{ success: false, error_code: 'RESERVATION_NOT_FOUND' }], error: null };
+      }
+      const wallet = tableOf('wallets').find((row) => String(row.id) === String(existing.wallet_id));
+      if (!wallet) {
+        return { data: [{ success: false, error_code: 'WALLET_NOT_FOUND' }], error: null };
+      }
+      wallet.balance_reserved = (asMinor(wallet.balance_reserved) - asMinor(existing.amount)).toString();
+      wallet.updated_at = nowIso();
+      existing.status = 'released';
+      existing.updated_at = nowIso();
+      appendLedger({
+        wallet_id: wallet.id,
+        entry_type: 'reservation_release',
+        amount: '0',
+        balance_after: asMinor(wallet.balance_total).toString(),
+        reference_id: orderId,
+        reference_type: 'order',
+        note: args.p_reason ?? 'Order cancelled',
+      });
+      return { data: [{ success: true, error_code: null }], error: null };
+    }
+
     if (fn === 'manual_wallet_credit') {
       const walletId = String(args.p_wallet_id);
       const amount = asMinor(args.p_amount);

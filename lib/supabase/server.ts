@@ -12,8 +12,11 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 function requirePublicEnv(name: 'NEXT_PUBLIC_SUPABASE_URL' | 'NEXT_PUBLIC_SUPABASE_ANON_KEY'): string {
   const value = process.env[name];
@@ -39,9 +42,7 @@ export function createServerSupabaseClient(): ReturnType<typeof createServerClie
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(
-          cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>,
-        ) {
+        setAll(cookiesToSet: CookieToSet[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
@@ -55,4 +56,48 @@ export function createServerSupabaseClient(): ReturnType<typeof createServerClie
       },
     },
   );
+}
+
+/**
+ * Route-handler client that copies auth cookies onto the JSON response.
+ * `cookies().set()` alone is not always attached to `NextResponse.json()`.
+ */
+export function createAuthRouteClient(): {
+  readonly supabase: ReturnType<typeof createServerClient>;
+  readonly applyCookies: <T extends NextResponse>(response: T) => T;
+} {
+  const cookieStore = cookies();
+  const pending: CookieToSet[] = [];
+
+  const supabase = createServerClient(
+    requirePublicEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requirePublicEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet: CookieToSet[]) {
+          cookiesToSet.forEach((cookie) => {
+            pending.push(cookie);
+            try {
+              cookieStore.set(cookie.name, cookie.value, cookie.options);
+            } catch {
+              // Response.cookies.set below is the source of truth for fetch().
+            }
+          });
+        },
+      },
+    },
+  );
+
+  return {
+    supabase,
+    applyCookies(response) {
+      pending.forEach(({ name, value, options }) => {
+        response.cookies.set(name, value, options);
+      });
+      return response;
+    },
+  };
 }

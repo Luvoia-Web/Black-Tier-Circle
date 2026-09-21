@@ -1,24 +1,31 @@
 /**
  * @file modules/orders/state-machine.ts
  *
- * Four-track order state machine stubs.
+ * Order state transitions for all four independent tracks:
+ * - payment_status: how the customer pays
+ * - funding_status: reseller wallet reservation
+ * - fulfillment_status: preparing the product
+ * - delivery_status: sending to the customer via Telegram
  *
- * Each track fails and recovers independently. Transitions are validated
- * against an allow-list so illegal jumps cannot silently succeed.
+ * Each track transitions independently.
+ * A transition is only valid if the current status allows it.
+ * Invalid transitions throw an AppError — never silently ignored.
  *
- * @module Orders
+ * INVARIANT: State transitions are always recorded in order_events (append-only).
  */
 
-import { ValidationError } from '@/lib/errors';
+import { AppError } from '@/lib/errors';
+import type { DbClient } from '@/lib/supabase/query';
 import type {
-  OrderDeliveryStatus,
-  OrderFulfillmentStatus,
-  OrderFundingStatus,
-  OrderPaymentStatus,
+  DeliveryStatus,
+  FulfillmentStatus,
+  FundingStatus,
   OrderTrack,
+  PaymentStatus,
+  RecordTransitionOptions,
 } from './types';
 
-const PAYMENT_TRANSITIONS: Readonly<Record<OrderPaymentStatus, readonly OrderPaymentStatus[]>> = {
+const PAYMENT_TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   not_required: [],
   awaiting: ['pending_verification', 'expired', 'failed'],
   pending_verification: ['verified', 'failed', 'expired'],
@@ -30,7 +37,7 @@ const PAYMENT_TRANSITIONS: Readonly<Record<OrderPaymentStatus, readonly OrderPay
   disputed: ['verified', 'refunded'],
 };
 
-const FUNDING_TRANSITIONS: Readonly<Record<OrderFundingStatus, readonly OrderFundingStatus[]>> = {
+const FUNDING_TRANSITIONS: Readonly<Record<FundingStatus, readonly FundingStatus[]>> = {
   not_applicable: [],
   reserved: ['debited', 'released'],
   debited: ['reversal_pending'],
@@ -39,9 +46,7 @@ const FUNDING_TRANSITIONS: Readonly<Record<OrderFundingStatus, readonly OrderFun
   reversed: [],
 };
 
-const FULFILLMENT_TRANSITIONS: Readonly<
-  Record<OrderFulfillmentStatus, readonly OrderFulfillmentStatus[]>
-> = {
+const FULFILLMENT_TRANSITIONS: Readonly<Record<FulfillmentStatus, readonly FulfillmentStatus[]>> = {
   queued: ['manual_pending', 'supplier_pending', 'ready', 'canceled', 'failed'],
   manual_pending: ['ready', 'failed', 'canceled'],
   supplier_pending: ['outcome_unknown', 'ready', 'failed', 'canceled'],
@@ -51,7 +56,7 @@ const FULFILLMENT_TRANSITIONS: Readonly<
   canceled: [],
 };
 
-const DELIVERY_TRANSITIONS: Readonly<Record<OrderDeliveryStatus, readonly OrderDeliveryStatus[]>> = {
+const DELIVERY_TRANSITIONS: Readonly<Record<DeliveryStatus, readonly DeliveryStatus[]>> = {
   not_ready: ['queued'],
   queued: ['sending'],
   sending: ['sent', 'retry_pending', 'unreachable', 'review_required'],
@@ -61,77 +66,180 @@ const DELIVERY_TRANSITIONS: Readonly<Record<OrderDeliveryStatus, readonly OrderD
   review_required: ['queued'],
 };
 
-function assertAllowed<T extends string>(
-  track: OrderTrack,
-  fromStatus: T,
-  toStatus: T,
-  allowed: readonly T[],
-): void {
-  if (!allowed.includes(toStatus)) {
-    throw new ValidationError(
+const ORDER_STATUS_COLUMNS: Record<OrderTrack, string> = {
+  payment: 'payment_status',
+  funding: 'funding_status',
+  fulfillment: 'fulfillment_status',
+  delivery: 'delivery_status',
+};
+
+function includesStatus(allowed: readonly string[] | undefined, toStatus: string): boolean {
+  return allowed !== undefined && allowed.includes(toStatus);
+}
+
+/**
+ * Returns whether a payment transition is allowed.
+ */
+export function canTransitionPayment(from: string, to: string): boolean {
+  return includesStatus(PAYMENT_TRANSITIONS[from as PaymentStatus], to);
+}
+
+/**
+ * Returns whether a funding transition is allowed.
+ */
+export function canTransitionFunding(from: string, to: string): boolean {
+  return includesStatus(FUNDING_TRANSITIONS[from as FundingStatus], to);
+}
+
+/**
+ * Returns whether a fulfillment transition is allowed.
+ */
+export function canTransitionFulfillment(from: string, to: string): boolean {
+  return includesStatus(FULFILLMENT_TRANSITIONS[from as FulfillmentStatus], to);
+}
+
+/**
+ * Returns whether a delivery transition is allowed.
+ */
+export function canTransitionDelivery(from: string, to: string): boolean {
+  return includesStatus(DELIVERY_TRANSITIONS[from as DeliveryStatus], to);
+}
+
+function canTransition(track: OrderTrack, fromStatus: string, toStatus: string): boolean {
+  if (track === 'payment') {
+    return canTransitionPayment(fromStatus, toStatus);
+  }
+  if (track === 'funding') {
+    return canTransitionFunding(fromStatus, toStatus);
+  }
+  if (track === 'fulfillment') {
+    return canTransitionFulfillment(fromStatus, toStatus);
+  }
+  return canTransitionDelivery(fromStatus, toStatus);
+}
+
+function assertAllowed(track: OrderTrack, fromStatus: string, toStatus: string): void {
+  if (!canTransition(track, fromStatus, toStatus)) {
+    throw new AppError(
       'ILLEGAL_ORDER_TRANSITION',
       `Illegal ${track} transition from ${fromStatus} to ${toStatus}`,
+      400,
     );
   }
 }
 
 /**
  * Transitions payment status if the jump is allowed.
- *
- * @param fromStatus - Current payment status
- * @param toStatus - Requested payment status
- * @returns The new status
- * @throws ValidationError on an illegal transition
  */
-export function transitionPayment(
-  fromStatus: OrderPaymentStatus,
-  toStatus: OrderPaymentStatus,
-): OrderPaymentStatus {
-  assertAllowed('payment', fromStatus, toStatus, PAYMENT_TRANSITIONS[fromStatus]);
+export function transitionPayment(fromStatus: PaymentStatus, toStatus: PaymentStatus): PaymentStatus {
+  assertAllowed('payment', fromStatus, toStatus);
   return toStatus;
 }
 
 /**
  * Transitions funding status if the jump is allowed.
- *
- * @param fromStatus - Current funding status
- * @param toStatus - Requested funding status
- * @returns The new status
  */
-export function transitionFunding(
-  fromStatus: OrderFundingStatus,
-  toStatus: OrderFundingStatus,
-): OrderFundingStatus {
-  assertAllowed('funding', fromStatus, toStatus, FUNDING_TRANSITIONS[fromStatus]);
+export function transitionFunding(fromStatus: FundingStatus, toStatus: FundingStatus): FundingStatus {
+  assertAllowed('funding', fromStatus, toStatus);
   return toStatus;
 }
 
 /**
  * Transitions fulfillment status if the jump is allowed.
- *
- * @param fromStatus - Current fulfillment status
- * @param toStatus - Requested fulfillment status
- * @returns The new status
  */
 export function transitionFulfillment(
-  fromStatus: OrderFulfillmentStatus,
-  toStatus: OrderFulfillmentStatus,
-): OrderFulfillmentStatus {
-  assertAllowed('fulfillment', fromStatus, toStatus, FULFILLMENT_TRANSITIONS[fromStatus]);
+  fromStatus: FulfillmentStatus,
+  toStatus: FulfillmentStatus,
+): FulfillmentStatus {
+  assertAllowed('fulfillment', fromStatus, toStatus);
   return toStatus;
 }
 
 /**
  * Transitions delivery status if the jump is allowed.
- *
- * @param fromStatus - Current delivery status
- * @param toStatus - Requested delivery status
- * @returns The new status
  */
-export function transitionDelivery(
-  fromStatus: OrderDeliveryStatus,
-  toStatus: OrderDeliveryStatus,
-): OrderDeliveryStatus {
-  assertAllowed('delivery', fromStatus, toStatus, DELIVERY_TRANSITIONS[fromStatus]);
+export function transitionDelivery(fromStatus: DeliveryStatus, toStatus: DeliveryStatus): DeliveryStatus {
+  assertAllowed('delivery', fromStatus, toStatus);
   return toStatus;
+}
+
+/**
+ * Validates a transition, appends an order_events row, and updates the order status column.
+ *
+ * @param supabase - Database client
+ * @param orderId - Order UUID
+ * @param track - Independent status track
+ * @param fromStatus - Current status
+ * @param toStatus - Requested status
+ * @param options - Optional actor, trigger, and note
+ */
+export async function recordTransition(
+  supabase: DbClient,
+  orderId: string,
+  track: OrderTrack,
+  fromStatus: string,
+  toStatus: string,
+  options?: RecordTransitionOptions,
+): Promise<void> {
+  assertAllowed(track, fromStatus, toStatus);
+  const { error: eventError } = await supabase.from('order_events').insert({
+    order_id: orderId,
+    track,
+    from_status: fromStatus,
+    to_status: toStatus,
+    actor_id: options?.actorId ?? null,
+    trigger: options?.trigger ?? 'api',
+    note: options?.note ?? null,
+  });
+  if (eventError) {
+    throw new AppError('ORDER_EVENT_WRITE_FAILED', eventError.message, 500);
+  }
+  const column = ORDER_STATUS_COLUMNS[track];
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({ [column]: toStatus, updated_at: new Date().toISOString() })
+    .eq('id', orderId);
+  if (updateError) {
+    throw new AppError('ORDER_UPDATE_FAILED', updateError.message, 500);
+  }
+}
+
+/**
+ * Records the four initial track statuses without validating a from→to jump.
+ *
+ * @param supabase - Database client
+ * @param orderId - Order UUID
+ * @param statuses - Initial statuses
+ * @param trigger - Event trigger
+ */
+export async function recordInitialStatuses(
+  supabase: DbClient,
+  orderId: string,
+  statuses: {
+    readonly payment: PaymentStatus;
+    readonly funding: FundingStatus;
+    readonly fulfillment: FulfillmentStatus;
+    readonly delivery: DeliveryStatus;
+  },
+  trigger: 'webhook' | 'worker' | 'manual' | 'api' = 'api',
+): Promise<void> {
+  const tracks: ReadonlyArray<{ track: OrderTrack; toStatus: string }> = [
+    { track: 'payment', toStatus: statuses.payment },
+    { track: 'funding', toStatus: statuses.funding },
+    { track: 'fulfillment', toStatus: statuses.fulfillment },
+    { track: 'delivery', toStatus: statuses.delivery },
+  ];
+  for (const item of tracks) {
+    const { error } = await supabase.from('order_events').insert({
+      order_id: orderId,
+      track: item.track,
+      from_status: null,
+      to_status: item.toStatus,
+      trigger,
+      note: 'initial',
+    });
+    if (error) {
+      throw new AppError('ORDER_EVENT_WRITE_FAILED', error.message, 500);
+    }
+  }
 }

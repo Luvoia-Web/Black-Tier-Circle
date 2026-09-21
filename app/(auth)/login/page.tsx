@@ -1,7 +1,8 @@
 /**
  * @file app/(auth)/login/page.tsx
  *
- * Email/password sign-in. Resellers join only via invite — no sign-up link.
+ * Email/password sign-in via the Supabase browser client.
+ * Resellers join only via invite — no sign-up link.
  *
  * @module Auth
  */
@@ -10,7 +11,13 @@
 
 import { type FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import { dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
+import { createBrowserSupabaseClient } from '@/lib/supabase/client';
+import type { UserRole } from '@/modules/identity/types';
+
+function isUserRole(value: unknown): value is UserRole {
+  return value === 'owner' || value === 'reseller' || value === 'staff';
+}
 
 function LoginForm(): JSX.Element {
   const router = useRouter();
@@ -20,35 +27,76 @@ function LoginForm(): JSX.Element {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  async function signInWithGoogle(): Promise<void> {
+    setError(null);
+    setGoogleLoading(true);
+    try {
+      const origin =
+        (typeof window !== 'undefined' && window.location.origin) ||
+        process.env.NEXT_PUBLIC_APP_URL;
+      if (!origin) {
+        setError('Unable to start Google sign-in. Try again.');
+        setGoogleLoading(false);
+        return;
+      }
+
+      const supabase = createBrowserSupabaseClient();
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${origin.replace(/\/$/, '')}/auth/callback` },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setGoogleLoading(false);
+      }
+    } catch {
+      setError('Unable to start Google sign-in. Try again.');
+      setGoogleLoading(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const payload: { email: string; password: string; next?: string } = { email, password };
-      if (next) {
-        payload.next = next;
-      }
-      const response = await fetch(API_ROUTES.authLogin, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const supabase = createBrowserSupabaseClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
       });
-      const json = (await response.json()) as {
-        success: boolean;
-        data?: { redirectTo: string };
-        error?: { code: string; message: string };
-      };
-      if (!json.success) {
-        if (json.error?.code === 'ACCOUNT_SUSPENDED') {
-          setError('This account has been suspended. Contact the owner.');
-        } else {
-          setError(json.error?.message ?? 'Invalid credentials');
-        }
+      if (signInError || data.user === null) {
+        setError('Invalid email or password');
         return;
       }
-      router.replace(json.data?.redirectTo ?? ROUTES.owner.home);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, status')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profileError || profile === null) {
+        setError('Unable to load your profile. Contact support.');
+        return;
+      }
+
+      const row = profile as { role: unknown; status: unknown };
+      if (row.status === 'suspended') {
+        setError('This account has been suspended. Contact the owner.');
+        await supabase.auth.signOut();
+        return;
+      }
+      if (!isUserRole(row.role)) {
+        setError('Unable to load your profile. Contact support.');
+        return;
+      }
+
+      const destination =
+        next !== null && isSafeNextPath(next, row.role) ? next : dashboardHomeForRole(row.role);
+      router.push(destination);
       router.refresh();
     } catch {
       setError('Unable to sign in. Try again.');
@@ -58,7 +106,24 @@ function LoginForm(): JSX.Element {
   }
 
   return (
-    <form onSubmit={(event) => void onSubmit(event)} className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      <button
+        type="button"
+        disabled={googleLoading || loading}
+        onClick={() => void signInWithGoogle()}
+        className="flex items-center justify-center gap-2 rounded-md border border-gray-700 bg-white px-4 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {googleLoading ? 'Redirecting to Google…' : 'Sign in with Google'}
+      </button>
+      {error ? (
+        <p className="rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+      ) : null}
+      <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-gray-500">
+        <span className="h-px flex-1 bg-gray-800" />
+        or continue with email
+        <span className="h-px flex-1 bg-gray-800" />
+      </div>
+      <form onSubmit={(event) => void onSubmit(event)} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm text-gray-400">
         Email
         <input
@@ -83,9 +148,6 @@ function LoginForm(): JSX.Element {
           className="rounded-md border border-gray-800 bg-gray-900 px-3 py-2 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
       </label>
-      {error ? (
-        <p className="rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
-      ) : null}
       <button
         type="submit"
         disabled={loading}
@@ -94,6 +156,7 @@ function LoginForm(): JSX.Element {
         {loading ? 'Signing in…' : 'Sign In'}
       </button>
     </form>
+    </div>
   );
 }
 

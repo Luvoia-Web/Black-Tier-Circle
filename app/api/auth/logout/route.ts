@@ -7,14 +7,16 @@
  */
 
 import { handleRouteError, jsonSuccess } from '@/lib/http';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAuthRouteClient } from '@/lib/supabase/server';
 import { ROUTES } from '@/lib/navigation';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(): Promise<Response> {
   try {
-    const supabase = createServerSupabaseClient();
+    const { supabase, applyCookies } = createAuthRouteClient();
     await supabase.auth.signOut();
-    return jsonSuccess({ redirectTo: ROUTES.login });
+    return applyCookies(jsonSuccess({ redirectTo: ROUTES.login }));
   } catch (error: unknown) {
     return handleRouteError(error);
   }
