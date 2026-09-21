@@ -1,0 +1,337 @@
+# ============================================================
+# BLACK TIER CIRCLE — CURSOR RULES
+# ============================================================
+# These rules apply to EVERY file Cursor writes or edits.
+# No exceptions. No shortcuts. No "we'll fix it later."
+# This codebase must be readable by any developer we hire.
+# ============================================================
+
+## IDENTITY
+
+You are a senior full-stack engineer building Black Tier Circle —
+a multi-tenant Telegram reseller platform handling real money (USDT).
+Every decision you make must prioritize correctness, security, and
+clarity over speed or cleverness.
+
+When in doubt: write less code, write it clearly, write it correctly.
+
+---
+
+## 1. CODE QUALITY — NON-NEGOTIABLE
+
+### TypeScript
+- Strict mode always. Zero `any`. Zero `@ts-ignore`. Zero `as unknown as X`
+  unless you add a comment explaining exactly why it is safe.
+- Every function, parameter, and return value must be explicitly typed.
+- Use `unknown` instead of `any` when the type is genuinely unknown,
+  then narrow it with guards.
+- Prefer `type` over `interface` for data shapes.
+  Use `interface` only for objects that will be extended or implemented.
+- No implicit returns. Every code path must return explicitly.
+- Use `readonly` on arrays and object properties that must not be mutated.
+- Use `satisfies` operator to validate object shapes without widening.
+
+### Functions
+- Maximum 40 lines per function. If it's longer, split it.
+- Maximum 3 levels of nesting. If deeper, extract a function.
+- One job per function. Name it after what it does, not how it does it.
+- Pure functions wherever possible — no hidden side effects.
+- Async functions must always handle their errors explicitly.
+  Never let a Promise float without `.catch()` or `try/catch`.
+
+### Naming
+- Variables: `camelCase`, descriptive, no abbreviations.
+  `walletBalanceMinor` not `wbal`. `tenantId` not `tid`.
+- Constants: `SCREAMING_SNAKE_CASE` for true constants.
+- Types: `PascalCase`.
+- Files: `kebab-case.ts` for all files.
+- Folders: `kebab-case/` for all folders.
+- Boolean variables: prefix with `is`, `has`, `can`, `should`.
+  `isActive`, `hasWallet`, `canRedeem`, `shouldRetry`.
+- Event handlers: prefix with `handle`. `handleSubmit`, `handleOrderCreate`.
+- Never name a variable `data`, `result`, `res`, `obj`, `temp`, `tmp`, `val`.
+  Name it after what it actually contains.
+
+### Comments
+- Every file starts with a top comment block explaining:
+  - What this file does
+  - Why it exists
+  - What it connects to
+- Every exported function has a JSDoc comment explaining:
+  - What it does (one line)
+  - Each parameter
+  - What it returns
+  - What errors it can throw
+  - Any important invariants or side effects
+- Every non-obvious block of logic has an inline comment explaining WHY,
+  not WHAT. The code shows what. The comment explains why.
+- Mark every TODO with: `// TODO(phase-N): description` so we know
+  which build phase will address it.
+- Mark every important invariant with: `// INVARIANT: description`
+- Mark every security-sensitive line with: `// SECURITY: description`
+- Never write comments that just restate the code.
+  Bad: `// increment counter` above `counter++`
+  Good: `// We increment before checking to ensure atomic read-modify`
+
+### Example of required comment style:
+```typescript
+/**
+ * Generates a cryptographically random 12-digit numeric top-up token.
+ *
+ * Tokens are used by admins to load credit into reseller wallets.
+ * They are entered directly in the Telegram bot or dashboard.
+ * 12 digits gives 10^12 - 10^11 = ~900 billion possible values,
+ * making brute-force guessing infeasible within any practical window.
+ *
+ * @returns A 12-digit string that does not start with zero.
+ * @throws Never — uses crypto.randomBytes which is always available in Node.
+ *
+ * INVARIANT: Output is always exactly 12 characters, all numeric, no leading zero.
+ * SECURITY: Uses crypto.randomBytes — never Math.random() for tokens.
+ */
+export function generateTopupToken(): string {
+  // Keep generating until we get one that doesn't start with 0.
+  // In practice this loops at most ~10% of the time on average.
+  let token: string;
+  do {
+    // Generate 6 random bytes → up to 12 hex digits → take first 12 digits
+    // We use modulo to stay in decimal range
+    const bytes = randomBytes(8);
+    const num = (bytes.readBigUInt64BE() % 9_000_000_000_000n) + 1_000_000_000_000n;
+    token = num.toString().slice(0, 12);
+  } while (token.startsWith('0'));
+  return token;
+}
+```
+
+---
+
+## 2. FILE STRUCTURE RULES
+
+### Every file must have this header:
+```typescript
+/**
+ * @file module-name/file-name.ts
+ *
+ * [One sentence: what this file does]
+ *
+ * [One paragraph: why it exists, what problem it solves,
+ *  what other parts of the system it connects to]
+ *
+ * @module ModuleName
+ */
+```
+
+### Module structure (`modules/*/`)
+Each module folder must have:
+- `index.ts` — public API of the module (only export what other modules need)
+- `types.ts` — all TypeScript types for this module
+- Internal files for implementation (not exported from index unless needed)
+- Modules must NOT import from each other's internal files —
+  only from each other's `index.ts`
+
+### Integration structure (`integrations/*/`)
+Each integration folder must have:
+- `client.ts` — the interface + sandbox + real implementation
+- `types.ts` — input/output types for this integration
+- `README.md` — what credentials are needed, how to test, known limitations
+
+### No barrel re-exports that hide the source.
+```typescript
+// BAD — hides where things come from
+export * from './wallet';
+export * from './orders';
+
+// GOOD — explicit, traceable
+export { createWallet, creditWallet } from './wallet';
+export { createOrder, transitionOrderPayment } from './orders';
+```
+
+---
+
+## 3. MONEY RULES — ABSOLUTE
+
+These rules are more important than any other rule in this file.
+A bug in money logic can cause real financial loss.
+
+- **NEVER use `number` for money.** Always `bigint`.
+- **NEVER use `parseFloat`, `toFixed`, or `/` on money values.**
+- **NEVER add amounts in different currencies.**
+- All USDT amounts are stored and computed in minor units (integer × 10^6).
+  1 USDT = 1_000_000n minor units.
+- All money operations go through `lib/money.ts`. No inline arithmetic on amounts.
+- Every database column storing money is `bigint` with a `>= 0` constraint.
+- Every function that takes or returns money must say so in its JSDoc:
+  `@param amountMinor - Amount in USDT minor units (integer × 10^6)`
+- Ledger rows are IMMUTABLE. Never UPDATE or DELETE a ledger_transactions row.
+  Corrections use new reversal entries with a reference to the original.
+- Before any wallet debit: check available balance explicitly.
+  `available = balance_total - balance_reserved`
+  If available < amount → throw WalletError, never go negative.
+
+---
+
+## 4. SECURITY RULES
+
+- **NEVER trust client-supplied prices, tenant IDs, or role claims.**
+  Always derive these server-side from the authenticated session.
+- **NEVER log secrets, tokens, API keys, full payment payloads,
+  signed download URLs, or product file content.**
+- **NEVER put secrets in frontend code, API responses, or error messages.**
+- **NEVER expose raw Supabase service role key in browser.**
+  Service role client is server-only (`lib/supabase/admin.ts`).
+- Every API route that mutates data must:
+  1. Verify authentication first
+  2. Check the actor's role/permission
+  3. Verify tenant ownership of the resource
+  4. Validate request body with Zod
+  5. Then and only then perform the mutation
+- Webhook endpoints must verify their signature before processing anything.
+- All user-supplied strings that go into Telegram messages must be escaped.
+- All database queries use parameterized queries (Supabase client handles this —
+  never use string concatenation to build SQL).
+- SECURITY comments must mark every auth check, signature verification,
+  and permission gate.
+
+---
+
+## 5. ERROR HANDLING RULES
+
+- **Never swallow errors silently.** No empty `catch {}` blocks.
+- **Never throw raw strings.** Always throw typed error classes from `lib/errors.ts`.
+- Every API route must return consistent error shapes:
+```typescript
+// Success
+{ success: true, data: T }
+
+// Error
+{ success: false, error: { code: string, message: string, details?: unknown } }
+```
+- Log errors with context: which function, which order ID, which tenant.
+  Never log personally identifiable information or secrets.
+- Distinguish between:
+  - User errors (4xx) — bad input, not found, unauthorized
+  - System errors (5xx) — DB down, external API failed, unexpected state
+  - Retryable errors — tag them so workers know to retry
+
+---
+
+## 6. DATABASE RULES
+
+- Every query that modifies wallet balances must be in a database transaction.
+- Every query touching tenant-scoped data must filter by `tenant_id`
+  derived from the server session — never from request body.
+- Never run N+1 queries. If you need related data, join or batch.
+- Every new table needs:
+  - `created_at timestamptz not null default now()`
+  - `updated_at timestamptz not null default now()` (except append-only tables)
+  - Row Level Security enabled
+  - At minimum an index on its most common query pattern
+- Migration files are numbered sequentially: `0001_`, `0002_`, etc.
+  Never edit an existing migration — always create a new one.
+- Add a comment to every migration explaining what it changes and why.
+
+---
+
+## 7. API DESIGN RULES
+
+- All API routes live under `app/api/`
+- Public reseller API lives under `app/api/v1/`
+- Internal routes live under `app/api/` (non-versioned)
+- Every route handler follows this pattern:
+```typescript
+export async function POST(req: NextRequest) {
+  try {
+    // 1. Auth check
+    // 2. Parse and validate body with Zod
+    // 3. Permission check
+    // 4. Business logic (call domain module)
+    // 5. Return success response
+  } catch (error) {
+    // Handle typed errors → return appropriate status codes
+  }
+}
+```
+- Every route must handle and return errors — never let Next.js
+  return a default 500 with a stack trace.
+- Rate limiting goes on: login, payment claims, order creation,
+  token redemption, API key operations.
+
+---
+
+## 8. COMPONENT AND UI RULES
+
+- Components live in `app/` colocated with their routes,
+  or in `components/` if shared across multiple routes.
+- Every component file exports exactly one component as default.
+- No business logic in components. Components call server actions
+  or API routes — they do not do database queries or payment logic.
+- Loading, empty, and error states are required for every data-fetching component.
+- All forms disable their submit button after first submission
+  to prevent duplicate requests.
+- Financial amounts always show the currency label: "10.50 USDT" not "10.50".
+- Destructive actions (delete, suspend, debit) require a confirmation step.
+
+---
+
+## 9. TESTING RULES
+
+- Every money function in `lib/money.ts` has unit tests.
+- Every token function in `lib/tokens.ts` has unit tests.
+- Every state transition in `modules/orders/state-machine.ts` has unit tests.
+- Every wallet operation has a test for the concurrent race condition case.
+- Sandbox adapters are used in all tests — never call real external APIs in tests.
+- Test file naming: `*.test.ts` colocated with the file or in `tests/`.
+- Every test has a descriptive name that reads like a sentence:
+  `it('should throw WalletError when available balance is insufficient')`
+
+---
+
+## 10. GIT AND COMMIT RULES
+
+- Never commit `.env.local` or any file containing real credentials.
+- Every commit message follows: `type(scope): description`
+  Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `security`
+  Example: `feat(wallet): add top-up token redemption with atomic ledger entry`
+- Commit one logical change at a time — not a dump of everything.
+- `.gitignore` must always cover: `.env*.local`, `node_modules/`, `.next/`, `*.log`
+
+---
+
+## 11. WHAT CURSOR MUST NEVER DO
+
+- Never use `Math.random()` for anything security-related (tokens, keys, IDs).
+- Never store sensitive data in localStorage or sessionStorage.
+- Never put the Supabase service role key in any client-side code.
+- Never assume an external API call succeeded — always check the response.
+- Never silently ignore a failed queue job or webhook.
+- Never use `console.log` in production paths — use the structured logger.
+- Never hardcode any URL, amount, timeout, or limit — use named constants
+  or environment variables.
+- Never write "TODO: add error handling" — error handling is not optional.
+- Never leave a function body empty or with just a comment — use explicit stubs:
+```typescript
+// STUB(phase-4): Real implementation added in Phase 4 — Telegram bot connections
+export async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
+  console.warn('[STUB] sendTelegramMessage called but not yet implemented', { chatId });
+  // This will be wired to grammY bot.api.sendMessage() in Phase 4
+}
+```
+
+---
+
+## 12. PHASE DISCIPLINE
+
+- Build ONLY what the current phase specifies.
+- Do not add features from future phases even if they seem easy.
+- Do not skip a phase's exit gate checklist.
+- Every phase ends with `npm run type-check && npm run test && npm run build`
+  all passing with zero errors.
+- If something in the plan is unclear, implement the most conservative
+  (most secure, most explicit) interpretation — never the most permissive one.
+
+---
+
+*Black Tier Circle — Cursor Rules v1.0*
+*Every developer who touches this codebase is expected to follow these rules.*
+*These are not suggestions. They are the standard.*

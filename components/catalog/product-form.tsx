@@ -27,6 +27,8 @@ export type ProductFormValues = {
   readonly resellerEligible: boolean;
   readonly maxPurchaseQty: string;
   readonly estimatedDeliveryMinutes: string;
+  readonly supplierSku: string;
+  readonly supplierMetadata: string;
 };
 
 type ProductFormProps = {
@@ -57,6 +59,8 @@ const EMPTY: ProductFormValues = {
   resellerEligible: true,
   maxPurchaseQty: '1',
   estimatedDeliveryMinutes: '',
+  supplierSku: '',
+  supplierMetadata: '',
 };
 
 const inputClass =
@@ -152,6 +156,31 @@ export function ProductForm({
           ))}
         </select>
       </label>
+      {values.deliveryType === 'supplier_api' ? (
+        <>
+          <label className="flex flex-col gap-1 text-sm text-gray-400">
+            Supplier SKU
+            <input
+              required
+              maxLength={120}
+              value={values.supplierSku}
+              onChange={(event) => setValues({ ...values, supplierSku: event.target.value })}
+              className={inputClass}
+            />
+            <span className="text-xs text-gray-500">Product identifier as known to the external supplier</span>
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-400">
+            Supplier metadata (optional JSON)
+            <textarea
+              rows={4}
+              value={values.supplierMetadata}
+              onChange={(event) => setValues({ ...values, supplierMetadata: event.target.value })}
+              className={inputClass}
+              placeholder='{"category":"digital"}'
+            />
+          </label>
+        </>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm text-gray-400">
           Wholesale price

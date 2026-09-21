@@ -28,6 +28,10 @@ export type Product = {
   resellerEligible: boolean;
   maxPurchaseQty: number;
   estimatedDeliveryMinutes: number | null;
+  /** SKU as known to the external supplier. Null for non-supplier products. */
+  supplierSku: string | null;
+  /** Arbitrary supplier-specific metadata. */
+  supplierMetadata: Record<string, unknown>;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -59,6 +63,8 @@ export type CreateProductInput = {
   resellerEligible?: boolean;
   maxPurchaseQty?: number;
   estimatedDeliveryMinutes?: number;
+  supplierSku?: string | null;
+  supplierMetadata?: Record<string, unknown>;
 };
 
 export type UpdateProductInput = {
@@ -74,6 +80,8 @@ export type UpdateProductInput = {
   maxPurchaseQty?: number;
   estimatedDeliveryMinutes?: number | null;
   status?: ProductStatus;
+  supplierSku?: string | null;
+  supplierMetadata?: Record<string, unknown>;
 };
 
 export type ProductWithAssets = Product & {
@@ -95,6 +103,8 @@ export type ProductRow = {
   readonly reseller_eligible: boolean;
   readonly max_purchase_qty: number;
   readonly estimated_delivery_minutes: number | null;
+  readonly supplier_sku?: string | null;
+  readonly supplier_metadata?: Record<string, unknown> | null;
   readonly version: number;
   readonly created_at: string;
   readonly updated_at: string;

@@ -59,3 +59,43 @@ export async function sendTextDelivery(botToken: string, chatId: string, message
     throw error;
   }
 }
+
+/**
+ * Sends supplier delivery content: URL as an inline button, otherwise formatted text.
+ *
+ * @param botToken - Plaintext bot token (never log)
+ * @param chatId - Telegram chat id
+ * @param deliveryData - URL, license key, or instructions
+ * @param productTitle - Product title for the caption
+ */
+export async function sendSupplierDelivery(
+  botToken: string,
+  chatId: string,
+  deliveryData: string,
+  productTitle: string,
+): Promise<void> {
+  const bot = new Bot(botToken);
+  const isUrl = /^https?:\/\//i.test(deliveryData.trim());
+  try {
+    if (isUrl) {
+      await bot.api.sendMessage(chatId, `✅ *${productTitle}* is ready.`, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Access Your Content', url: deliveryData.trim() }]],
+        },
+      });
+      return;
+    }
+    await bot.api.sendMessage(
+      chatId,
+      `✅ *${productTitle}* is ready.\n\n${deliveryData}`,
+      { parse_mode: 'Markdown' },
+    );
+  } catch (error: unknown) {
+    logger.error('telegram supplier delivery failed', {
+      chatId,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+    throw error;
+  }
+}

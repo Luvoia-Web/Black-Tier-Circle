@@ -84,6 +84,10 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
         ? { estimatedDeliveryMinutes: parsed.estimatedDeliveryMinutes }
         : {}),
       ...(parsed.status !== undefined ? { status: parsed.status } : {}),
+      ...(parsed.supplierSku !== undefined ? { supplierSku: parsed.supplierSku } : {}),
+      ...(parsed.supplierMetadata !== undefined
+        ? { supplierMetadata: parsed.supplierMetadata ?? {} }
+        : {}),
     });
     return jsonSuccess(product);
   } catch (error: unknown) {

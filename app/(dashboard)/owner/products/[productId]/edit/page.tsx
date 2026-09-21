@@ -16,6 +16,18 @@ import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { DeliveryType } from '@/modules/catalog/types';
 
+function parseSupplierMetadata(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const parsed: unknown = JSON.parse(trimmed);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Supplier metadata must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
 type EditPageProps = {
   readonly params: { readonly productId: string };
 };
@@ -34,6 +46,8 @@ type ProductDto = {
   readonly resellerEligible: boolean;
   readonly maxPurchaseQty: number;
   readonly estimatedDeliveryMinutes: number | null;
+  readonly supplierSku: string | null;
+  readonly supplierMetadata: Record<string, unknown>;
 };
 
 function trimUsdt(minor: string): string {
@@ -77,6 +91,11 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
         maxPurchaseQty: String(product.maxPurchaseQty),
         estimatedDeliveryMinutes:
           product.estimatedDeliveryMinutes === null ? '' : String(product.estimatedDeliveryMinutes),
+        supplierSku: product.supplierSku ?? '',
+        supplierMetadata:
+          product.supplierMetadata && Object.keys(product.supplierMetadata).length > 0
+            ? JSON.stringify(product.supplierMetadata, null, 2)
+            : '',
       });
     })();
   }, [params.productId]);
@@ -102,6 +121,9 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
           estimatedDeliveryMinutes: values.estimatedDeliveryMinutes
             ? Number(values.estimatedDeliveryMinutes)
             : null,
+          supplierSku: values.deliveryType === 'supplier_api' ? values.supplierSku : null,
+          supplierMetadata:
+            values.deliveryType === 'supplier_api' ? parseSupplierMetadata(values.supplierMetadata) : {},
         }),
       });
       const json = (await response.json()) as { success: boolean; error?: { message: string } };

@@ -40,6 +40,8 @@ export const CreateProductSchema = z
     resellerEligible: z.boolean().default(true),
     maxPurchaseQty: z.number().int().min(1).max(100).default(1),
     estimatedDeliveryMinutes: z.number().int().positive().optional(),
+    supplierSku: z.string().min(1).max(120).optional(),
+    supplierMetadata: z.record(z.unknown()).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.wholesalePriceStr <= 0n) {
@@ -63,6 +65,13 @@ export const CreateProductSchema = z
         path: ['stockCount'],
       });
     }
+    if (value.deliveryType === 'supplier_api' && (value.supplierSku === undefined || value.supplierSku.trim() === '')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Supplier SKU is required for supplier API products',
+        path: ['supplierSku'],
+      });
+    }
   });
 
 export const UpdateProductSchema = z
@@ -79,6 +88,8 @@ export const UpdateProductSchema = z
     maxPurchaseQty: z.number().int().min(1).max(100).optional(),
     estimatedDeliveryMinutes: z.number().int().positive().nullable().optional(),
     status: z.enum(PRODUCT_STATUSES).optional(),
+    supplierSku: z.string().min(1).max(120).nullable().optional(),
+    supplierMetadata: z.record(z.unknown()).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (

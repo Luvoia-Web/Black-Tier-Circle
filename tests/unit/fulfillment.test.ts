@@ -17,6 +17,7 @@ import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 vi.mock('@/integrations/telegram/delivery', () => ({
   sendFileDelivery: vi.fn().mockResolvedValue(undefined),
   sendTextDelivery: vi.fn().mockResolvedValue(undefined),
+  sendSupplierDelivery: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/owner-bot', async () => {
@@ -179,7 +180,7 @@ describe('routing', () => {
     expect(db.tables.fulfillment_attempts?.[0]?.method).toBe('manual');
   });
 
-  it("processQueuedOrder with delivery_type='supplier_api' calls fulfillSupplier stub", async () => {
+  it("processQueuedOrder with delivery_type='supplier_api' calls fulfillSupplier", async () => {
     const db = seedDb();
     const order = await createOrder(db, {
       channel: 'owner_store',
@@ -190,7 +191,7 @@ describe('routing', () => {
     });
     await fulfillment.processQueuedOrder(db, order.id);
     const latest = await getOrder(db, order.id);
-    expect(latest.fulfillmentStatus).toBe('supplier_pending');
+    expect(latest.fulfillmentStatus).toBe('ready');
     expect(db.tables.fulfillment_attempts?.[0]?.method).toBe('supplier');
   });
 

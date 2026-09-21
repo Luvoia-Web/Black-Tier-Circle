@@ -50,7 +50,7 @@ const FULFILLMENT_TRANSITIONS: Readonly<Record<FulfillmentStatus, readonly Fulfi
   queued: ['manual_pending', 'supplier_pending', 'ready', 'canceled', 'failed'],
   manual_pending: ['ready', 'failed', 'canceled'],
   supplier_pending: ['outcome_unknown', 'ready', 'failed', 'canceled'],
-  outcome_unknown: ['ready', 'failed', 'manual_pending'],
+  outcome_unknown: ['ready', 'failed', 'manual_pending', 'supplier_pending'],
   ready: [],
   failed: ['queued'],
   canceled: [],

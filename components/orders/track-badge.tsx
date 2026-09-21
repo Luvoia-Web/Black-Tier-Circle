@@ -29,7 +29,9 @@ function classFor(status: string): string {
     status === 'pending_verification' ||
     status === 'retry_pending' ||
     status === 'queued' ||
-    status === 'awaiting'
+    status === 'awaiting' ||
+    status === 'supplier_pending' ||
+    status === 'outcome_unknown'
   ) {
     return 'bg-yellow-500/10 text-yellow-400';
   }

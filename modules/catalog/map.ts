@@ -41,6 +41,8 @@ export function mapProductRow(row: ProductRow): Product {
     resellerEligible: row.reseller_eligible,
     maxPurchaseQty: row.max_purchase_qty,
     estimatedDeliveryMinutes: row.estimated_delivery_minutes,
+    supplierSku: row.supplier_sku ?? null,
+    supplierMetadata: row.supplier_metadata ?? {},
     version: row.version,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),

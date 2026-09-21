@@ -17,7 +17,7 @@ import { ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getCustomerById } from '@/modules/bots';
 import { getProduct } from '@/modules/catalog';
-import { getOrderFulfillmentStatus } from '@/modules/fulfillment';
+import { getOrderFulfillmentStatus, supplierRefFromAttempts } from '@/modules/fulfillment';
 import { getOrder, getOrderEvents } from '@/modules/orders';
 import { getPaymentStatus } from '@/modules/payments';
 
@@ -115,6 +115,17 @@ export default async function OwnerOrderDetailPage({ params }: PageProps): Promi
               ))}
               {fulfillment.fulfillmentAttempts.length === 0 ? <li>No attempts yet.</li> : null}
             </ul>
+            {supplierRefFromAttempts(fulfillment.fulfillmentAttempts) ? (
+              <p className="mt-3 text-sm text-gray-400">
+                Supplier ref: {supplierRefFromAttempts(fulfillment.fulfillmentAttempts)}{' '}
+                <Link
+                  href={ROUTES.owner.supplierOrder(order.id)}
+                  className="text-indigo-400 hover:text-indigo-300"
+                >
+                  Open supplier detail
+                </Link>
+              </p>
+            ) : null}
           </div>
           <div className="rounded-lg border border-gray-800 bg-gray-900 p-5">
             <h2 className="text-lg font-medium text-gray-100">Delivery</h2>

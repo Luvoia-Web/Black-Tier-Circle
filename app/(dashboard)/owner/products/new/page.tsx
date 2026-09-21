@@ -15,6 +15,18 @@ import { PageHeader } from '@/components/ui/page-header';
 import { usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
+function parseSupplierMetadata(raw: string): Record<string, unknown> | undefined {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const parsed: unknown = JSON.parse(trimmed);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Supplier metadata must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
 /**
  * Owner create-product page.
  */
@@ -47,6 +59,9 @@ export default function NewProductPage(): JSX.Element {
           estimatedDeliveryMinutes: values.estimatedDeliveryMinutes
             ? Number(values.estimatedDeliveryMinutes)
             : undefined,
+          supplierSku: values.deliveryType === 'supplier_api' ? values.supplierSku : undefined,
+          supplierMetadata:
+            values.deliveryType === 'supplier_api' ? parseSupplierMetadata(values.supplierMetadata) : undefined,
         }),
       });
       const json = (await response.json()) as {

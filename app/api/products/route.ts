@@ -65,6 +65,8 @@ export async function POST(request: Request): Promise<Response> {
       ...(parsed.estimatedDeliveryMinutes !== undefined
         ? { estimatedDeliveryMinutes: parsed.estimatedDeliveryMinutes }
         : {}),
+      ...(parsed.supplierSku !== undefined ? { supplierSku: parsed.supplierSku } : {}),
+      ...(parsed.supplierMetadata !== undefined ? { supplierMetadata: parsed.supplierMetadata } : {}),
     });
     return jsonSuccess(product, 201);
   } catch (error: unknown) {

@@ -59,6 +59,8 @@ const SANDBOX_PRODUCTS: readonly Product[] = [
     resellerEligible: true,
     maxPurchaseQty: 1,
     estimatedDeliveryMinutes: null,
+    supplierSku: null,
+    supplierMetadata: {},
     version: 1,
     createdAt: SANDBOX_NOW,
     updatedAt: SANDBOX_NOW,
@@ -129,6 +131,13 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
     throw new ValidationError('INVALID_STOCK', 'Stock count is required when stock is limited');
   }
 
+  if (input.deliveryType === 'supplier_api') {
+    const sku = input.supplierSku?.trim() ?? '';
+    if (sku.length === 0) {
+      throw new ValidationError('SUPPLIER_SKU_REQUIRED', 'Supplier SKU is required for supplier API products');
+    }
+  }
+
   const { data, error } = await supabase
     .from('products')
     .insert({
@@ -145,6 +154,8 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
       reseller_eligible: input.resellerEligible ?? true,
       max_purchase_qty: input.maxPurchaseQty ?? 1,
       estimated_delivery_minutes: input.estimatedDeliveryMinutes ?? null,
+      supplier_sku: input.deliveryType === 'supplier_api' ? (input.supplierSku ?? null) : (input.supplierSku ?? null),
+      supplier_metadata: input.supplierMetadata ?? {},
       version: 1,
     })
     .select('*')
@@ -302,8 +313,20 @@ export async function updateProduct(
   if (input.estimatedDeliveryMinutes !== undefined) {
     patch.estimated_delivery_minutes = input.estimatedDeliveryMinutes;
   }
+  if (input.supplierSku !== undefined) {
+    patch.supplier_sku = input.supplierSku;
+  }
+  if (input.supplierMetadata !== undefined) {
+    patch.supplier_metadata = input.supplierMetadata;
+  }
   if (input.status !== undefined) {
     patch.status = input.status;
+  }
+
+  const nextDelivery = input.deliveryType ?? existing.deliveryType;
+  const nextSupplierSku = input.supplierSku !== undefined ? input.supplierSku : existing.supplierSku;
+  if (nextDelivery === 'supplier_api' && (!nextSupplierSku || nextSupplierSku.trim().length === 0)) {
+    throw new ValidationError('SUPPLIER_SKU_REQUIRED', 'Supplier SKU is required for supplier API products');
   }
 
   const { data, error } = await supabase

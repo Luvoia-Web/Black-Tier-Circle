@@ -10,7 +10,7 @@
  * - file_reusable: generate signed URL → send file via Telegram
  * - inventory_unit: same as file but uses unique item from inventory
  * - manual: notify owner → owner marks done → bot sends confirmation
- * - supplier_api: Phase 8 (stub only here)
+ * - supplier_api: external supplier connector
  *
  * INVARIANT: fulfillment_status only transitions forward (no backwards)
  * INVARIANT: consumeReservation() called only on successful fulfillment
@@ -20,6 +20,10 @@
  */
 
 import { sendFileDelivery, sendTextDelivery } from '@/integrations/telegram/delivery';
+import {
+  fulfillSupplier as fulfillSupplierOrder,
+  retrySupplierDelivery,
+} from './supplier';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { AppError, FulfillmentError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -52,6 +56,18 @@ export type {
   FulfillmentResult,
   OrderFulfillmentStatusSnapshot,
 } from './types';
+export {
+  deliverSupplierContent,
+  fulfillSupplier,
+  markSupplierManuallyCompleted,
+  markSupplierManuallyFailed,
+  reconcileSupplierOrder,
+  reconcileUnknownSupplierOrders,
+  resubmitSupplierOrder,
+  retrySupplierDelivery,
+  supplierRefFromAttempts,
+} from './supplier';
+export type { SupplierReconcileCounts } from './supplier';
 
 const GENERIC_FULFILLMENT_ERROR = 'Fulfillment could not be completed';
 
@@ -603,30 +619,6 @@ export async function fulfillManual(
 }
 
 /**
- * Phase 8 stub: marks the order as waiting on a supplier.
- *
- * @param supabase - Database client
- * @param order - Queued order
- * @param fulfillmentAttempt - Open attempt row
- */
-export async function fulfillSupplier(
-  supabase: DbClient,
-  order: Order,
-  fulfillmentAttempt: FulfillmentAttempt,
-): Promise<void> {
-  logger.info('Supplier fulfillment not yet implemented', {
-    orderId: order.id,
-    attemptId: fulfillmentAttempt.id,
-  });
-  if (order.fulfillmentStatus === 'queued') {
-    await recordTransition(supabase, order.id, 'fulfillment', 'queued', 'supplier_pending', {
-      trigger: 'worker',
-      note: 'Supplier fulfillment not yet implemented',
-    });
-  }
-}
-
-/**
  * Processes a single queued order through the fulfillment pipeline.
  *
  * @param supabase - Service-role database client
@@ -645,13 +637,19 @@ export async function processQueuedOrder(supabase: DbClient, orderId: string): P
   try {
     if (product.deliveryType === 'file_reusable' || product.deliveryType === 'inventory_unit') {
       await fulfillFile(supabase, order, attempt);
+      await completeFulfillmentAttempt(supabase, attempt.id, { status: 'success' });
     } else if (product.deliveryType === 'manual') {
       await fulfillManual(supabase, order, attempt);
+      await completeFulfillmentAttempt(supabase, attempt.id, { status: 'success' });
     } else {
-      await fulfillSupplier(supabase, order, attempt);
+      await fulfillSupplierOrder(supabase, order, attempt);
     }
-    await completeFulfillmentAttempt(supabase, attempt.id, { status: 'success' });
-    return { success: true, method, fulfillmentAttemptId: attempt.id };
+    const latest = await getOrder(supabase, order.id);
+    return {
+      success: latest.fulfillmentStatus !== 'failed',
+      method,
+      fulfillmentAttemptId: attempt.id,
+    };
   } catch (error: unknown) {
     logger.error('fulfillment failed', {
       orderId: order.id,
@@ -745,10 +743,16 @@ export async function retryDelivery(supabase: DbClient, orderId: string): Promis
   }
 
   const fulfillments = await listFulfillmentAttempts(supabase, orderId);
+  if (fulfillments.some((item) => item.method === 'supplier')) {
+    const delivered = await retrySupplierDelivery(supabase, order);
+    if (delivered) {
+      return;
+    }
+  }
   const artifactPath = fulfillments.find((item) => item.artifactPath)?.artifactPath ?? null;
   const product = await getProductWithAssets(supabase, order.productId);
   let signedUrl: string;
-  if (artifactPath) {
+  if (artifactPath && !fulfillments.some((item) => item.method === 'supplier')) {
     signedUrl = await signedUrlForPath(supabase, artifactPath);
   } else {
     const asset = product.assets.find((item) => !item.isPreview);
