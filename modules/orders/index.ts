@@ -216,6 +216,12 @@ export async function listOrders(supabase: DbClient, filters: ListOrdersFilters 
   if (filters.paymentStatus !== undefined) {
     query = query.eq('payment_status', filters.paymentStatus);
   }
+  if (filters.fulfillmentStatus !== undefined) {
+    query = query.eq('fulfillment_status', filters.fulfillmentStatus);
+  }
+  if (filters.deliveryStatus !== undefined) {
+    query = query.eq('delivery_status', filters.deliveryStatus);
+  }
   const limit = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
   query = query.range(offset, offset + limit - 1);
@@ -247,6 +253,39 @@ export async function getOrderEvents(supabase: DbClient, orderId: string): Promi
 }
 
 /**
+ * Adds an internal owner note without changing status.
+ *
+ * @param supabase - Database client
+ * @param orderId - Order UUID
+ * @param actorId - Owner profile id
+ * @param note - Internal note (3–500 chars)
+ */
+export async function addOrderNote(
+  supabase: DbClient,
+  orderId: string,
+  actorId: string,
+  note: string,
+): Promise<void> {
+  const trimmed = note.trim();
+  if (trimmed.length < 3 || trimmed.length > 500) {
+    throw new ValidationError('INVALID_NOTE', 'Note must be between 3 and 500 characters');
+  }
+  const order = await getOrder(supabase, orderId);
+  const { error } = await supabase.from('order_events').insert({
+    order_id: orderId,
+    track: 'fulfillment',
+    from_status: order.fulfillmentStatus,
+    to_status: order.fulfillmentStatus,
+    actor_id: actorId,
+    trigger: 'manual',
+    note: trimmed,
+  });
+  if (error) {
+    throw new AppError('ORDER_EVENT_WRITE_FAILED', error.message, 500);
+  }
+}
+
+/**
  * Cancels fulfillment and releases a wallet reservation when funding is reserved.
  *
  * @param supabase - Database client
@@ -255,6 +294,9 @@ export async function getOrderEvents(supabase: DbClient, orderId: string): Promi
  */
 export async function cancelOrder(supabase: DbClient, orderId: string, reason: string): Promise<void> {
   const order = await getOrder(supabase, orderId);
+  if (order.fulfillmentStatus === 'ready' || order.deliveryStatus === 'sent') {
+    throw new AppError('ORDER_ALREADY_FULFILLED', 'Fulfilled orders cannot be cancelled', 400);
+  }
   await recordTransition(supabase, orderId, 'fulfillment', order.fulfillmentStatus, 'canceled', {
     trigger: 'manual',
     note: reason,

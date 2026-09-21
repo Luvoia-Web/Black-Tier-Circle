@@ -13,6 +13,8 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { asDbClient } from '@/lib/auth/session';
 import { getProfile } from '@/modules/identity';
+import { listOrders } from '@/modules/orders';
+import { listResellerListings } from '@/modules/pricing';
 import { getTenantByUserId } from '@/modules/tenants';
 import { getWallet } from '@/modules/wallet';
 import { formatUsdt } from '@/lib/money';
@@ -30,10 +32,26 @@ export default async function ResellerDashboardPage(): Promise<JSX.Element> {
   const admin = createAdminSupabaseClient();
   const profile = await getProfile(asDbClient(admin), user.id);
   let walletLabel = '0.00 USDT';
+  let activeOrders = 0;
+  let totalSales = 0;
+  let productsListed = 0;
   try {
     const tenant = await getTenantByUserId(asDbClient(admin), user.id);
     const wallet = await getWallet(asDbClient(admin), tenant.id);
     walletLabel = formatUsdt(wallet.balanceAvailable);
+    const orders = await listOrders(asDbClient(admin), { tenantId: tenant.id, limit: 200 });
+    activeOrders = orders.filter((order) => {
+      const terminal =
+        order.fulfillmentStatus === 'canceled' ||
+        order.fulfillmentStatus === 'failed' ||
+        (order.fulfillmentStatus === 'ready' && order.deliveryStatus === 'sent');
+      return !terminal;
+    }).length;
+    totalSales = orders.filter(
+      (order) => order.fulfillmentStatus === 'ready' && order.deliveryStatus === 'sent',
+    ).length;
+    const listings = await listResellerListings(asDbClient(admin), tenant.id);
+    productsListed = listings.length;
   } catch (error: unknown) {
     if (!(error instanceof NotFoundError)) {
       throw error;
@@ -51,9 +69,9 @@ export default async function ResellerDashboardPage(): Promise<JSX.Element> {
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Wallet Balance (USDT)" value={walletLabel.replace(' USDT', '')} />
-        <StatCard label="Active Orders" value="0" />
-        <StatCard label="Total Sales" value="0" />
-        <StatCard label="Products Listed" value="0" />
+        <StatCard label="Active Orders" value={String(activeOrders)} />
+        <StatCard label="Total Sales" value={String(totalSales)} />
+        <StatCard label="Products Listed" value={String(productsListed)} />
       </div>
       <section className="mt-8">
         <h2 className="mb-3 text-sm font-medium text-gray-400">Recent orders</h2>

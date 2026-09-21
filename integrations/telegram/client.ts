@@ -17,6 +17,7 @@
  */
 
 import { Bot, InlineKeyboard, Keyboard } from 'grammy';
+import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
@@ -33,6 +34,7 @@ import {
 import { listResellerListings } from '@/modules/pricing';
 import type { Product } from '@/modules/catalog/types';
 import type { CustomerRecord } from '@/modules/bots/types';
+import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
 import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
 
 export type { TelegramChatId, TelegramClient, TelegramSendMessageParams } from './types';
@@ -92,6 +94,11 @@ export const MESSAGES = {
   blocked: '🚫 Your account has been blocked. Contact support for assistance.',
 
   unrecognized: "I didn't understand that. Please use the menu below.",
+
+  orderBeingPrepared: (estimatedMinutes: number | null) =>
+    FULFILLMENT_CONFIG.delivery.manualDeliveryPending(estimatedMinutes),
+  orderDelivered: FULFILLMENT_CONFIG.delivery.orderDelivered,
+  deliveryFailed: FULFILLMENT_CONFIG.delivery.deliveryFailed,
 } as const;
 
 const MAIN_MENU_KEYBOARD = new Keyboard()
@@ -414,6 +421,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   });
 
   return {
+    async sendFileDelivery(chatId: string, signedUrl: string, productTitle: string): Promise<void> {
+      await sendFileDeliveryMessage(botToken, chatId, signedUrl, productTitle);
+    },
+    async sendTextDelivery(chatId: string, message: string): Promise<void> {
+      await sendTextDeliveryMessage(botToken, chatId, message);
+    },
     async processUpdate(update: Update): Promise<void> {
       try {
         const identity = extractFrom(update);

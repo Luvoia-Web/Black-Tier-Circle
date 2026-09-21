@@ -53,6 +53,8 @@ export type BotEngineContext = {
 
 export type BotEngine = {
   processUpdate(update: Update): Promise<void>;
+  sendFileDelivery(chatId: string, signedUrl: string, productTitle: string): Promise<void>;
+  sendTextDelivery(chatId: string, message: string): Promise<void>;
 };
 
 export type { Update };

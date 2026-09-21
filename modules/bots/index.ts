@@ -394,6 +394,23 @@ export async function getOrCreateCustomer(
 }
 
 /**
+ * Loads a customer by id.
+ *
+ * @param supabase - Database client
+ * @param customerId - Customer UUID
+ */
+export async function getCustomerById(supabase: DbClient, customerId: string): Promise<CustomerRecord> {
+  const { data, error } = await supabase.from('customers').select('*').eq('id', customerId).maybeSingle();
+  if (error) {
+    throw new AppError('CUSTOMER_LOOKUP_FAILED', error.message, 500);
+  }
+  if (data === null) {
+    throw new NotFoundError('customer');
+  }
+  return mapCustomerRow(asCustomerRow(data));
+}
+
+/**
  * Blocks a customer from placing orders via the bot.
  *
  * @param supabase - Database client

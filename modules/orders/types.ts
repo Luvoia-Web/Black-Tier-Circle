@@ -104,6 +104,8 @@ export type ListOrdersFilters = {
   readonly botId?: string;
   readonly customerId?: string;
   readonly paymentStatus?: PaymentStatus;
+  readonly fulfillmentStatus?: FulfillmentStatus;
+  readonly deliveryStatus?: DeliveryStatus;
   readonly limit?: number;
   readonly offset?: number;
 };

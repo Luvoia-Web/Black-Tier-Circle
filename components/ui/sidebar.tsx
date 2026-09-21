@@ -33,6 +33,7 @@ const OWNER_NAV: ReadonlyArray<NavItem> = [
   { href: ROUTES.owner.bots, label: 'Bots' },
   { href: ROUTES.owner.payments, label: 'Payments' },
   { href: ROUTES.owner.orders, label: 'Orders' },
+  { href: ROUTES.owner.fulfillment, label: 'Fulfillment' },
   { href: ROUTES.owner.settings, label: 'Settings' },
 ];
 

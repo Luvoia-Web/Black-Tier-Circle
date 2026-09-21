@@ -6,7 +6,16 @@
  * @module Tests
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/modules/fulfillment', () => ({
+  processQueuedOrder: vi.fn().mockResolvedValue({
+    success: true,
+    method: 'file',
+    fulfillmentAttemptId: '00000000-0000-4000-8000-000000000501',
+  }),
+}));
+
 import { ValidationError } from '@/lib/errors';
 import { amountSufficient, amountsMatch, minorToUsdtApiString } from '@/lib/money';
 import { bscValueToMinorUnits, getPaymentModeLabel, PAYMENT_CONFIG } from '@/lib/payment-config';

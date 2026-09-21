@@ -225,6 +225,42 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ success: true, error_code: null }], error: null };
     }
 
+    if (fn === 'consume_wallet_reservation') {
+      const orderId = String(args.p_order_id);
+      const reservations = tableOf('wallet_reservations');
+      const existing = reservations.find(
+        (row) => String(row.order_id) === orderId && String(row.status) === 'active',
+      );
+      if (!existing) {
+        return { data: [{ success: false, error_code: 'RESERVATION_NOT_FOUND' }], error: null };
+      }
+      const wallet = tableOf('wallets').find((row) => String(row.id) === String(existing.wallet_id));
+      if (!wallet) {
+        return { data: [{ success: false, error_code: 'WALLET_NOT_FOUND' }], error: null };
+      }
+      const amount = asMinor(existing.amount);
+      const newTotal = asMinor(wallet.balance_total) - amount;
+      const newReserved = asMinor(wallet.balance_reserved) - amount;
+      if (newTotal < 0n || newReserved < 0n) {
+        return { data: [{ success: false, error_code: 'BALANCE_INTEGRITY_ERROR' }], error: null };
+      }
+      wallet.balance_total = newTotal.toString();
+      wallet.balance_reserved = newReserved.toString();
+      wallet.updated_at = nowIso();
+      existing.status = 'consumed';
+      existing.updated_at = nowIso();
+      appendLedger({
+        wallet_id: wallet.id,
+        entry_type: 'wholesale_debit',
+        amount: (-amount).toString(),
+        balance_after: newTotal.toString(),
+        reference_id: orderId,
+        reference_type: 'order',
+        note: `Wholesale debit for fulfilled order ${orderId}`,
+      });
+      return { data: [{ success: true, error_code: null }], error: null };
+    }
+
     if (fn === 'release_wallet_reservation') {
       const orderId = String(args.p_order_id);
       const reservations = tableOf('wallet_reservations');

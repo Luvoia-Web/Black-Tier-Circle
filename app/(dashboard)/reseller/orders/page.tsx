@@ -1,13 +1,14 @@
 /**
  * @file app/(dashboard)/reseller/orders/page.tsx
  *
- * Reseller order list with payment, funding, and fulfillment badges.
+ * Reseller order list with payment, fulfillment, and delivery badges.
  *
  * @module Dashboard
  */
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { TrackBadge } from '@/components/orders/track-badge';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
 import { asDbClient } from '@/lib/auth/session';
@@ -15,7 +16,9 @@ import { formatUsdt } from '@/lib/money';
 import { ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getCustomerById } from '@/modules/bots';
 import { getProduct } from '@/modules/catalog';
+import { matchesResellerOrderTab } from '@/modules/fulfillment';
 import { getProfile } from '@/modules/identity';
 import { listOrders, type Order } from '@/modules/orders';
 import { getTenantByUserId } from '@/modules/tenants';
@@ -23,17 +26,14 @@ import { getTenantByUserId } from '@/modules/tenants';
 type OrderTableRow = {
   readonly order: Order;
   readonly productTitle: string;
+  readonly customerLabel: string;
 };
 
-function badge(text: string): JSX.Element {
-  return (
-    <span className="inline-flex rounded-full bg-gray-800 px-2.5 py-0.5 text-xs capitalize text-gray-300">
-      {text.replaceAll('_', ' ')}
-    </span>
-  );
-}
+type PageProps = {
+  readonly searchParams?: { readonly tab?: string };
+};
 
-export default async function ResellerOrdersPage(): Promise<JSX.Element> {
+export default async function ResellerOrdersPage({ searchParams }: PageProps): Promise<JSX.Element> {
   const supabase = createServerSupabaseClient();
   const {
     data: { user },
@@ -47,12 +47,27 @@ export default async function ResellerOrdersPage(): Promise<JSX.Element> {
     redirect(ROUTES.owner.home);
   }
   const tenant = await getTenantByUserId(db, user.id);
+  const tab =
+    searchParams?.tab === 'completed' || searchParams?.tab === 'failed' ? searchParams.tab : 'active';
   const orders = await listOrders(db, { tenantId: tenant.id, limit: 100 });
+  const filtered = orders.filter((order) => matchesResellerOrderTab(order, tab));
   const rows: OrderTableRow[] = await Promise.all(
-    orders.map(async (order) => ({
-      order,
-      productTitle: (await getProduct(db, order.productId)).title,
-    })),
+    filtered.map(async (order) => {
+      let customerLabel = '—';
+      if (order.customerId) {
+        try {
+          const customer = await getCustomerById(db, order.customerId);
+          customerLabel = customer.username ? `@${customer.username}` : customer.telegramUserId;
+        } catch {
+          customerLabel = order.customerId.slice(0, 8);
+        }
+      }
+      return {
+        order,
+        productTitle: (await getProduct(db, order.productId)).title,
+        customerLabel,
+      };
+    }),
   );
 
   const columns: ReadonlyArray<DataTableColumn<OrderTableRow>> = [
@@ -60,17 +75,17 @@ export default async function ResellerOrdersPage(): Promise<JSX.Element> {
       key: 'ref',
       header: 'Order ref',
       render: (row) => (
-        <Link href={`${ROUTES.reseller.orders}/${row.order.id}`} className="text-indigo-400 hover:text-indigo-300">
+        <Link href={ROUTES.reseller.orderDetail(row.order.id)} className="text-indigo-400 hover:text-indigo-300">
           {row.order.id.slice(0, 8).toUpperCase()}
         </Link>
       ),
     },
     { key: 'product', header: 'Product', render: (row) => row.productTitle },
-    { key: 'customer', header: 'Customer', render: (row) => row.order.customerId?.slice(0, 8) ?? '—' },
+    { key: 'customer', header: 'Customer Telegram', render: (row) => row.customerLabel },
     { key: 'amount', header: 'Amount', render: (row) => formatUsdt(row.order.quotedRetailPriceMinor) },
-    { key: 'payment', header: 'Payment', render: (row) => badge(row.order.paymentStatus) },
-    { key: 'funding', header: 'Funding', render: (row) => badge(row.order.fundingStatus) },
-    { key: 'fulfillment', header: 'Fulfillment', render: (row) => badge(row.order.fulfillmentStatus) },
+    { key: 'payment', header: 'Payment', render: (row) => <TrackBadge status={row.order.paymentStatus} /> },
+    { key: 'fulfillment', header: 'Fulfillment', render: (row) => <TrackBadge status={row.order.fulfillmentStatus} /> },
+    { key: 'delivery', header: 'Delivery', render: (row) => <TrackBadge status={row.order.deliveryStatus} /> },
     {
       key: 'created',
       header: 'Created',
@@ -78,15 +93,29 @@ export default async function ResellerOrdersPage(): Promise<JSX.Element> {
     },
   ];
 
+  const tabs: ReadonlyArray<{ id: 'active' | 'completed' | 'failed'; label: string }> = [
+    { id: 'active', label: 'Active' },
+    { id: 'completed', label: 'Completed' },
+    { id: 'failed', label: 'Failed' },
+  ];
+
   return (
     <>
       <PageHeader title="Orders" description="Customer orders from your Telegram bot" />
-      <DataTable
-        columns={columns}
-        rows={rows}
-        emptyMessage="No orders yet."
-        rowKey={(row) => row.order.id}
-      />
+      <div className="mb-4 flex gap-2">
+        {tabs.map((item) => (
+          <Link
+            key={item.id}
+            href={`${ROUTES.reseller.orders}?tab=${item.id}`}
+            className={`rounded-md px-3 py-1.5 text-sm ${
+              tab === item.id ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-300'
+            }`}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+      <DataTable columns={columns} rows={rows} emptyMessage="No orders yet." rowKey={(row) => row.order.id} />
     </>
   );
 }

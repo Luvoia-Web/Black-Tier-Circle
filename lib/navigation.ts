@@ -23,6 +23,8 @@ export const ROUTES = {
     productDetail: (id: string) => `/owner/products/${id}`,
     productEdit: (id: string) => `/owner/products/${id}/edit`,
     orders: '/owner/orders',
+    orderDetail: (orderId: string) => `/owner/orders/${orderId}`,
+    fulfillment: '/owner/fulfillment',
     payments: '/owner/payments',
     paymentDetail: (orderId: string) => `/owner/payments/${orderId}`,
     bots: '/owner/bots',
@@ -38,6 +40,7 @@ export const ROUTES = {
     wallet: '/reseller/wallet',
     walletHistory: '/reseller/wallet/history',
     orders: '/reseller/orders',
+    orderDetail: (orderId: string) => `/reseller/orders/${orderId}`,
     settings: '/reseller/settings',
   },
 } as const;
@@ -82,6 +85,14 @@ export const API_ROUTES = {
   botsDisconnect: `${API_PREFIX}/bots/disconnect`,
   botsStatus: `${API_PREFIX}/bots/status`,
   botsHealth: `${API_PREFIX}/bots/health`,
+  fulfillmentProcess: `${API_PREFIX}/fulfillment/process`,
+  fulfillmentManualComplete: (orderId: string) => `${API_PREFIX}/fulfillment/${orderId}/manual-complete`,
+  fulfillmentRetryDelivery: (orderId: string) => `${API_PREFIX}/fulfillment/${orderId}/retry-delivery`,
+  orderCancel: (orderId: string) => `${API_PREFIX}/orders/${orderId}/cancel`,
+  orderNote: (orderId: string) => `${API_PREFIX}/orders/${orderId}/note`,
+  ownerOrders: `${API_PREFIX}/owner/orders`,
+  resellerOrders: `${API_PREFIX}/reseller/orders`,
+  resellerOrder: (orderId: string) => `${API_PREFIX}/reseller/orders/${orderId}`,
 } as const;
 
 /**

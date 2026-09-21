@@ -17,6 +17,7 @@
 import { createBinancePayClient } from '@/integrations/binance/client';
 import { createBscClient } from '@/integrations/bsc/client';
 import { AppError, PaymentError, ValidationError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 import { amountSufficient, amountsMatch, minorToUsdtApiString, usdtToMinor } from '@/lib/money';
 import { getBep20PayoutAddress, PAYMENT_CONFIG } from '@/lib/payment-config';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
@@ -207,6 +208,17 @@ async function failPayment(supabase: DbClient, order: Order, reason: string): Pr
   }
 }
 
+function triggerFulfillment(supabase: DbClient, orderId: string): void {
+  void import('@/modules/fulfillment')
+    .then(({ processQueuedOrder }) => processQueuedOrder(supabase, orderId))
+    .catch((error: unknown) => {
+      logger.error('fulfillment trigger failed', {
+        orderId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    });
+}
+
 async function writeAuditLog(
   supabase: DbClient,
   entry: {
@@ -346,6 +358,7 @@ export async function verifyBinancePayClaim(
 
   await finalizeClaim(supabase, claim.id, { verified: true }, evidence);
   await succeedPayment(supabase, pending, 'binance pay verified');
+  triggerFulfillment(supabase, pending.id);
   return successResult('verified');
 }
 
@@ -434,6 +447,7 @@ export async function verifyBep20Claim(
 
   await finalizeClaim(supabase, claim.id, { verified: true }, evidence);
   await succeedPayment(supabase, pending, 'bep20 transfer verified');
+  triggerFulfillment(supabase, pending.id);
   return successResult('verified');
 }
 
@@ -514,6 +528,7 @@ export async function manualOverridePayment(
 
   if (action === 'verify') {
     await succeedPayment(supabase, order, `manual override: ${reason}`);
+    triggerFulfillment(supabase, order.id);
   } else if (order.paymentStatus !== 'failed') {
     await failPayment(supabase, order, `manual override: ${reason}`);
   }
