@@ -1,0 +1,35 @@
+/**
+ * @file app/api/payments/bep20/verify/route.ts
+ *
+ * POST, authenticated. Verifies a BEP20 USDT transfer claim.
+ *
+ * @module Api
+ */
+
+import { asDbClient, requireUser } from '@/lib/auth/session';
+import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertOrderPaymentAccess } from '@/lib/payment-access';
+import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { Bep20ClaimSchema } from '@/lib/validations/payments';
+import { getOrder } from '@/modules/orders';
+import { verifyBep20Claim } from '@/modules/payments';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const session = await requireUser();
+    const parsed = Bep20ClaimSchema.parse(await readJsonBody(request));
+    const db = asDbClient(session.admin);
+    const order = await getOrder(db, parsed.orderId);
+    await assertOrderPaymentAccess(session, order);
+    const result = await verifyBep20Claim(db, parsed);
+    return jsonSuccess({
+      verified: result.verified,
+      message: result.verified ? 'Payment verified' : (result.rejectReason ?? 'Payment not verified'),
+      isDemoMode: PAYMENT_CONFIG.mode === 'demo',
+    });
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}

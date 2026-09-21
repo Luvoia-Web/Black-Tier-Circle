@@ -113,3 +113,32 @@ export function formatUsdt(minor: bigint): string {
   const sign = isNegative ? '-' : '';
   return `${sign}${whole.toString()}.${cents.toString().padStart(2, '0')} USDT`;
 }
+
+/**
+ * Compares two USDT amounts for exact equality.
+ * Both must be bigint in minor units.
+ * NEVER use == or === directly on amounts in payment code — use this.
+ */
+export function amountsMatch(expected: bigint, received: bigint): boolean {
+  return expected === received;
+}
+
+/**
+ * Returns true if received >= expected (overpayment or exact).
+ */
+export function amountSufficient(expected: bigint, received: bigint): boolean {
+  return received >= expected;
+}
+
+/**
+ * Converts USDT decimal string (e.g. "10.50") to minor units for Binance Pay API.
+ * Binance API expects decimal string, we store bigint minor units.
+ * This is the ONLY place we use toFixed — for API serialization, not storage.
+ */
+export function minorToUsdtApiString(minor: bigint): string {
+  // Convert to decimal string with 2 decimal places for Binance API
+  const whole = minor / 1_000_000n;
+  const remainder = minor % 1_000_000n;
+  const decimal = remainder.toString().padStart(6, '0').slice(0, 2);
+  return `${whole}.${decimal}`;
+}

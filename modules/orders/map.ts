@@ -58,6 +58,8 @@ export function mapOrderRow(row: OrderRow): Order {
     quotedRetailPriceMinor: asMinorUnits(row.quoted_retail_price),
     quotedWholesalePriceMinor: asMinorUnits(row.quoted_wholesale_price),
     currency: 'USDT',
+    paymentMethod: row.payment_method === 'binance_pay' || row.payment_method === 'usdt_bep20' ? row.payment_method : null,
+    externalOrderRef: row.external_order_ref ?? null,
     paymentStatus: row.payment_status as PaymentStatus,
     fundingStatus: row.funding_status as FundingStatus,
     fulfillmentStatus: row.fulfillment_status as FulfillmentStatus,

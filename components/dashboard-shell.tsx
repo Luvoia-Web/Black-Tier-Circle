@@ -16,6 +16,7 @@ import type { UserRole } from '@/modules/identity/types';
 type DashboardShellProps = {
   readonly displayName: string;
   readonly role: UserRole;
+  readonly demoMode?: boolean;
   readonly children: ReactNode;
 };
 
@@ -24,13 +25,18 @@ type DashboardShellProps = {
  *
  * @param props - Profile fields and page content
  */
-export function DashboardShell({ displayName, role, children }: DashboardShellProps): JSX.Element {
+export function DashboardShell({ displayName, role, demoMode = false, children }: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-gray-950 text-gray-100">
       <Sidebar role={role} open={open} onClose={() => setOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
+        {demoMode ? (
+          <div className="bg-yellow-500/15 px-4 py-2 text-center text-sm text-yellow-300">
+            ⚠️ Demo Mode — Payments are simulated. Add real API keys to go live.
+          </div>
+        ) : null}
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
         <main className="flex-1 p-6">{children}</main>
       </div>

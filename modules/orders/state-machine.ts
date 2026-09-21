@@ -30,7 +30,7 @@ const PAYMENT_TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus
   awaiting: ['pending_verification', 'expired', 'failed'],
   pending_verification: ['verified', 'failed', 'expired'],
   verified: ['refund_pending', 'disputed'],
-  failed: ['awaiting'],
+  failed: ['awaiting', 'verified'],
   expired: ['awaiting'],
   refund_pending: ['refunded', 'disputed'],
   refunded: [],

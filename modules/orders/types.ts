@@ -6,7 +6,11 @@
  * @module Orders
  */
 
+import type { PaymentMethod } from '@/modules/payments/types';
+
 export type OrderChannel = 'owner_store' | 'reseller_bot' | 'api';
+
+export type { PaymentMethod };
 
 export type PaymentStatus =
   | 'not_required'
@@ -63,6 +67,8 @@ export type Order = {
   readonly quotedRetailPriceMinor: bigint;
   readonly quotedWholesalePriceMinor: bigint;
   readonly currency: 'USDT';
+  readonly paymentMethod: PaymentMethod | null;
+  readonly externalOrderRef: string | null;
   readonly paymentStatus: PaymentStatus;
   readonly fundingStatus: FundingStatus;
   readonly fulfillmentStatus: FulfillmentStatus;
@@ -119,6 +125,8 @@ export type OrderRow = {
   readonly quoted_retail_price: string | number | bigint;
   readonly quoted_wholesale_price: string | number | bigint;
   readonly currency: string;
+  readonly payment_method: string | null;
+  readonly external_order_ref: string | null;
   readonly payment_status: string;
   readonly funding_status: string;
   readonly fulfillment_status: string;

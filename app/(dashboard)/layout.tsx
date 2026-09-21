@@ -12,6 +12,7 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { NotFoundError } from '@/lib/errors';
 import { ROUTES } from '@/lib/navigation';
+import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { asDbClient } from '@/lib/auth/session';
@@ -42,7 +43,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   }
 
   return (
-    <DashboardShell displayName={profile.displayName} role={profile.role}>
+    <DashboardShell displayName={profile.displayName} role={profile.role} demoMode={PAYMENT_CONFIG.mode === 'demo'}>
       {children}
     </DashboardShell>
   );

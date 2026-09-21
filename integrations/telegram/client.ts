@@ -20,11 +20,17 @@ import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { getOrCreateCustomer } from '@/modules/bots';
+import { getBep20PayoutAddress, PAYMENT_CONFIG } from '@/lib/payment-config';
+import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
+import { getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { createOrder, listOrders } from '@/modules/orders';
+import {
+  createBinancePayOrder,
+  verifyBep20Claim,
+  verifyBinancePayClaim,
+} from '@/modules/payments';
 import { listResellerListings } from '@/modules/pricing';
-import { updateBotHealth } from '@/modules/bots';
 import type { Product } from '@/modules/catalog/types';
 import type { CustomerRecord } from '@/modules/bots/types';
 import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
@@ -55,10 +61,25 @@ export const MESSAGES = {
     `📦 *${product.title}*\n\n${product.description ?? 'No description.'}\n\n💵 Price: *${product.priceUsdt} USDT*${product.deliveryMins ? `\n⏱ Delivery: ~${product.deliveryMins} minutes` : ''}\n\nReady to purchase?`,
 
   orderCreated: (orderId: string, amountUsdt: string) =>
-    `✅ *Order Placed!*\n\nOrder ID: \`${orderId.slice(0, 8).toUpperCase()}\`\nAmount: *${amountUsdt} USDT*\n\nPlease complete your payment. Send payment details when done.\n\n_Your order will be processed once payment is confirmed._`,
+    `✅ *Order Placed!*\n\nOrder ID: \`${orderId.slice(0, 8).toUpperCase()}\`\nAmount: *${amountUsdt} USDT*\n\nChoose a payment method below.`,
 
   paymentInstructions: (walletAddress: string, amountUsdt: string, orderId: string) =>
     `💳 *Payment Instructions*\n\nSend exactly:\n*${amountUsdt} USDT* (BEP20)\n\nTo wallet:\n\`${walletAddress}\`\n\nAfter sending, reply with your transaction hash.\n\nOrder ref: \`${orderId.slice(0, 8).toUpperCase()}\``,
+
+  paymentMethodChoice: '💳 How would you like to pay?',
+  binancePayButton: '💳 Binance Pay',
+  bep20Button: '📤 Send USDT (BEP20)',
+  demoModeNotice: '⚠️ *Demo Mode* — This is a test environment. No real payment required.',
+  binancePayLink: (_checkoutUrl: string) => `Click below to complete payment on Binance Pay:`,
+  binancePayFollowUp: 'After paying, reply with your Binance Pay Order ID.',
+  bep20Instructions: (address: string, amountUsdt: string) =>
+    `📤 *BEP20 Transfer Instructions*\n\nSend exactly:\n*${amountUsdt} USDT* (BEP20 network)\n\nTo address:\n\`${address}\`\n\n_Copy the address carefully. After sending, reply with your TX hash._`,
+  verifying: '⏳ Verifying your payment...',
+  paymentVerified:
+    '✅ *Payment Confirmed!*\n\nYour order is being processed. You will receive your product shortly.',
+  paymentFailed: (reason: string) =>
+    `❌ *Payment Not Verified*\n\n${reason}\n\nPlease try again or contact support.`,
+  paymentRefNeeded: 'Please send your payment reference (Binance Pay Order ID or BEP20 TX hash).',
 
   noOrders: '📭 You have no orders yet.',
 
@@ -86,7 +107,30 @@ function priceLabel(minor: bigint): string {
 }
 
 function paymentWallet(): string {
-  return process.env.PLATFORM_USDT_WALLET_ADDRESS ?? '0x0000000000000000000000000000000000000000';
+  return getBep20PayoutAddress();
+}
+
+function classifyPaymentText(text: string): 'binance' | 'bep20' | 'unknown' {
+  const trimmed = text.trim();
+  if (TX_HASH_REGEX.test(trimmed) || trimmed.startsWith(PAYMENT_CONFIG.demo.failTxPrefix)) {
+    return 'bep20';
+  }
+  if (BINANCE_NUMERIC_ORDER_ID_REGEX.test(trimmed)) {
+    return 'binance';
+  }
+  if (
+    trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) ||
+    trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix)
+  ) {
+    return 'binance';
+  }
+  return 'unknown';
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function markProcessed(botId: string, updateId: number): boolean {
@@ -159,9 +203,80 @@ function updateType(update: Update): string {
 export function createBotEngine(botToken: string, context: BotEngineContext): BotEngine {
   const bot = new Bot(botToken);
   let customer: CustomerRecord | null = null;
+  const pendingByChat = new Map<string, { orderId: string; method?: 'binance_pay' | 'usdt_bep20' }>();
 
   async function showMainMenu(chatId: number | string, text: string): Promise<void> {
     await bot.api.sendMessage(chatId, text, { reply_markup: MAIN_MENU_KEYBOARD });
+  }
+
+  async function sendDemoNotice(chatId: number | string): Promise<void> {
+    if (PAYMENT_CONFIG.mode === 'demo') {
+      await bot.api.sendMessage(chatId, MESSAGES.demoModeNotice, { parse_mode: 'Markdown' });
+    }
+  }
+
+  async function showPaymentChoice(chatId: number | string, orderId: string): Promise<void> {
+    const keyboard = new InlineKeyboard()
+      .text(MESSAGES.binancePayButton, `pay:binance:${orderId}`)
+      .text(MESSAGES.bep20Button, `pay:bep20:${orderId}`);
+    await bot.api.sendMessage(chatId, MESSAGES.paymentMethodChoice, { reply_markup: keyboard });
+    await sendDemoNotice(chatId);
+  }
+
+  async function startBinancePay(chatId: number | string, orderId: string): Promise<void> {
+    pendingByChat.set(String(chatId), { orderId, method: 'binance_pay' });
+    const checkout = await createBinancePayOrder(context.supabase, orderId);
+    const keyboard = new InlineKeyboard().url('Open Binance Pay', checkout.checkoutUrl);
+    await bot.api.sendMessage(chatId, MESSAGES.binancePayLink(checkout.checkoutUrl), {
+      reply_markup: keyboard,
+    });
+    await sendDemoNotice(chatId);
+    await bot.api.sendMessage(chatId, MESSAGES.binancePayFollowUp);
+  }
+
+  async function startBep20(chatId: number | string, orderId: string, amountUsdt: string): Promise<void> {
+    pendingByChat.set(String(chatId), { orderId, method: 'usdt_bep20' });
+    await bot.api.sendMessage(chatId, MESSAGES.bep20Instructions(paymentWallet(), amountUsdt), {
+      parse_mode: 'Markdown',
+    });
+    await sendDemoNotice(chatId);
+  }
+
+  async function handlePaymentReference(chatId: number | string, text: string): Promise<boolean> {
+    const kind = classifyPaymentText(text);
+    const pending = pendingByChat.get(String(chatId));
+    let orderId = pending?.orderId;
+    if (orderId === undefined && customer !== null && kind !== 'unknown') {
+      const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 5 });
+      const payable = orders.find(
+        (order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification',
+      );
+      orderId = payable?.id;
+    }
+    if (kind === 'unknown' || orderId === undefined) {
+      return false;
+    }
+    await bot.api.sendMessage(chatId, MESSAGES.verifying);
+    if (PAYMENT_CONFIG.mode === 'demo') {
+      await sleep(PAYMENT_CONFIG.demo.verificationDelayMs);
+    }
+    const result =
+      kind === 'binance'
+        ? await verifyBinancePayClaim(context.supabase, { orderId, binanceOrderId: text.trim() })
+        : await verifyBep20Claim(context.supabase, { orderId, txHash: text.trim() });
+    if (result.verified) {
+      pendingByChat.delete(String(chatId));
+      await bot.api.sendMessage(chatId, MESSAGES.paymentVerified, {
+        parse_mode: 'Markdown',
+        reply_markup: MAIN_MENU_KEYBOARD,
+      });
+      return true;
+    }
+    await bot.api.sendMessage(chatId, MESSAGES.paymentFailed(result.rejectReason ?? 'Verification failed'), {
+      parse_mode: 'Markdown',
+      reply_markup: MAIN_MENU_KEYBOARD,
+    });
+    return true;
   }
 
   async function showProductList(chatId: number | string): Promise<void> {
@@ -211,11 +326,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
     });
     const amount = priceLabel(order.quotedRetailPriceMinor);
+    pendingByChat.set(String(chatId), { orderId: order.id });
     await bot.api.sendMessage(chatId, MESSAGES.orderCreated(order.id, amount), { parse_mode: 'Markdown' });
-    await bot.api.sendMessage(chatId, MESSAGES.paymentInstructions(paymentWallet(), amount, order.id), {
-      parse_mode: 'Markdown',
-      reply_markup: MAIN_MENU_KEYBOARD,
-    });
+    await showPaymentChoice(chatId, order.id);
   }
 
   async function showOrders(chatId: number | string): Promise<void> {
@@ -255,6 +368,20 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (data.startsWith('buy:')) {
       await handleBuy(chatId, data.slice('buy:'.length), ctx.update.update_id);
+      return;
+    }
+    if (data.startsWith('pay:binance:')) {
+      await startBinancePay(chatId, data.slice('pay:binance:'.length));
+      return;
+    }
+    if (data.startsWith('pay:bep20:')) {
+      const orderId = data.slice('pay:bep20:'.length);
+      const orders = await listOrders(context.supabase, {
+        ...(customer !== null ? { customerId: customer.id } : {}),
+        limit: 10,
+      });
+      const order = orders.find((item) => item.id === orderId);
+      await startBep20(chatId, orderId, priceLabel(order?.quotedRetailPriceMinor ?? 0n));
     }
   });
 
@@ -273,6 +400,14 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (text === '❓ Help') {
       await ctx.reply(MESSAGES.help, { parse_mode: 'Markdown', reply_markup: MAIN_MENU_KEYBOARD });
+      return;
+    }
+    const handled = await handlePaymentReference(ctx.chat.id, text);
+    if (handled) {
+      return;
+    }
+    if (pendingByChat.has(String(ctx.chat.id))) {
+      await ctx.reply(MESSAGES.paymentRefNeeded, { reply_markup: MAIN_MENU_KEYBOARD });
       return;
     }
     await showMainMenu(ctx.chat.id, MESSAGES.unrecognized);

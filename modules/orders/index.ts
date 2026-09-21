@@ -128,6 +128,8 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
       quoted_retail_price: quotedRetailPrice.toString(),
       quoted_wholesale_price: quotedWholesalePrice.toString(),
       currency: 'USDT',
+      payment_method: null,
+      external_order_ref: null,
       payment_status: paymentStatus,
       funding_status: fundingStatus,
       fulfillment_status: 'queued',
