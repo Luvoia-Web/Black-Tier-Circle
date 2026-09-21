@@ -1,0 +1,136 @@
+/**
+ * @file app/(dashboard)/owner/products/[productId]/edit/page.tsx
+ *
+ * Edit product form — same fields as create, SKU read-only.
+ *
+ * @module Dashboard
+ */
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ProductForm, type ProductFormValues } from '@/components/catalog/product-form';
+import { PageHeader } from '@/components/ui/page-header';
+import { minorToUsdt, usdtToMinor } from '@/lib/money';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import type { DeliveryType } from '@/modules/catalog/types';
+
+type EditPageProps = {
+  readonly params: { readonly productId: string };
+};
+
+type ProductDto = {
+  readonly id: string;
+  readonly sku: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly category: string | null;
+  readonly deliveryType: DeliveryType;
+  readonly wholesalePriceMinor: string;
+  readonly retailPriceMinor: string;
+  readonly stockUnlimited: boolean;
+  readonly stockCount: number | null;
+  readonly resellerEligible: boolean;
+  readonly maxPurchaseQty: number;
+  readonly estimatedDeliveryMinutes: number | null;
+};
+
+function trimUsdt(minor: string): string {
+  const full = minorToUsdt(BigInt(minor));
+  return full.replace(/0+$/, '').replace(/\.$/, '');
+}
+
+/**
+ * Owner edit-product page.
+ */
+export default function EditProductPage({ params }: EditPageProps): JSX.Element {
+  const router = useRouter();
+  const [initial, setInitial] = useState<ProductFormValues | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const response = await fetch(API_ROUTES.product(params.productId));
+      const json = (await response.json()) as {
+        success: boolean;
+        data?: ProductDto;
+        error?: { message: string };
+      };
+      if (!json.success || !json.data) {
+        setError(json.error?.message ?? 'Unable to load product');
+        return;
+      }
+      const product = json.data;
+      setInitial({
+        sku: product.sku,
+        title: product.title,
+        description: product.description ?? '',
+        category: product.category ?? '',
+        deliveryType: product.deliveryType,
+        wholesaleUsdt: trimUsdt(product.wholesalePriceMinor),
+        retailUsdt: trimUsdt(product.retailPriceMinor),
+        stockUnlimited: product.stockUnlimited,
+        stockCount: product.stockCount === null ? '' : String(product.stockCount),
+        resellerEligible: product.resellerEligible,
+        maxPurchaseQty: String(product.maxPurchaseQty),
+        estimatedDeliveryMinutes:
+          product.estimatedDeliveryMinutes === null ? '' : String(product.estimatedDeliveryMinutes),
+      });
+    })();
+  }, [params.productId]);
+
+  async function onSubmit(values: ProductFormValues): Promise<void> {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const response = await fetch(API_ROUTES.product(params.productId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: values.title,
+          description: values.description || null,
+          category: values.category || null,
+          deliveryType: values.deliveryType,
+          wholesalePriceStr: usdtToMinor(values.wholesaleUsdt).toString(),
+          retailPriceStr: usdtToMinor(values.retailUsdt).toString(),
+          stockUnlimited: values.stockUnlimited,
+          stockCount: values.stockUnlimited ? null : Number(values.stockCount),
+          resellerEligible: values.resellerEligible,
+          maxPurchaseQty: Number(values.maxPurchaseQty),
+          estimatedDeliveryMinutes: values.estimatedDeliveryMinutes
+            ? Number(values.estimatedDeliveryMinutes)
+            : null,
+        }),
+      });
+      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      if (!json.success) {
+        setError(json.error?.message ?? 'Unable to save product');
+        return;
+      }
+      router.push(ROUTES.owner.productDetail(params.productId));
+    } catch {
+      setError('Unable to save product');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader title="Edit product" description="SKU cannot be changed after creation." />
+      {initial ? (
+        <ProductForm
+          mode="edit"
+          initial={initial}
+          error={error}
+          submitting={submitting}
+          onSubmit={onSubmit}
+        />
+      ) : (
+        <p className="text-sm text-gray-400">{error ?? 'Loading…'}</p>
+      )}
+    </>
+  );
+}

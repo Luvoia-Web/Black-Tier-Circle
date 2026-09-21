@@ -7,6 +7,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { serializeForJson } from '@/lib/api-helpers';
 import { AppError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { ZodError } from 'zod';
@@ -30,8 +31,8 @@ export type ApiFailure = {
  * @param data - Response body
  * @param status - HTTP status code
  */
-export function jsonSuccess<T>(data: T, status: number = 200): NextResponse<ApiSuccess<T>> {
-  return NextResponse.json({ success: true, data }, { status });
+export function jsonSuccess<T>(data: T, status: number = 200): NextResponse<ApiSuccess<unknown>> {
+  return NextResponse.json({ success: true, data: serializeForJson(data) }, { status });
 }
 
 /**

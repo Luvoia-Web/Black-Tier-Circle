@@ -1,13 +1,212 @@
 /**
  * @file app/(dashboard)/owner/products/page.tsx
  *
- * Owner products placeholder (Phase 2).
+ * Owner product list with status filter tabs.
  *
  * @module Dashboard
  */
 
-import { ComingSoon } from '@/components/coming-soon';
+'use client';
 
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ProductStatusBadge } from '@/components/catalog/product-status-badge';
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { PageHeader } from '@/components/ui/page-header';
+import { formatUsdt } from '@/lib/money';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import type { ProductStatus } from '@/modules/catalog/types';
+
+type ProductRow = {
+  readonly id: string;
+  readonly sku: string;
+  readonly title: string;
+  readonly category: string | null;
+  readonly deliveryType: string;
+  readonly wholesalePriceMinor: string;
+  readonly retailPriceMinor: string;
+  readonly status: ProductStatus;
+  readonly stockUnlimited: boolean;
+  readonly stockCount: number | null;
+};
+
+const TABS: ReadonlyArray<{ id: 'all' | ProductStatus; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'draft', label: 'Draft' },
+  { id: 'published', label: 'Published' },
+  { id: 'paused', label: 'Paused' },
+  { id: 'archived', label: 'Archived' },
+];
+
+/**
+ * Owner catalog list with status filters and publish/pause actions.
+ */
 export default function OwnerProductsPage(): JSX.Element {
-  return <ComingSoon title="Products" />;
+  const [rows, setRows] = useState<ProductRow[]>([]);
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const url =
+        tab === 'all' ? API_ROUTES.products : `${API_ROUTES.products}?status=${encodeURIComponent(tab)}`;
+      const response = await fetch(url);
+      const json = (await response.json()) as {
+        success: boolean;
+        data?: ProductRow[];
+        error?: { message: string };
+      };
+      if (!json.success || !json.data) {
+        setError(json.error?.message ?? 'Unable to load products');
+        setRows([]);
+        return;
+      }
+      setRows(json.data);
+    } catch {
+      setError('Unable to load products');
+    } finally {
+      setLoading(false);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setStatus = useCallback(
+    async (productId: string, status: 'published' | 'paused'): Promise<void> => {
+      setPendingId(productId);
+      try {
+        const response = await fetch(API_ROUTES.productStatus(productId), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        });
+        const json = (await response.json()) as { success: boolean; error?: { message: string } };
+        if (!json.success) {
+          setError(json.error?.message ?? 'Unable to update status');
+          return;
+        }
+        await load();
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [load],
+  );
+
+  const columns: ReadonlyArray<DataTableColumn<ProductRow>> = useMemo(
+    () => [
+      { key: 'sku', header: 'SKU', render: (row) => row.sku },
+      { key: 'title', header: 'Title', render: (row) => row.title },
+      { key: 'category', header: 'Category', render: (row) => row.category ?? '—' },
+      { key: 'delivery', header: 'Delivery type', render: (row) => row.deliveryType.replace('_', ' ') },
+      {
+        key: 'wholesale',
+        header: 'Wholesale',
+        render: (row) => formatUsdt(BigInt(row.wholesalePriceMinor)),
+      },
+      {
+        key: 'retail',
+        header: 'Retail',
+        render: (row) => formatUsdt(BigInt(row.retailPriceMinor)),
+      },
+      { key: 'status', header: 'Status', render: (row) => <ProductStatusBadge status={row.status} /> },
+      {
+        key: 'stock',
+        header: 'Stock',
+        render: (row) => (row.stockUnlimited ? 'Unlimited' : String(row.stockCount ?? 0)),
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        render: (row) => {
+          const busy = pendingId === row.id;
+          const toggleLabel = row.status === 'published' ? 'Pause' : 'Publish';
+          const canToggle = row.status === 'draft' || row.status === 'published' || row.status === 'paused';
+          return (
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={ROUTES.owner.productEdit(row.id)}
+                className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                Edit
+              </Link>
+              <Link
+                href={ROUTES.owner.productDetail(row.id)}
+                className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                View details
+              </Link>
+              {canToggle ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void setStatus(row.id, row.status === 'published' ? 'paused' : 'published')
+                  }
+                  className="text-xs font-medium text-gray-300 hover:text-white disabled:opacity-60"
+                >
+                  {busy ? 'Updating…' : toggleLabel}
+                </button>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    [pendingId, setStatus],
+  );
+
+  return (
+    <>
+      <PageHeader
+        title="Products"
+        description="Create and manage digital products, prices, and availability"
+        actions={
+          <Link
+            href={ROUTES.owner.productNew}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            Add Product
+          </Link>
+        }
+      />
+      <div className="mb-4 flex flex-wrap gap-2">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={`rounded-md px-3 py-1.5 text-sm ${
+              tab === item.id
+                ? 'bg-indigo-600 text-white'
+                : 'border border-gray-800 bg-gray-900 text-gray-300 hover:bg-gray-800'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <p className="mb-4 rounded-md border border-red-600/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {error}
+        </p>
+      ) : null}
+      {loading ? (
+        <p className="text-sm text-gray-400">Loading products…</p>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          emptyMessage="No products yet. Add your first product."
+        />
+      )}
+    </>
+  );
 }

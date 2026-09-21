@@ -19,6 +19,9 @@ export const ROUTES = {
     resellers: '/owner/resellers',
     resellersInvite: '/owner/resellers/invite',
     products: '/owner/products',
+    productNew: '/owner/products/new',
+    productDetail: (id: string) => `/owner/products/${id}`,
+    productEdit: (id: string) => `/owner/products/${id}/edit`,
     orders: '/owner/orders',
     settings: '/owner/settings',
   },
@@ -42,6 +45,17 @@ export const API_ROUTES = {
   invitationsValidate: `${API_PREFIX}/invitations/validate`,
   resellers: `${API_PREFIX}/resellers`,
   resellerStatus: (tenantId: string) => `${API_PREFIX}/resellers/${tenantId}/status`,
+  products: `${API_PREFIX}/products`,
+  product: (productId: string) => `${API_PREFIX}/products/${productId}`,
+  productStatus: (productId: string) => `${API_PREFIX}/products/${productId}/status`,
+  productListings: (productId: string) => `${API_PREFIX}/products/${productId}/listings`,
+  productUpload: `${API_PREFIX}/products/upload`,
+  productDownload: (productId: string, assetId: string) =>
+    `${API_PREFIX}/products/${productId}/download/${assetId}`,
+  productAsset: (productId: string, assetId: string) =>
+    `${API_PREFIX}/products/${productId}/assets/${assetId}`,
+  resellerListings: `${API_PREFIX}/reseller/listings`,
+  resellerListing: (listingId: string) => `${API_PREFIX}/reseller/listings/${listingId}`,
 } as const;
 
 /**

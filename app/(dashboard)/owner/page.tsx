@@ -13,6 +13,7 @@ import { ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { asDbClient } from '@/lib/auth/session';
+import { listProducts } from '@/modules/catalog';
 import { getProfile } from '@/modules/identity';
 import { redirect } from 'next/navigation';
 
@@ -25,6 +26,9 @@ export default async function OwnerDashboardPage(): Promise<JSX.Element> {
     redirect(ROUTES.login);
   }
   const profile = await getProfile(asDbClient(createAdminSupabaseClient()), user.id);
+  const publishedProducts = await listProducts(asDbClient(createAdminSupabaseClient()), {
+    status: 'published',
+  });
 
   return (
     <>
@@ -42,9 +46,9 @@ export default async function OwnerDashboardPage(): Promise<JSX.Element> {
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Resellers" value="0" />
+        <StatCard label="Total Products" value={String(publishedProducts.length)} />
         <StatCard label="Active Orders" value="0" />
         <StatCard label="Total Revenue (USDT)" value="0.00" />
-        <StatCard label="Pending Approvals" value="0" />
       </div>
       <section className="mt-8">
         <h2 className="mb-3 text-sm font-medium text-gray-400">Recent activity</h2>

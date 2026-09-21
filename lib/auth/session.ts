@@ -12,6 +12,7 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { DbClient } from '@/lib/supabase/query';
 import { getProfile, type UserProfile, type UserRole } from '@/modules/identity';
+import { getTenantByUserId, type Tenant } from '@/modules/tenants';
 import type { User } from '@supabase/supabase-js';
 
 export type AuthenticatedSession = {
@@ -21,9 +22,13 @@ export type AuthenticatedSession = {
   readonly admin: ReturnType<typeof createAdminSupabaseClient>;
 };
 
-function asDbClient(client: ReturnType<typeof createServerSupabaseClient> | ReturnType<typeof createAdminSupabaseClient>): DbClient {
+function asDbClient(
+  client: ReturnType<typeof createServerSupabaseClient> | ReturnType<typeof createAdminSupabaseClient>,
+): DbClient {
   return client as unknown as DbClient;
 }
+
+export { asDbClient };
 
 /**
  * Loads the verified user and profile for the current request.
@@ -68,4 +73,22 @@ export async function requireRole(roles: ReadonlyArray<UserRole>): Promise<Authe
   return session;
 }
 
-export { asDbClient };
+export type ResellerSession = AuthenticatedSession & {
+  readonly tenant: Tenant;
+};
+
+/**
+ * Requires an authenticated reseller and loads their tenant from the session user.
+ * Tenant ID always comes from the database, never from the request body.
+ */
+export async function requireReseller(): Promise<ResellerSession> {
+  const session = await requireUser();
+  if (session.profile.role !== 'reseller') {
+    throw new AuthError('FORBIDDEN', 'Reseller access required', 403);
+  }
+  const tenant = await getTenantByUserId(asDbClient(session.admin), session.user.id);
+  if (tenant.status === 'suspended') {
+    throw new AuthError('ACCOUNT_SUSPENDED', 'This account has been suspended', 403);
+  }
+  return { ...session, tenant };
+}

@@ -17,13 +17,36 @@ export type QueryResult<T> = {
   readonly error: QueryError | null;
 };
 
+export type SignedUrlResult = {
+  readonly data: { readonly signedUrl: string } | null;
+  readonly error: QueryError | null;
+};
+
 /**
- * Chainable subset of the Supabase JS query builder used in Phase 1.
+ * Minimal Storage surface for private product buckets.
+ */
+export type StorageBucket = {
+  upload: (
+    path: string,
+    body: File | Blob | ArrayBuffer | Buffer,
+    options?: { contentType?: string; upsert?: boolean },
+  ) => Promise<QueryResult<{ path: string } | null>>;
+  remove: (paths: string[]) => Promise<QueryResult<null>>;
+  createSignedUrl: (path: string, expiresIn: number) => Promise<SignedUrlResult>;
+};
+
+export type StorageAdapter = {
+  from: (bucket: string) => StorageBucket;
+};
+
+/**
+ * Chainable subset of the Supabase JS query builder used in Phase 1 and 2.
  */
 export type QueryBuilder<T> = {
   select: (columns?: string) => QueryBuilder<T>;
   insert: (values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>) => QueryBuilder<T>;
   update: (values: Record<string, unknown>) => QueryBuilder<T>;
+  delete: () => QueryBuilder<T>;
   eq: (column: string, value: string) => QueryBuilder<T>;
   is: (column: string, value: null) => QueryBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder<T>;
@@ -37,4 +60,5 @@ export type QueryBuilder<T> = {
 
 export type DbClient = {
   from: (relation: string) => QueryBuilder<unknown>;
+  storage?: StorageAdapter;
 };

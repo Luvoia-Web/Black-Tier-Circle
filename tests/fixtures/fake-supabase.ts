@@ -6,7 +6,7 @@
  * @module Tests
  */
 
-import type { DbClient, QueryBuilder, QueryResult } from '@/lib/supabase/query';
+import type { DbClient, QueryBuilder, QueryResult, StorageAdapter } from '@/lib/supabase/query';
 
 export type MemoryRow = Record<string, unknown>;
 
@@ -16,27 +16,56 @@ type Filter = {
 };
 
 /**
- * Creates a DbClient backed by in-memory tables.
+ * Creates a DbClient backed by in-memory tables and private storage.
  *
  * @param initial - Optional seed rows keyed by table name
  */
 export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbClient & {
   readonly tables: Record<string, MemoryRow[]>;
+  readonly storedFiles: Map<string, string>;
 } {
   const tables: Record<string, MemoryRow[]> = {
     profiles: [],
     tenants: [],
     invitations: [],
+    products: [],
+    product_assets: [],
+    reseller_listings: [],
     ...Object.fromEntries(
       Object.entries(initial).map(([key, rows]) => [key, rows.map((row) => ({ ...row }))]),
     ),
+  };
+
+  const storedFiles = new Map<string, string>();
+
+  const storage: StorageAdapter = {
+    from(bucket: string) {
+      return {
+        async upload(path: string): Promise<QueryResult<{ path: string } | null>> {
+          storedFiles.set(`${bucket}:${path}`, path);
+          return { data: { path }, error: null };
+        },
+        async remove(paths: string[]): Promise<QueryResult<null>> {
+          for (const path of paths) {
+            storedFiles.delete(`${bucket}:${path}`);
+          }
+          return { data: null, error: null };
+        },
+        async createSignedUrl(path: string, expiresIn: number) {
+          return {
+            data: { signedUrl: `https://signed.example.test/${bucket}/${path}?exp=${expiresIn}` },
+            error: null,
+          };
+        },
+      };
+    },
   };
 
   function from(relation: string): QueryBuilder<unknown> {
     const existing = tables[relation];
     const table = existing ?? [];
     tables[relation] = table;
-    let mode: 'select' | 'insert' | 'update' = 'select';
+    let mode: 'select' | 'insert' | 'update' | 'delete' = 'select';
     const filters: Filter[] = [];
     let pendingInsert: MemoryRow | null = null;
     let pendingUpdate: MemoryRow | null = null;
@@ -77,6 +106,17 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         }
         return updated;
       }
+      if (mode === 'delete') {
+        const deleted: MemoryRow[] = [];
+        for (let index = table.length - 1; index >= 0; index -= 1) {
+          const current = table[index];
+          if (current && matches(current)) {
+            deleted.push(current);
+            table.splice(index, 1);
+          }
+        }
+        return deleted;
+      }
       const rows = table.filter(matches);
       if (orderColumn) {
         const column = orderColumn;
@@ -101,6 +141,10 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       update(values): QueryBuilder<unknown> {
         mode = 'update';
         pendingUpdate = values;
+        return builder;
+      },
+      delete(): QueryBuilder<unknown> {
+        mode = 'delete';
         return builder;
       },
       eq(column, value): QueryBuilder<unknown> {
@@ -135,5 +179,5 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
     return builder;
   }
 
-  return { from, tables };
+  return { from, storage, tables, storedFiles };
 }
