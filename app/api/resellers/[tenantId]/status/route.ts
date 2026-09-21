@@ -10,6 +10,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { UpdateTenantStatusSchema } from '@/lib/validations/auth';
 import { updateTenantStatus } from '@/modules/tenants';
+import { getOrCreateWallet } from '@/modules/wallet';
 
 type RouteContext = {
   readonly params: { readonly tenantId: string };
@@ -24,6 +25,9 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       context.params.tenantId,
       body.status,
     );
+    if (body.status === 'active') {
+      await getOrCreateWallet(asDbClient(session.admin), tenant.id);
+    }
     return jsonSuccess({
       id: tenant.id,
       status: tenant.status,

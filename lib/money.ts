@@ -106,14 +106,10 @@ export function subtractUsdt(leftMinor: bigint, rightMinor: bigint): bigint {
  * @returns String such as "1.50 USDT"
  */
 export function formatUsdt(minor: bigint): string {
-  const full = minorToUsdt(minor);
-  const [whole = '0', fraction = '000000'] = full.split('.');
-  let trimmedFraction = fraction;
-  while (trimmedFraction.length > 2 && trimmedFraction.endsWith('0')) {
-    trimmedFraction = trimmedFraction.slice(0, -1);
-  }
-  if (trimmedFraction.length < 2) {
-    trimmedFraction = trimmedFraction.padEnd(2, '0');
-  }
-  return `${whole}.${trimmedFraction} USDT`;
+  const isNegative = minor < 0n;
+  const absolute = isNegative ? -minor : minor;
+  const whole = absolute / USDT_FACTOR;
+  const cents = (absolute % USDT_FACTOR) / 10_000n;
+  const sign = isNegative ? '-' : '';
+  return `${sign}${whole.toString()}.${cents.toString().padStart(2, '0')} USDT`;
 }

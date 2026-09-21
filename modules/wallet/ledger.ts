@@ -1,108 +1,127 @@
 /**
  * @file modules/wallet/ledger.ts
  *
- * Append-only sandbox ledger. Rows are never updated or deleted.
+ * Append-only ledger read operations.
+ * Write operations go through Postgres functions only (modules/wallet/index.ts).
  *
- * Phase 3 persists these signatures to PostgreSQL. Phase 0 keeps an
- * in-memory fake so financial call sites can be wired without floats.
+ * INVARIANT: This file contains NO INSERT, UPDATE, or DELETE operations.
+ * All writes go through supabase.rpc() calls in index.ts.
  *
  * @module Wallet
  */
 
-import { WalletError } from '@/lib/errors';
-import { addUsdt, subtractUsdt } from '@/lib/money';
-import { randomUUID } from 'node:crypto';
-import type { AppendLedgerParams, LedgerTransaction, Wallet } from './types';
+import { AppError, NotFoundError } from '@/lib/errors';
+import type { DbClient, QueryBuilder, QueryResult } from '@/lib/supabase/query';
+import { mapLedgerRow, mapWalletRow } from './map';
+import type { LedgerEntry, LedgerListOptions, LedgerRow, WalletRow, WalletStatement } from './types';
 
-const sandboxLedger: LedgerTransaction[] = [];
-const sandboxWallets = new Map<string, Wallet>();
-const seenIdempotencyKeys = new Map<string, LedgerTransaction>();
+function asLedgerRow(data: unknown): LedgerRow {
+  return data as LedgerRow;
+}
 
-function availableBalance(wallet: Wallet): bigint {
-  return subtractUsdt(wallet.balanceTotalMinor, wallet.balanceReservedMinor);
+function asWalletRow(data: unknown): WalletRow {
+  return data as WalletRow;
 }
 
 /**
- * Appends an immutable ledger row and returns the new wallet snapshot.
+ * Returns ledger entries for a wallet, newest first.
+ * SECURITY: caller must verify wallet belongs to their tenant before calling.
  *
- * @param params - Ledger mutation including required idempotency key
- * @returns Created ledger row
- * @throws WalletError on insufficient funds, duplicate conflicting keys, or negative amounts
- *
- * INVARIANT: Existing ledger rows are never mutated.
- * INVARIANT: Wallet mutations require an idempotency key.
- */
-export function appendLedgerEntry(params: AppendLedgerParams): LedgerTransaction {
-  const existing = seenIdempotencyKeys.get(params.idempotencyKey);
-  if (existing) {
-    return existing;
-  }
-
-  const current =
-    sandboxWallets.get(params.wallet.id) ?? params.wallet;
-
-  let nextTotal = current.balanceTotalMinor;
-  let nextReserved = current.balanceReservedMinor;
-
-  if (params.entryType === 'reservation') {
-    if (availableBalance(current) < params.amountMinor) {
-      throw new WalletError('INSUFFICIENT_FUNDS', 'Available balance is insufficient');
-    }
-    nextReserved = addUsdt(current.balanceReservedMinor, params.amountMinor);
-  } else if (params.entryType === 'reservation_release') {
-    nextReserved = subtractUsdt(current.balanceReservedMinor, params.amountMinor);
-  } else if (
-    params.entryType === 'wholesale_debit' ||
-    params.entryType === 'manual_debit'
-  ) {
-    nextTotal = subtractUsdt(current.balanceTotalMinor, params.amountMinor);
-    if (params.entryType === 'wholesale_debit') {
-      nextReserved = subtractUsdt(current.balanceReservedMinor, params.amountMinor);
-    }
-  } else {
-    nextTotal = addUsdt(current.balanceTotalMinor, params.amountMinor);
-  }
-
-  const entry: LedgerTransaction = {
-    id: randomUUID(),
-    walletId: current.id,
-    entryType: params.entryType,
-    amountMinor: params.amountMinor,
-    balanceAfterMinor: nextTotal,
-    referenceId: params.referenceId === undefined ? null : params.referenceId,
-    referenceType: params.referenceType === undefined ? null : params.referenceType,
-    actorId: params.actorId === undefined ? null : params.actorId,
-    note: params.note === undefined ? null : params.note,
-    createdAt: new Date().toISOString(),
-    idempotencyKey: params.idempotencyKey,
-  };
-
-  sandboxLedger.push(entry);
-  seenIdempotencyKeys.set(params.idempotencyKey, entry);
-  sandboxWallets.set(current.id, {
-    ...current,
-    balanceTotalMinor: nextTotal,
-    balanceReservedMinor: nextReserved,
-  });
-  return entry;
-}
-
-/**
- * Returns a copy of sandbox ledger rows for a wallet.
- *
+ * @param supabase - Database client
  * @param walletId - Wallet UUID
- * @returns Append-only history, oldest first
+ * @param options - Pagination and date filters
  */
-export function listLedgerEntries(walletId: string): readonly LedgerTransaction[] {
-  return sandboxLedger.filter((entry) => entry.walletId === walletId);
+export async function getLedgerEntries(
+  supabase: DbClient,
+  walletId: string,
+  options?: LedgerListOptions,
+): Promise<LedgerEntry[]> {
+  const limit = options?.limit ?? 50;
+  const offset = options?.offset ?? 0;
+  let query: QueryBuilder<unknown> = supabase
+    .from('ledger_transactions')
+    .select('*')
+    .eq('wallet_id', walletId)
+    .order('created_at', { ascending: false });
+
+  if (options?.since !== undefined) {
+    query = query.gte('created_at', options.since.toISOString());
+  }
+  if (options?.until !== undefined) {
+    query = query.lte('created_at', options.until.toISOString());
+  }
+
+  const result = (await query.range(offset, offset + limit - 1)) as QueryResult<unknown[] | null>;
+  if (result.error) {
+    throw new AppError('LEDGER_LIST_FAILED', result.error.message, 500);
+  }
+  const rows = Array.isArray(result.data) ? result.data : [];
+  return rows.map((row) => mapLedgerRow(asLedgerRow(row)));
 }
 
 /**
- * Reads the latest sandbox wallet snapshot.
+ * Returns wallet plus ledger entries and computed credit/debit totals for a period.
  *
- * @param wallet - Fallback wallet if none has been mutated yet
- * @returns Current sandbox wallet
+ * @param supabase - Database client
+ * @param walletId - Wallet UUID
+ * @param periodStart - Inclusive start
+ * @param periodEnd - Inclusive end
  */
-export function getSandboxWallet(wallet: Wallet): Wallet {
-  return sandboxWallets.get(wallet.id) ?? wallet;
+export async function getWalletStatement(
+  supabase: DbClient,
+  walletId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<WalletStatement> {
+  const walletResult = await supabase.from('wallets').select('*').eq('id', walletId).maybeSingle();
+  if (walletResult.error) {
+    throw new AppError('WALLET_LOOKUP_FAILED', walletResult.error.message, 500);
+  }
+  if (walletResult.data === null) {
+    throw new NotFoundError('Wallet');
+  }
+  const wallet = mapWalletRow(asWalletRow(walletResult.data));
+  const entries = await getLedgerEntries(supabase, walletId, {
+    limit: 10_000,
+    offset: 0,
+    since: periodStart,
+    until: periodEnd,
+  });
+
+  let totalCredits = 0n;
+  let totalDebits = 0n;
+  for (const entry of entries) {
+    if (entry.amount > 0n) {
+      totalCredits += entry.amount;
+    } else if (entry.amount < 0n) {
+      totalDebits += -entry.amount;
+    }
+  }
+
+  return {
+    wallet,
+    entries,
+    totalCredits,
+    totalDebits,
+    periodStart,
+    periodEnd,
+  };
+}
+
+/**
+ * Returns current balance_total from the wallets table.
+ * Used to verify ledger integrity (should match last ledger entry's balance_after).
+ *
+ * @param supabase - Database client
+ * @param walletId - Wallet UUID
+ */
+export async function getRunningBalance(supabase: DbClient, walletId: string): Promise<bigint> {
+  const { data, error } = await supabase.from('wallets').select('*').eq('id', walletId).maybeSingle();
+  if (error) {
+    throw new AppError('WALLET_LOOKUP_FAILED', error.message, 500);
+  }
+  if (data === null) {
+    throw new NotFoundError('Wallet');
+  }
+  return mapWalletRow(asWalletRow(data)).balanceTotal;
 }

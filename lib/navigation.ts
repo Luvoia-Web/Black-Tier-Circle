@@ -24,12 +24,16 @@ export const ROUTES = {
     productEdit: (id: string) => `/owner/products/${id}/edit`,
     orders: '/owner/orders',
     settings: '/owner/settings',
+    tokens: '/owner/tokens',
+    wallets: '/owner/wallets',
+    walletDetail: (walletId: string) => `/owner/wallets/${walletId}`,
   },
   reseller: {
     home: '/reseller',
     bot: '/reseller/bot',
     products: '/reseller/products',
     wallet: '/reseller/wallet',
+    walletHistory: '/reseller/wallet/history',
     orders: '/reseller/orders',
     settings: '/reseller/settings',
   },
@@ -56,6 +60,16 @@ export const API_ROUTES = {
     `${API_PREFIX}/products/${productId}/assets/${assetId}`,
   resellerListings: `${API_PREFIX}/reseller/listings`,
   resellerListing: (listingId: string) => `${API_PREFIX}/reseller/listings/${listingId}`,
+  wallet: `${API_PREFIX}/wallet`,
+  walletRedeem: `${API_PREFIX}/wallet/redeem`,
+  walletLedger: `${API_PREFIX}/wallet/ledger`,
+  walletStatement: `${API_PREFIX}/wallet/statement`,
+  adminTokens: `${API_PREFIX}/admin/tokens`,
+  adminTokenRevoke: (tokenId: string) => `${API_PREFIX}/admin/tokens/${tokenId}/revoke`,
+  adminWallets: `${API_PREFIX}/admin/wallets`,
+  adminWallet: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}`,
+  adminWalletCredit: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}/credit`,
+  adminWalletDebit: (walletId: string) => `${API_PREFIX}/admin/wallets/${walletId}/debit`,
 } as const;
 
 /**

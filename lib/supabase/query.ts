@@ -49,7 +49,11 @@ export type QueryBuilder<T> = {
   delete: () => QueryBuilder<T>;
   eq: (column: string, value: string) => QueryBuilder<T>;
   is: (column: string, value: null) => QueryBuilder<T>;
+  gte: (column: string, value: string) => QueryBuilder<T>;
+  lte: (column: string, value: string) => QueryBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder<T>;
+  limit: (count: number) => QueryBuilder<T>;
+  range: (from: number, to: number) => QueryBuilder<T>;
   maybeSingle: () => Promise<QueryResult<T | null>>;
   single: () => Promise<QueryResult<T>>;
   then: (
@@ -60,5 +64,6 @@ export type QueryBuilder<T> = {
 
 export type DbClient = {
   from: (relation: string) => QueryBuilder<unknown>;
+  rpc: (fn: string, args?: Record<string, unknown>) => Promise<QueryResult<unknown>>;
   storage?: StorageAdapter;
 };
