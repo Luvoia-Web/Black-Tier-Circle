@@ -1,10 +1,4 @@
 -- ============================================================
--- Black Tier Circle — 0001_initial_schema
--- Creates the Phase 0 domain schema, enums, indexes, and RLS toggles.
--- Service role bypasses RLS; application code must still filter by tenant.
--- ============================================================
-
--- ============================================================
 -- EXTENSIONS
 -- ============================================================
 create extension if not exists "pgcrypto";
