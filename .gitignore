@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# next
+.next/
+out/
+
+# env — never commit local secrets
+.env.local
+.env*.local
+
+# logs and coverage
+*.log
+coverage/
+.vercel/
+
+# os / editor
+.DS_Store
+*.tsbuildinfo
