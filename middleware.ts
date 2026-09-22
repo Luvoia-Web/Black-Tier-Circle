@@ -9,9 +9,7 @@
  * Protected route rules:
  * - /owner/* → must be authenticated + role=owner
  * - /reseller/* → must be authenticated + role=reseller
- * - /login → if already authenticated, redirect to correct dashboard
- * - /invite/* → public (resellers sign up here)
- * - /api/* → not protected by middleware (routes handle their own auth)
+ * - /login, /, /invite, /api-docs, /api, /auth/callback → public (no auth redirect)
  *
  * @module Middleware
  */
@@ -20,9 +18,8 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   dashboardHomeForRole,
-  isApiRoute,
-  isInviteRoute,
   isOwnerRoute,
+  isPublicRoute,
   isResellerRoute,
   ROUTES,
 } from '@/lib/navigation';
@@ -63,7 +60,8 @@ async function readRoleFromProfile(
 }
 
 /**
- * Protects dashboard routes and sends authenticated users away from /login.
+ * Protects dashboard routes. Public paths never enter the auth redirect logic,
+ * so a stale cookie cannot bounce /login ↔ dashboard.
  *
  * Uses getSession() so middleware does not make an extra Auth network round trip.
  */
@@ -71,7 +69,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   let supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
 
-  if (isApiRoute(pathname) || isInviteRoute(pathname)) {
+  if (isPublicRoute(pathname)) {
     return supabaseResponse;
   }
 
@@ -124,23 +122,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   const home = dashboardHomeForRole(role);
 
-  if (pathname === ROUTES.login) {
+  if (isOwnerRoute(pathname) && role !== 'owner') {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = home;
     redirectUrl.search = '';
     return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
   }
 
-  if (isOwnerRoute(pathname) && role !== 'owner') {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = ROUTES.reseller.home;
-    redirectUrl.search = '';
-    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
-  }
-
   if (isResellerRoute(pathname) && role === 'owner') {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = ROUTES.owner.home;
+    redirectUrl.pathname = home;
     redirectUrl.search = '';
     return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
   }
@@ -149,5 +140,5 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api|auth/callback).*)'],
 };

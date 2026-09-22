@@ -134,7 +134,7 @@ export const API_ROUTES = {
  * @param pathname - Request pathname
  */
 export function isInviteRoute(pathname: string): boolean {
-  return pathname.startsWith(`${ROUTES.invite('')}`);
+  return pathname === '/invite' || pathname.startsWith('/invite/');
 }
 
 /**
@@ -144,6 +144,39 @@ export function isInviteRoute(pathname: string): boolean {
  */
 export function isApiRoute(pathname: string): boolean {
   return pathname === API_PREFIX || pathname.startsWith(`${API_PREFIX}/`);
+}
+
+/**
+ * Returns whether middleware should skip auth (public / infrastructure paths).
+ *
+ * @param pathname - Request pathname
+ */
+export function isPublicRoute(pathname: string): boolean {
+  if (pathname === ROUTES.home) {
+    return true;
+  }
+  if (pathname === ROUTES.login || pathname.startsWith(`${ROUTES.login}/`)) {
+    return true;
+  }
+  if (pathname === '/auth/callback' || pathname.startsWith('/auth/callback/')) {
+    return true;
+  }
+  if (isInviteRoute(pathname)) {
+    return true;
+  }
+  if (pathname === ROUTES.public.apiDocs || pathname.startsWith(`${ROUTES.public.apiDocs}/`)) {
+    return true;
+  }
+  if (isApiRoute(pathname)) {
+    return true;
+  }
+  if (pathname.startsWith('/_next')) {
+    return true;
+  }
+  if (pathname === '/favicon.ico') {
+    return true;
+  }
+  return false;
 }
 
 /**
