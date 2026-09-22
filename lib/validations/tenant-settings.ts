@@ -24,6 +24,8 @@ export const UpdateTenantSettingsSchema = z.object({
   binanceMerchantUid: optionalText(80),
   binanceApiKey: z.string().min(8).max(200).optional(),
   binanceApiSecret: z.string().min(8).max(200).optional(),
+  binancePayEnabled: z.boolean().optional(),
+  useOwnUsdtWallet: z.boolean().optional(),
   usdtWalletBep20: optionalText(80),
   usdtMinimumBep20: z.string().regex(/^\d+(\.\d{1,6})?$/).optional(),
   resellerSignupEnabled: z.boolean().optional(),

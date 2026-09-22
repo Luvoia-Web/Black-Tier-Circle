@@ -18,7 +18,7 @@ vi.mock('@/modules/fulfillment', () => ({
 
 import { ValidationError } from '@/lib/errors';
 import { amountSufficient, amountsMatch, minorToUsdtApiString } from '@/lib/money';
-import { bscValueToMinorUnits, getPaymentModeLabel, PAYMENT_CONFIG } from '@/lib/payment-config';
+import { bscValueToMinorUnits, getPaymentModeLabel, isPaymentLive } from '@/lib/payment-config';
 import { createOrder } from '@/modules/orders';
 import { verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
@@ -243,11 +243,13 @@ describe('MONEY HELPERS', () => {
 });
 
 describe('PAYMENT CONFIG', () => {
-  it("PAYMENT_CONFIG.mode returns 'demo' when PLACEHOLDER_ vars set", () => {
-    expect(PAYMENT_CONFIG.mode).toBe('demo');
+  it('isPaymentLive is true only when Binance Pay is enabled and configured', () => {
+    expect(isPaymentLive({ binancePayEnabled: false, binancePayConfigured: true })).toBe(false);
+    expect(isPaymentLive({ binancePayEnabled: true, binancePayConfigured: false })).toBe(false);
+    expect(isPaymentLive({ binancePayEnabled: true, binancePayConfigured: true })).toBe(true);
   });
 
-  it("getPaymentModeLabel() returns string containing 'Demo' in demo mode", () => {
-    expect(getPaymentModeLabel()).toContain('Demo');
+  it("getPaymentModeLabel(false) returns a string containing 'Demo'", () => {
+    expect(getPaymentModeLabel(false)).toContain('Demo');
   });
 });

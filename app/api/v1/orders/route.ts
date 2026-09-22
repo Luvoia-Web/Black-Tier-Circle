@@ -113,7 +113,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (order.tenantId !== ctx.tenantId) {
       throw new AuthError(API_CONFIG.errors.FORBIDDEN, 'Order does not belong to this tenant', 403);
     }
-    return v1Success(v1CreatedOrder(order), undefined, 201);
+    return v1Success(await v1CreatedOrder(db, order), undefined, 201);
   } catch (error: unknown) {
     if (error instanceof ValidationError && error.code === 'IDEMPOTENCY_CONFLICT') {
       return v1Error(API_CONFIG.errors.IDEMPOTENCY_CONFLICT, error.message, 409);

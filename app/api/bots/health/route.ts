@@ -1,31 +1,28 @@
 /**
  * @file app/api/bots/health/route.ts
  *
- * POST, internal. Vercel cron checks all connected bots.
- * Header: Authorization: Bearer {CRON_SECRET}
+ * Checks all connected bots. Called by an external cron (GET or POST)
+ * or by an owner from the dashboard.
+ * Auth: Authorization Bearer CRON_SECRET, ?secret=, or owner session.
  *
  * @module Api
  */
 
+import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
-import { AuthError } from '@/lib/errors';
+import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { runBotHealthChecks } from '@/modules/bots';
 
 export const dynamic = 'force-dynamic';
 
-function authorizeCron(request: Request): void {
-  const expected = process.env.CRON_SECRET;
-  const header = request.headers.get('authorization');
-  if (!expected || header !== `Bearer ${expected}`) {
-    throw new AuthError('UNAUTHORIZED', 'Invalid cron secret');
-  }
-}
-
-export async function POST(request: Request): Promise<Response> {
+export async function POST(req: NextRequest): Promise<Response> {
   try {
-    authorizeCron(request);
+    const authError = await authorizeCronOrOwner(req);
+    if (authError) {
+      return authError;
+    }
     const result = await runBotHealthChecks(asDbClient(createAdminSupabaseClient()));
     return jsonSuccess(result);
   } catch (error: unknown) {
@@ -33,6 +30,6 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-export async function GET(request: Request): Promise<Response> {
-  return POST(request);
+export async function GET(req: NextRequest): Promise<Response> {
+  return POST(req);
 }

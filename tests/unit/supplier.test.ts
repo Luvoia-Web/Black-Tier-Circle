@@ -23,14 +23,9 @@ vi.mock('@/integrations/telegram/delivery', () => ({
   sendSupplierDelivery: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/lib/owner-bot', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/owner-bot')>('@/lib/owner-bot');
-  return {
-    ...actual,
-    getOwnerBotToken: () => 'test-owner-bot-token',
-    isOwnerBotConfigured: () => true,
-  };
-});
+vi.mock('@/modules/platform', () => ({
+  getDecryptedOwnerBotToken: async () => 'test-owner-bot-token',
+}));
 
 vi.mock('@/integrations/supplier/connector', async () => {
   const actual = await vi.importActual<typeof import('@/integrations/supplier/connector')>(

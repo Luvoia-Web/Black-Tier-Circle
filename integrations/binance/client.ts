@@ -4,8 +4,7 @@
  * Binance Pay merchant client.
  *
  * DEMO MODE (default): sandbox adapter — no real API calls.
- * LIVE MODE: activated automatically when real env vars are set.
- * Switch: set BINANCE_PAY_API_KEY, BINANCE_PAY_API_SECRET, BINANCE_PAY_MERCHANT_ID in .env
+ * LIVE MODE: pass credentials stored in platform_settings or tenant_settings.
  *
  * Signature scheme (live mode):
  * nonce     = crypto.randomBytes(32).toString('hex').slice(0, 32)
@@ -16,13 +15,17 @@
  *             BinancePay-Certificate-SN (= apiKey),
  *             BinancePay-Signature
  *
- * To switch to live: add real credentials to .env — zero code changes.
+ * To switch to live: save Binance Pay credentials in the owner or reseller dashboard.
  */
+
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { createHmac, randomBytes } from 'node:crypto';
 import { PaymentError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import type { DbClient } from '@/lib/supabase/query';
+import { getDecryptedBinanceCredentials } from '@/modules/platform';
 import type {
   BinancePayClient,
   BinancePayCreateOrderParams,
@@ -133,8 +136,12 @@ export function createSandboxBinancePayClient(): BinancePayClient {
   };
 }
 
-function createRealBinancePayClient(apiKey: string, apiSecret: string): BinancePayClient {
-  const { baseUrl, currency, merchantId } = PAYMENT_CONFIG.binancePay;
+export function createRealBinancePayClient(
+  apiKey: string,
+  apiSecret: string,
+  merchantId: string,
+): BinancePayClient {
+  const { baseUrl, currency } = PAYMENT_CONFIG.binancePay;
 
   function buildHeaders(body: unknown): Record<string, string> {
     return buildBinancePayHeaders(apiKey, apiSecret, body);
@@ -207,15 +214,28 @@ function createRealBinancePayClient(apiKey: string, apiSecret: string): BinanceP
 }
 
 /**
- * Factory — auto-selects demo or real based on PAYMENT_CONFIG.mode
+ * Builds a client from explicit credentials, or the sandbox when they are missing.
  */
-export function createBinancePayClient(): BinancePayClient {
-  if (PAYMENT_CONFIG.mode === 'live') {
-    return createRealBinancePayClient(
-      PAYMENT_CONFIG.binancePay.apiKey,
-      PAYMENT_CONFIG.binancePay.apiSecret,
-    );
+export function createBinancePayClientFromCredentials(
+  creds: { apiKey: string; apiSecret: string; merchantId: string } | null,
+): BinancePayClient {
+  if (!creds?.apiKey || !creds.apiSecret) {
+    logger.warn('Binance Pay DEMO MODE — no real payments processed');
+    return createSandboxBinancePayClient();
   }
-  logger.warn('Binance Pay DEMO MODE — no real payments processed');
-  return createSandboxBinancePayClient();
+  return createRealBinancePayClient(creds.apiKey, creds.apiSecret, creds.merchantId);
+}
+
+/**
+ * Loads platform Binance Pay credentials from the database.
+ */
+export async function createBinancePayClientFromDB(
+  supabase: DbClient | SupabaseClient,
+): Promise<BinancePayClient> {
+  const creds = await getDecryptedBinanceCredentials(supabase as DbClient);
+  if (!creds?.apiKey || !creds.apiSecret) {
+    console.warn('[BinancePay] No credentials in DB — using sandbox');
+    return createSandboxBinancePayClient();
+  }
+  return createRealBinancePayClient(creds.apiKey, creds.apiSecret, creds.merchantId);
 }

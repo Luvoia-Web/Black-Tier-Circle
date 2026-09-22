@@ -8,17 +8,19 @@
 
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
-import { isOwnerBotConfigured } from '@/lib/owner-bot';
 import { listResellerBotOverview } from '@/modules/bots';
+import { getPlatformSettings } from '@/modules/platform';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<Response> {
   try {
     const session = await requireOwner();
-    const bots = await listResellerBotOverview(asDbClient(session.admin));
+    const db = asDbClient(session.admin);
+    const [bots, settings] = await Promise.all([listResellerBotOverview(db), getPlatformSettings(db)]);
     return jsonSuccess({
-      ownerBotConfigured: isOwnerBotConfigured(),
+      ownerBotConfigured: settings.ownerBotStatus === 'connected',
+      ownerBotUsername: settings.ownerBotUsername,
       bots: bots.map((item) => ({
         id: item.connection.id,
         reseller: item.resellerName,

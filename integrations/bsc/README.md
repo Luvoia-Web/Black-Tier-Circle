@@ -4,7 +4,7 @@
 
 - `BSC_RPC_URL` — HTTPS endpoint for BSC JSON-RPC
 - `BSCSCAN_API_KEY` — BscScan (or compatible) API key
-- `PLATFORM_USDT_WALLET_ADDRESS` — platform receiving address for USDT (BEP20)
+- USDT receiving address — saved from the owner or reseller dashboard
 
 If `BSCSCAN_API_KEY` is missing or starts with `PLACEHOLDER`, `createBscClient()` returns the sandbox client.
 
@@ -20,7 +20,7 @@ Live verification must confirm:
 
 1. Transaction succeeded on chain
 2. Token is USDT BEP20
-3. `to` matches `PLATFORM_USDT_WALLET_ADDRESS`
+3. `to` matches the wallet configured for that order
 4. Amount equals the order amount in minor units
 5. Block time is within `windowSeconds` of `orderCreatedAt`
 6. The hash has not already been used for another order

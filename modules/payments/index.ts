@@ -14,12 +14,13 @@
  * - Verification evidence stored (redacted — no secrets)
  */
 
-import { createBinancePayClient } from '@/integrations/binance/client';
+import { createBinancePayClientFromCredentials } from '@/integrations/binance/client';
 import { createBscClient } from '@/integrations/bsc/client';
 import { AppError, PaymentError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { amountSufficient, amountsMatch, minorToUsdtApiString, usdtToMinor } from '@/lib/money';
-import { getBep20PayoutAddress, PAYMENT_CONFIG } from '@/lib/payment-config';
+import { isBscScanConfigured, PAYMENT_CONFIG, payoutAddressFor } from '@/lib/payment-config';
+import { resolveOrderPayments } from '@/modules/payments/resolve';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getProduct } from '@/modules/catalog';
@@ -42,6 +43,9 @@ import type {
   SubmitBinancePayClaimInput,
 } from './types';
 
+export { resolveOrderPayments } from '@/modules/payments/resolve';
+export type { ResolvedPayments } from '@/modules/payments/resolve';
+
 export type {
   CreateBinancePayOrderResult,
   PaymentClaim,
@@ -56,10 +60,6 @@ const PAYABLE_STATUSES = new Set(['awaiting', 'pending_verification']);
 
 function asClaimRow(data: unknown): PaymentClaimRow {
   return data as PaymentClaimRow;
-}
-
-function isDemoMode(): boolean {
-  return PAYMENT_CONFIG.mode === 'demo';
 }
 
 function maskRef(value: string): string {
@@ -283,8 +283,9 @@ export async function createBinancePayOrder(
     throw new PaymentError('ORDER_NOT_PAYABLE', 'This order is not awaiting payment');
   }
   const product = await getProduct(supabase, order.productId);
+  const resolved = await resolveOrderPayments(supabase, order.tenantId);
   const merchantTradeNo = order.id.replaceAll('-', '');
-  const checkout = await createBinancePayClient().createOrder({
+  const checkout = await createBinancePayClientFromCredentials(resolved.binance).createOrder({
     merchantTradeNo,
     orderAmount: minorToUsdtApiString(order.quotedRetailPriceMinor),
     currency: 'USDT',
@@ -304,7 +305,7 @@ export async function createBinancePayOrder(
   return {
     prepayId: checkout.prepayId,
     checkoutUrl: checkout.checkoutUrl,
-    isDemoMode: isDemoMode(),
+    isDemoMode: resolved.binance === null,
   };
 }
 
@@ -345,7 +346,8 @@ export async function verifyBinancePayClaim(
     binanceOrderId: input.binanceOrderId,
   });
 
-  const query = await createBinancePayClient().queryOrder(input.binanceOrderId);
+  const resolved = await resolveOrderPayments(supabase, order.tenantId);
+  const query = await createBinancePayClientFromCredentials(resolved.binance).queryOrder(input.binanceOrderId);
   const evidence = {
     status: query.status,
     paidCurrency: query.paidCurrency ?? null,
@@ -391,12 +393,14 @@ export async function verifyBep20Claim(
   input: SubmitBep20ClaimInput,
 ): Promise<PaymentVerificationResult> {
   const txHash = input.txHash.trim();
-  const isDemoFail = isDemoMode() && txHash.startsWith(PAYMENT_CONFIG.demo.failTxPrefix);
+  const orderForMode = await getOrder(supabase, input.orderId);
+  const resolved = await resolveOrderPayments(supabase, orderForMode.tenantId);
+  const isDemoFail = resolved.bep20Address === null && txHash.startsWith(PAYMENT_CONFIG.demo.failTxPrefix);
   if (!TX_HASH_REGEX.test(txHash) && !isDemoFail) {
     throw new ValidationError('INVALID_TX_HASH', 'Invalid transaction hash format');
   }
 
-  const order = await getOrder(supabase, input.orderId);
+  const order = orderForMode;
   const existing = await listClaimsForOrder(supabase, order.id);
   if (existing.some((claim) => claim.verifiedAt !== null) || order.paymentStatus === 'verified') {
     return successResult('verified');
@@ -435,9 +439,11 @@ export async function verifyBep20Claim(
     txHash,
   });
 
-  const result = await createBscClient().verifyUsdtTransfer({
+  const result = await createBscClient({
+    live: resolved.bep20Address !== null && isBscScanConfigured(),
+  }).verifyUsdtTransfer({
     txHash,
-    expectedToAddress: getBep20PayoutAddress(),
+    expectedToAddress: payoutAddressFor(resolved.bep20Address),
     expectedAmountMinor: pending.quotedRetailPriceMinor,
     windowSeconds: PAYMENT_CONFIG.bep20.txWindowSeconds,
     orderCreatedAt: pending.createdAt,

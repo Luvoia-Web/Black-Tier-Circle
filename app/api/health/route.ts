@@ -7,9 +7,11 @@
  */
 
 import { NextResponse } from 'next/server';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { asDbClient } from '@/lib/auth/session';
+import { isPlatformPaymentConfigured } from '@/lib/payment-config';
 import { SUPPLIER_CONFIG } from '@/lib/supplier-config';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { getPlatformSettings } from '@/modules/platform';
 import { getSupplierConnector } from '@/integrations/supplier/connector';
 import packageJson from '../../../package.json';
 
@@ -48,6 +50,13 @@ async function checkSupplier(): Promise<CheckState> {
 
 export async function GET(): Promise<NextResponse> {
   const [database, storage, supplier] = await Promise.all([checkDatabase(), checkStorage(), checkSupplier()]);
+  let paymentMode: 'demo' | 'live' = 'demo';
+  try {
+    const settings = await getPlatformSettings(asDbClient(createAdminSupabaseClient()));
+    paymentMode = isPlatformPaymentConfigured(settings) ? 'live' : 'demo';
+  } catch {
+    paymentMode = 'demo';
+  }
   const checks = { database, storage, supplier };
   const values = Object.values(checks);
   let status: 'ok' | 'degraded' | 'error' = 'ok';
@@ -65,7 +74,7 @@ export async function GET(): Promise<NextResponse> {
       ts: new Date().toISOString(),
       checks,
       mode: {
-        payment: PAYMENT_CONFIG.mode,
+        payment: paymentMode,
         supplier: SUPPLIER_CONFIG.activeSupplier,
       },
     },

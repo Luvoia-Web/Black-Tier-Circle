@@ -1,14 +1,10 @@
 # Binance Pay integration
 
-## Credentials required for live mode (Phase 5)
+## Credentials required for live mode
 
-Set these in `.env.local` — never commit real values:
+Save the merchant id, API key, and API secret from the owner dashboard (or a reseller dashboard for that bot). They are encrypted in the database.
 
-- `BINANCE_PAY_API_KEY`
-- `BINANCE_PAY_API_SECRET`
-- `BINANCE_PAY_MERCHANT_ID`
-
-If any value is missing or starts with `PLACEHOLDER`, `createBinancePayClient()` returns the sandbox client automatically.
+If credentials are missing, order creation uses the sandbox client.
 
 ## Sandbox behavior
 

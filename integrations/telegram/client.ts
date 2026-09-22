@@ -21,7 +21,7 @@ import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { getBep20PayoutAddress, PAYMENT_CONFIG } from '@/lib/payment-config';
+import { PAYMENT_CONFIG, payoutAddressFor } from '@/lib/payment-config';
 import { sanitizeInput } from '@/lib/sanitize';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
@@ -29,6 +29,7 @@ import { getProduct, listProducts } from '@/modules/catalog';
 import { createOrder, listOrders } from '@/modules/orders';
 import {
   createBinancePayOrder,
+  resolveOrderPayments,
   verifyBep20Claim,
   verifyBinancePayClaim,
 } from '@/modules/payments';
@@ -115,8 +116,14 @@ function priceLabel(minor: bigint): string {
   return formatUsdt(minor).replace(' USDT', '');
 }
 
-function paymentWallet(): string {
-  return getBep20PayoutAddress();
+async function paymentWallet(supabase: BotEngineContext['supabase'], tenantId: string | null): Promise<string> {
+  const resolved = await resolveOrderPayments(supabase, tenantId);
+  return payoutAddressFor(resolved.bep20Address);
+}
+
+async function paymentsAreDemo(supabase: BotEngineContext['supabase'], tenantId: string | null): Promise<boolean> {
+  const resolved = await resolveOrderPayments(supabase, tenantId);
+  return resolved.demo;
 }
 
 function classifyPaymentText(text: string): 'binance' | 'bep20' | 'unknown' {
@@ -232,7 +239,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function sendDemoNotice(chatId: number | string): Promise<void> {
-    if (PAYMENT_CONFIG.mode === 'demo') {
+    if (await paymentsAreDemo(context.supabase, context.tenantId)) {
       await bot.api.sendMessage(chatId, MESSAGES.demoModeNotice, { parse_mode: 'Markdown' });
     }
   }
@@ -258,7 +265,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function startBep20(chatId: number | string, orderId: string, amountUsdt: string): Promise<void> {
     pendingByChat.set(String(chatId), { orderId, method: 'usdt_bep20' });
-    await bot.api.sendMessage(chatId, MESSAGES.bep20Instructions(paymentWallet(), amountUsdt), {
+    await bot.api.sendMessage(chatId, MESSAGES.bep20Instructions(await paymentWallet(context.supabase, context.tenantId), amountUsdt), {
       parse_mode: 'Markdown',
     });
     await sendDemoNotice(chatId);
@@ -279,7 +286,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return false;
     }
     await bot.api.sendMessage(chatId, MESSAGES.verifying);
-    if (PAYMENT_CONFIG.mode === 'demo') {
+    if (await paymentsAreDemo(context.supabase, context.tenantId)) {
       await sleep(PAYMENT_CONFIG.demo.verificationDelayMs);
     }
     const result =

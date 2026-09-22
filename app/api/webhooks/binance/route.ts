@@ -13,8 +13,8 @@ import { NextResponse } from 'next/server';
 import { verifyBinancePaySignature } from '@/integrations/binance/client';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { getDecryptedBinanceCredentials } from '@/modules/platform';
 import { getOrder } from '@/modules/orders';
 import { orderIdFromMerchantTradeNo, verifyBinancePayClaim } from '@/modules/payments';
 
@@ -46,7 +46,9 @@ function merchantTradeNoFromPayload(payload: BinanceWebhookBody): string | null 
 export async function POST(request: Request): Promise<Response> {
   try {
     const rawBody = await request.text();
-    if (PAYMENT_CONFIG.mode === 'demo') {
+    const db = asDbClient(createAdminSupabaseClient());
+    const creds = await getDecryptedBinanceCredentials(db);
+    if (!creds) {
       logger.info('binance webhook ignored in demo mode', { bizType: 'demo' });
       return NextResponse.json(SUCCESS);
     }
@@ -55,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
     const nonce = request.headers.get('BinancePay-Nonce') ?? '';
     const signature = request.headers.get('BinancePay-Signature') ?? '';
     const valid = verifyBinancePaySignature(
-      PAYMENT_CONFIG.binancePay.apiSecret,
+      creds.apiSecret,
       timestamp,
       nonce,
       rawBody,
@@ -76,7 +78,6 @@ export async function POST(request: Request): Promise<Response> {
     const merchantTradeNo = merchantTradeNoFromPayload(payload);
     const orderId = merchantTradeNo ? orderIdFromMerchantTradeNo(merchantTradeNo) : null;
     if (orderId && merchantTradeNo) {
-      const db = asDbClient(createAdminSupabaseClient());
       try {
         await getOrder(db, orderId);
         await verifyBinancePayClaim(db, { orderId, binanceOrderId: merchantTradeNo });

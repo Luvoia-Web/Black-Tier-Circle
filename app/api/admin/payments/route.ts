@@ -9,9 +9,10 @@
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { formatUsdt } from '@/lib/money';
-import { PAYMENT_CONFIG, getPaymentModeLabel } from '@/lib/payment-config';
+import { getPaymentModeLabel, isPlatformPaymentConfigured } from '@/lib/payment-config';
 import { getProduct } from '@/modules/catalog';
 import { getPaymentStatus, listPaymentMonitorOrders } from '@/modules/payments';
+import { getPlatformSettings } from '@/modules/platform';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,10 +46,12 @@ export async function GET(request: Request): Promise<Response> {
         };
       }),
     );
+    const settings = await getPlatformSettings(db);
+    const live = isPlatformPaymentConfigured(settings);
     return jsonSuccess({
       rows,
-      modeLabel: getPaymentModeLabel(),
-      isDemoMode: PAYMENT_CONFIG.mode === 'demo',
+      modeLabel: getPaymentModeLabel(live),
+      isDemoMode: !live,
     });
   } catch (error: unknown) {
     return handleRouteError(error);

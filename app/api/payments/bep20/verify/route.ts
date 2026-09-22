@@ -9,11 +9,10 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertOrderPaymentAccess } from '@/lib/payment-access';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { Bep20ClaimSchema } from '@/lib/validations/payments';
 import { getOrder } from '@/modules/orders';
-import { verifyBep20Claim } from '@/modules/payments';
+import { resolveOrderPayments, verifyBep20Claim } from '@/modules/payments';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,10 +25,11 @@ export async function POST(request: Request): Promise<Response> {
     const order = await getOrder(db, parsed.orderId);
     await assertOrderPaymentAccess(session, order);
     const result = await verifyBep20Claim(db, parsed);
+    const resolved = await resolveOrderPayments(db, order.tenantId);
     return jsonSuccess({
       verified: result.verified,
       message: result.verified ? 'Payment verified' : (result.rejectReason ?? 'Payment not verified'),
-      isDemoMode: PAYMENT_CONFIG.mode === 'demo',
+      isDemoMode: resolved.demo,
     });
   } catch (error: unknown) {
     return handleRouteError(error);

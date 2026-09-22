@@ -9,7 +9,6 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertOrderPaymentAccess } from '@/lib/payment-access';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { CreateBinanceOrderSchema } from '@/lib/validations/payments';
 import { getOrder } from '@/modules/orders';
 import { createBinancePayOrder } from '@/modules/payments';
@@ -27,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonSuccess({
       prepayId: result.prepayId,
       checkoutUrl: result.checkoutUrl,
-      isDemoMode: PAYMENT_CONFIG.mode === 'demo',
+      isDemoMode: result.isDemoMode,
     });
   } catch (error: unknown) {
     return handleRouteError(error);

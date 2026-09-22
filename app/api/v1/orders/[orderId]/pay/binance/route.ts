@@ -8,7 +8,6 @@
 
 import { API_CONFIG } from '@/lib/api-config';
 import { AuthError } from '@/lib/errors';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { authenticateV1Request, handleV1Error, v1Db, v1Success } from '@/lib/v1-auth';
 import { getOrder } from '@/modules/orders';
 import { createBinancePayOrder } from '@/modules/payments';
@@ -37,7 +36,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return v1Success({
       prepayId: result.prepayId,
       checkoutUrl: result.checkoutUrl,
-      isDemoMode: PAYMENT_CONFIG.mode === 'demo',
+      isDemoMode: result.isDemoMode,
     });
   } catch (error: unknown) {
     return handleV1Error(error);

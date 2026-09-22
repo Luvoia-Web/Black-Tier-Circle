@@ -27,6 +27,8 @@ type Settings = {
   readonly privacyPolicy: string | null;
   readonly binanceMerchantUid: string | null;
   readonly binancePayConfigured: boolean;
+  readonly binancePayEnabled: boolean;
+  readonly useOwnUsdtWallet: boolean;
   readonly usdtWalletBep20: string | null;
   readonly usdtMinimumBep20: string;
   readonly resellerSignupEnabled: boolean;
@@ -47,6 +49,8 @@ export default function ResellerSettingsPage(): JSX.Element {
   const [token, setToken] = useState('');
   const [binanceKey, setBinanceKey] = useState('');
   const [binanceSecret, setBinanceSecret] = useState('');
+  const [useOwnWallet, setUseOwnWallet] = useState(false);
+  const [binanceEnabled, setBinanceEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,6 +77,8 @@ export default function ResellerSettingsPage(): JSX.Element {
         ...settingsJson.data.settings,
         storeName: settingsJson.data.settings.storeName ?? settingsJson.data.tenant.displayName,
       });
+      setUseOwnWallet(settingsJson.data.settings.useOwnUsdtWallet === true);
+      setBinanceEnabled(settingsJson.data.settings.binancePayEnabled === true);
       if (botJson.success) {
         setBot(botJson.data ?? null);
       }
@@ -226,16 +232,29 @@ export default function ResellerSettingsPage(): JSX.Element {
       </section>
 
       <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Payments</h2>
-        <p className="mt-1 text-sm text-[var(--text-2)]">Payment provider: On-chain (wallet addresses)</p>
-        <label className="mt-3 block text-sm text-[var(--text-2)]">
-          USDT wallet (BEP20)
-          <input
-            className={`${inputClass} mt-1`}
-            value={settings.usdtWalletBep20 ?? ''}
-            onChange={(event) => setSettings({ ...settings, usdtWalletBep20: event.target.value })}
-          />
+        <h2 className="text-lg font-medium">Payment methods for your bot</h2>
+        <p className="mt-1 text-sm text-[var(--text-2)]">These settings control how your customers pay on your bot.</p>
+        <h3 className="mt-4 text-sm font-medium">Your USDT wallet (BEP20)</h3>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={useOwnWallet} onChange={(event) => setUseOwnWallet(event.target.checked)} />
+          Use my own wallet
         </label>
+        <p className="mt-1 text-sm text-[var(--text-3)]">
+          {useOwnWallet
+            ? 'Customers send USDT to your address.'
+            : 'Customers use the platform wallet when you leave this off.'}
+        </p>
+        {useOwnWallet ? (
+          <label className="mt-3 block text-sm text-[var(--text-2)]">
+            Address
+            <input
+              className={`${inputClass} mt-1`}
+              value={settings.usdtWalletBep20 ?? ''}
+              onChange={(event) => setSettings({ ...settings, usdtWalletBep20: event.target.value })}
+              placeholder="0x..."
+            />
+          </label>
+        ) : null}
         <label className="mt-3 block text-sm text-[var(--text-2)]">
           USDT minimum (BEP20)
           <input
@@ -244,14 +263,13 @@ export default function ResellerSettingsPage(): JSX.Element {
             onChange={(event) => setSettings({ ...settings, usdtMinimumBep20: event.target.value })}
           />
         </label>
-        <p className="mt-2 text-sm text-[var(--text-3)]">USDT minimum (TRC20) — coming soon</p>
         <button
           type="button"
           className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
           onClick={() =>
             void patch(
               {
-                storeName: settings.storeName,
+                useOwnUsdtWallet: useOwnWallet,
                 usdtWalletBep20: settings.usdtWalletBep20,
                 usdtMinimumBep20: settings.usdtMinimumBep20,
               },
@@ -265,8 +283,19 @@ export default function ResellerSettingsPage(): JSX.Element {
 
       <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
         <h2 className="text-lg font-medium">Binance Pay</h2>
-        <p className={`mt-1 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
-          {settings.binancePayConfigured ? 'Connected' : 'Not configured'}
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={binanceEnabled}
+            onChange={(event) => setBinanceEnabled(event.target.checked)}
+          />
+          Enable Binance Pay on my bot
+        </label>
+        <p className={`mt-2 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
+          {settings.binancePayConfigured ? 'Configured' : 'Not configured'}
+        </p>
+        <p className="mt-1 text-sm text-[var(--text-3)]">
+          If you do not add Binance Pay, the platform default payment method is used for your customers.
         </p>
         <label className="mt-3 block text-sm text-[var(--text-2)]">
           Merchant UID
@@ -302,6 +331,7 @@ export default function ResellerSettingsPage(): JSX.Element {
           onClick={() =>
             void patch(
               {
+                binancePayEnabled: binanceEnabled,
                 binanceMerchantUid: settings.binanceMerchantUid,
                 ...(binanceKey ? { binanceApiKey: binanceKey } : {}),
                 ...(binanceSecret ? { binanceApiSecret: binanceSecret } : {}),
@@ -310,7 +340,7 @@ export default function ResellerSettingsPage(): JSX.Element {
             )
           }
         >
-          Save Binance Pay
+          Save Binance Pay settings
         </button>
       </section>
 

@@ -14,7 +14,8 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { NotFoundError } from '@/lib/errors';
 import { ROUTES } from '@/lib/navigation';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { isPlatformPaymentConfigured } from '@/lib/payment-config';
+import { getPlatformSettings } from '@/modules/platform';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { asDbClient } from '@/lib/auth/session';
@@ -44,8 +45,16 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     throw error;
   }
 
+  let demoMode = true;
+  try {
+    const settings = await getPlatformSettings(asDbClient(admin));
+    demoMode = !isPlatformPaymentConfigured(settings);
+  } catch {
+    demoMode = true;
+  }
+
   return (
-    <DashboardShell displayName={profile.displayName} role={profile.role} demoMode={PAYMENT_CONFIG.mode === 'demo'}>
+    <DashboardShell displayName={profile.displayName} role={profile.role} demoMode={demoMode}>
       {children}
     </DashboardShell>
   );

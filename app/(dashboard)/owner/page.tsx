@@ -7,8 +7,9 @@
  */
 
 import { OwnerHome, type OwnerRecentOrder } from '@/components/dashboard/owner-home';
+import { CronTriggerCard } from '@/components/ui/CronTriggerCard';
 import { formatUsdt } from '@/lib/money';
-import { ROUTES } from '@/lib/navigation';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { asDbClient } from '@/lib/auth/session';
@@ -64,17 +65,42 @@ export default async function OwnerDashboardPage(): Promise<JSX.Element> {
   }));
 
   return (
-    <OwnerHome
-      revenueUsdt={formatUsdt(revenueMinor).replace(' USDT', '')}
-      paidOrders={paidOrders.length}
-      pendingOrders={pendingOrders.length}
-      productCount={publishedProducts.length}
-      inStockCount={publishedProducts.filter((product) => product.stockUnlimited || (product.stockCount ?? 0) > 0).length}
-      lowStockCount={publishedProducts.filter((product) => isLowStock(product.stockUnlimited, product.stockCount)).length}
-      activeResellers={tenants.filter((tenant) => tenant.status === 'active').length}
-      totalResellers={tenants.length}
-      completionPercent={orders.length === 0 ? 0 : Math.round((completedCount / orders.length) * 100)}
-      recentOrders={recentOrders}
-    />
+    <>
+      <OwnerHome
+        revenueUsdt={formatUsdt(revenueMinor).replace(' USDT', '')}
+        paidOrders={paidOrders.length}
+        pendingOrders={pendingOrders.length}
+        productCount={publishedProducts.length}
+        inStockCount={publishedProducts.filter((product) => product.stockUnlimited || (product.stockCount ?? 0) > 0).length}
+        lowStockCount={publishedProducts.filter((product) => isLowStock(product.stockUnlimited, product.stockCount)).length}
+        activeResellers={tenants.filter((tenant) => tenant.status === 'active').length}
+        totalResellers={tenants.length}
+        completionPercent={orders.length === 0 ? 0 : Math.round((completedCount / orders.length) * 100)}
+        recentOrders={recentOrders}
+      />
+      <div className="mt-6">
+        <h2 className="mb-3 text-sm font-medium text-[var(--text-2)]">System Jobs</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <CronTriggerCard
+            title="Process Orders"
+            description="Fulfills all queued orders that have been paid"
+            endpoint={API_ROUTES.fulfillmentProcess}
+            icon="⚡"
+          />
+          <CronTriggerCard
+            title="Reconcile Supplier"
+            description="Checks status of pending supplier orders"
+            endpoint={API_ROUTES.supplierReconcile}
+            icon="🔄"
+          />
+          <CronTriggerCard
+            title="Bot Health Check"
+            description="Verifies all connected Telegram bots are active"
+            endpoint={API_ROUTES.botsHealth}
+            icon="🤖"
+          />
+        </div>
+      </div>
+    </>
   );
 }

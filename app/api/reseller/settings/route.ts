@@ -64,6 +64,8 @@ export async function PATCH(request: Request): Promise<Response> {
         : {}),
       ...(parsed.binanceApiKey !== undefined ? { binanceApiKey: parsed.binanceApiKey } : {}),
       ...(parsed.binanceApiSecret !== undefined ? { binanceApiSecret: parsed.binanceApiSecret } : {}),
+      ...(parsed.binancePayEnabled !== undefined ? { binancePayEnabled: parsed.binancePayEnabled } : {}),
+      ...(parsed.useOwnUsdtWallet !== undefined ? { useOwnUsdtWallet: parsed.useOwnUsdtWallet } : {}),
       ...(parsed.usdtWalletBep20 !== undefined ? { usdtWalletBep20: cleanText(parsed.usdtWalletBep20) ?? null } : {}),
       ...(parsed.usdtMinimumBep20 !== undefined ? { usdtMinimumBep20: parsed.usdtMinimumBep20 } : {}),
       ...(parsed.resellerSignupEnabled !== undefined

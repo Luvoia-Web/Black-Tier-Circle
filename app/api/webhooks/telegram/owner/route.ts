@@ -1,7 +1,7 @@
 /**
  * @file app/api/webhooks/telegram/owner/route.ts
  *
- * Owner store bot webhook. Uses OWNER_BOT_WEBHOOK_SECRET and tenantId=null.
+ * Owner store bot webhook. Secret and token come from platform_settings.
  *
  * @module Api
  */
@@ -11,23 +11,19 @@ import { enqueueTelegramUpdate, verifyTelegramSecret } from '@/integrations/tele
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
+import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { assertRateLimit } from '@/lib/request-rate-limit';
-import {
-  getOwnerBotToken,
-  getOwnerBotWebhookSecret,
-  isOwnerBotConfigured,
-  OWNER_STORE_BOT_ID,
-} from '@/lib/owner-bot';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { BotConnection } from '@/modules/bots/types';
+import { getDecryptedOwnerBotToken, getOwnerBotWebhookSecret, getPlatformSettings } from '@/modules/platform';
 
-function ownerConnection(secret: string): BotConnection {
+function ownerConnection(secret: string, username: string): BotConnection {
   const now = new Date();
   return {
     id: OWNER_STORE_BOT_ID,
     tenantId: '',
     telegramBotId: OWNER_STORE_BOT_ID,
-    username: 'owner_store',
+    username,
     webhookSecret: secret,
     status: 'connected',
     lastHealthAt: null,
@@ -38,7 +34,8 @@ function ownerConnection(secret: string): BotConnection {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const secret = getOwnerBotWebhookSecret();
+    const db = asDbClient(createAdminSupabaseClient());
+    const secret = await getOwnerBotWebhookSecret(db);
     const header = req.headers.get('x-telegram-bot-api-secret-token');
     if (secret === null || !verifyTelegramSecret(secret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
@@ -48,10 +45,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch {
       return NextResponse.json({ ok: false, description: 'Rate limit exceeded' }, { status: 429 });
     }
-    if (!isOwnerBotConfigured()) {
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
-    const token = getOwnerBotToken();
+    const token = await getDecryptedOwnerBotToken(db);
     if (token === null) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
@@ -69,8 +63,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       type: update.message ? 'message' : update.callback_query ? 'callback_query' : 'other',
     });
 
-    const db = asDbClient(createAdminSupabaseClient());
-    enqueueTelegramUpdate(token, db, ownerConnection(secret), null, update);
+    const settings = await getPlatformSettings(db);
+    enqueueTelegramUpdate(
+      token,
+      db,
+      ownerConnection(secret, settings.ownerBotUsername ?? 'owner_store'),
+      null,
+      update,
+    );
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false }, { status: 401 });

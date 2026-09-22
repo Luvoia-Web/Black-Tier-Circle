@@ -9,8 +9,9 @@
  * @module TenantSettings
  */
 
-import { encrypt } from '@/lib/encryption';
+import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 import type { DbClient } from '@/lib/supabase/query';
 import type { StoreStatus, TenantSettings, TenantSettingsRow, UpdateTenantSettingsInput } from './types';
 
@@ -49,6 +50,8 @@ function mapRow(row: TenantSettingsRow): TenantSettings {
     privacyPolicy: row.privacy_policy,
     binanceMerchantUid: row.binance_merchant_uid,
     binancePayConfigured: Boolean(row.binance_api_key_encrypted && row.binance_api_secret_encrypted),
+    binancePayEnabled: row.binance_pay_enabled === true,
+    useOwnUsdtWallet: row.use_own_usdt_wallet === true,
     usdtWalletBep20: row.usdt_wallet_bep20,
     usdtMinimumBep20:
       row.usdt_minimum_bep20 === null || row.usdt_minimum_bep20 === undefined
@@ -78,6 +81,8 @@ function defaultSettings(tenantId: string): TenantSettings {
     privacyPolicy: null,
     binanceMerchantUid: null,
     binancePayConfigured: false,
+    binancePayEnabled: false,
+    useOwnUsdtWallet: false,
     usdtWalletBep20: null,
     usdtMinimumBep20: DEFAULT_USDT_MIN,
     resellerSignupEnabled: false,
@@ -176,6 +181,12 @@ export async function updateTenantSettings(
   if (input.binanceApiSecret !== undefined && input.binanceApiSecret.length > 0) {
     patch.binance_api_secret_encrypted = encrypt(input.binanceApiSecret);
   }
+  if (input.binancePayEnabled !== undefined) {
+    patch.binance_pay_enabled = input.binancePayEnabled;
+  }
+  if (input.useOwnUsdtWallet !== undefined) {
+    patch.use_own_usdt_wallet = input.useOwnUsdtWallet;
+  }
   if (input.usdtWalletBep20 !== undefined) {
     patch.usdt_wallet_bep20 = input.usdtWalletBep20;
   }
@@ -202,4 +213,55 @@ export async function updateTenantSettings(
     throw new AppError('TENANT_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update settings', 500);
   }
   return mapRow(asRow(data));
+}
+
+export type TenantBinanceCredentials = {
+  readonly apiKey: string;
+  readonly apiSecret: string;
+  readonly merchantId: string;
+};
+
+export type TenantPaymentSource = {
+  readonly binance: TenantBinanceCredentials | null;
+  readonly usdtWalletBep20: string | null;
+  readonly useOwnUsdtWallet: boolean;
+  readonly binancePayEnabled: boolean;
+};
+
+/**
+ * Server-only payment credentials for a reseller.
+ * SECURITY: never return this object to the browser.
+ */
+export async function getTenantPaymentSource(
+  supabase: DbClient,
+  tenantId: string,
+): Promise<TenantPaymentSource> {
+  const existing = await supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
+  if (existing.error) {
+    throw new AppError('TENANT_SETTINGS_LOOKUP_FAILED', existing.error.message, 500);
+  }
+  if (existing.data === null) {
+    return { binance: null, usdtWalletBep20: null, useOwnUsdtWallet: false, binancePayEnabled: false };
+  }
+  const row = asRow(existing.data);
+  const enabled = row.binance_pay_enabled === true;
+  let binance: TenantBinanceCredentials | null = null;
+  if (enabled && row.binance_api_key_encrypted && row.binance_api_secret_encrypted) {
+    try {
+      binance = {
+        apiKey: decrypt(row.binance_api_key_encrypted),
+        apiSecret: decrypt(row.binance_api_secret_encrypted),
+        merchantId: row.binance_merchant_uid ?? '',
+      };
+    } catch {
+      logger.error('tenant binance credential decrypt failed', { tenantId });
+    }
+  }
+  const wallet = row.usdt_wallet_bep20?.trim() ?? '';
+  return {
+    binance,
+    usdtWalletBep20: wallet.length > 0 ? wallet : null,
+    useOwnUsdtWallet: row.use_own_usdt_wallet === true,
+    binancePayEnabled: enabled,
+  };
 }

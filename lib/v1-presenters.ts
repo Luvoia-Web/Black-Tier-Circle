@@ -6,10 +6,11 @@
  * @module V1
  */
 
-import { getBep20PayoutAddress } from '@/lib/payment-config';
+import { payoutAddressFor } from '@/lib/payment-config';
 import { minorToUsdt } from '@/lib/money';
+import type { DbClient } from '@/lib/supabase/query';
 import type { Order } from '@/modules/orders';
-import type { PaymentClaim } from '@/modules/payments';
+import { resolveOrderPayments, type PaymentClaim } from '@/modules/payments';
 
 export function v1OrderStatus(order: Order): {
   payment: string;
@@ -25,15 +26,16 @@ export function v1OrderStatus(order: Order): {
   };
 }
 
-export function v1CreatedOrder(order: Order): Record<string, unknown> {
+export async function v1CreatedOrder(supabase: DbClient, order: Order): Promise<Record<string, unknown>> {
+  const resolved = await resolveOrderPayments(supabase, order.tenantId);
   return {
     orderId: order.id,
     status: v1OrderStatus(order),
     retailPrice: minorToUsdt(order.quotedRetailPriceMinor),
     wholesalePrice: minorToUsdt(order.quotedWholesalePriceMinor),
     paymentOptions: {
-      binancePay: { available: true },
-      bep20: { available: true, walletAddress: getBep20PayoutAddress() },
+      binancePay: { available: resolved.binance !== null || resolved.demo },
+      bep20: { available: true, walletAddress: payoutAddressFor(resolved.bep20Address) },
     },
     createdAt: order.createdAt.toISOString(),
   };

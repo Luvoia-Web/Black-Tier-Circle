@@ -22,6 +22,8 @@ export type TenantSettings = {
   readonly privacyPolicy: string | null;
   readonly binanceMerchantUid: string | null;
   readonly binancePayConfigured: boolean;
+  readonly binancePayEnabled: boolean;
+  readonly useOwnUsdtWallet: boolean;
   readonly usdtWalletBep20: string | null;
   readonly usdtMinimumBep20: string;
   readonly resellerSignupEnabled: boolean;
@@ -47,6 +49,8 @@ export type TenantSettingsRow = {
   readonly binance_merchant_uid: string | null;
   readonly binance_api_key_encrypted: string | null;
   readonly binance_api_secret_encrypted: string | null;
+  readonly binance_pay_enabled: boolean | null;
+  readonly use_own_usdt_wallet: boolean | null;
   readonly usdt_wallet_bep20: string | null;
   readonly usdt_minimum_bep20: string | number | null;
   readonly reseller_signup_enabled: boolean | null;
@@ -70,6 +74,8 @@ export type UpdateTenantSettingsInput = {
   readonly binanceMerchantUid?: string | null;
   readonly binanceApiKey?: string;
   readonly binanceApiSecret?: string;
+  readonly binancePayEnabled?: boolean;
+  readonly useOwnUsdtWallet?: boolean;
   readonly usdtWalletBep20?: string | null;
   readonly usdtMinimumBep20?: string;
   readonly resellerSignupEnabled?: boolean;

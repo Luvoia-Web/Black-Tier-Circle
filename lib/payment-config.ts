@@ -1,47 +1,24 @@
 /**
  * @file lib/payment-config.ts
  *
- * SINGLE SOURCE OF TRUTH for all payment configuration.
+ * Payment behavior constants. Merchant credentials and wallet addresses live in
+ * platform_settings / tenant_settings and are edited from the dashboards.
  *
- * To switch from demo to production:
- * 1. Add real BINANCE_PAY_API_KEY, BINANCE_PAY_API_SECRET, BINANCE_PAY_MERCHANT_ID to .env
- * 2. Add real BSCSCAN_API_KEY and PLATFORM_USDT_WALLET_ADDRESS to .env
- * 3. Restart the server
- * 4. Zero code changes required — everything reads from here
- *
- * To customize any payment behavior, change values in this file only.
- * Never hardcode payment amounts, timeouts, or addresses anywhere else.
+ * BSCSCAN_API_KEY remains an env var because it is an infrastructure key for
+ * chain lookups, not a merchant credential.
  */
+
+import type { PlatformSettings } from '@/modules/platform/types';
 
 function isRealCredential(value: string | undefined): boolean {
   return !!value && !value.startsWith('PLACEHOLDER');
 }
 
 export const PAYMENT_CONFIG = {
-  // ─── MODE ────────────────────────────────────────────────────────────
-  // Auto-detected from env vars. Never set this manually.
-  // 'demo' = sandbox adapters, 'live' = real APIs
-  get mode(): 'demo' | 'live' {
-    const hasRealBinance = isRealCredential(process.env.BINANCE_PAY_API_KEY);
-    const hasRealBsc = isRealCredential(process.env.BSCSCAN_API_KEY);
-    return hasRealBinance && hasRealBsc ? 'live' : 'demo';
-  },
-
   // ─── BINANCE PAY ─────────────────────────────────────────────────────
   binancePay: {
-    get apiKey(): string {
-      return process.env.BINANCE_PAY_API_KEY ?? '';
-    },
-    get apiSecret(): string {
-      return process.env.BINANCE_PAY_API_SECRET ?? '';
-    },
-    get merchantId(): string {
-      return process.env.BINANCE_PAY_MERCHANT_ID ?? '';
-    },
-    /** Base URL — swap for sandbox URL during Binance merchant testing */
-    get baseUrl(): string {
-      return process.env.BINANCE_PAY_BASE_URL ?? 'https://bpay.binanceapi.com';
-    },
+    /** Production Binance Pay API origin */
+    baseUrl: 'https://bpay.binanceapi.com',
     /** How long a Binance Pay order stays valid before expiring */
     orderExpiryMinutes: 30,
     /** Supported currencies */
@@ -54,10 +31,6 @@ export const PAYMENT_CONFIG = {
       return process.env.BSCSCAN_API_KEY ?? '';
     },
     bscscanBaseUrl: 'https://api.bscscan.com/api',
-    /** Platform USDT wallet — where customers send funds */
-    get platformWalletAddress(): string {
-      return process.env.PLATFORM_USDT_WALLET_ADDRESS ?? '';
-    },
     /** USDT BEP20 contract address on BSC mainnet — do not change */
     usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
     /**
@@ -100,13 +73,35 @@ export const PAYMENT_CONFIG = {
 } as const;
 
 /**
+ * True when Binance Pay is enabled and both credentials are stored.
+ */
+export function isPaymentLive(
+  platformSettings: Pick<PlatformSettings, 'binancePayEnabled' | 'binancePayConfigured'>,
+): boolean {
+  return platformSettings.binancePayEnabled && platformSettings.binancePayConfigured;
+}
+
+/**
+ * True when at least one platform payment method is enabled and usable.
+ */
+export function isPlatformPaymentConfigured(platformSettings: PlatformSettings): boolean {
+  const bep20Ready = platformSettings.bep20Enabled && Boolean(platformSettings.platformUsdtWalletBep20);
+  return isPaymentLive(platformSettings) || bep20Ready;
+}
+
+/**
  * Returns a human-readable label for the current payment mode.
  * Used in admin dashboards and log prefixes.
  */
-export function getPaymentModeLabel(): string {
-  return PAYMENT_CONFIG.mode === 'live'
-    ? '🟢 Live (Real Payments)'
-    : '🟡 Demo Mode (No Real Payments)';
+export function getPaymentModeLabel(live: boolean): string {
+  return live ? '🟢 Live (Real Payments)' : '🟡 Demo Mode (No Real Payments)';
+}
+
+/**
+ * True when a real BscScan key is available for on-chain verification.
+ */
+export function isBscScanConfigured(): boolean {
+  return isRealCredential(process.env.BSCSCAN_API_KEY);
 }
 
 /**
@@ -127,11 +122,12 @@ export function bscValueToMinorUnits(rawBscValue: string): bigint {
 }
 
 /**
- * Platform wallet shown to customers for BEP20 transfers.
+ * Wallet shown to customers for BEP20 transfers.
+ * Falls back to the demo address when no wallet is configured.
  */
-export function getBep20PayoutAddress(): string {
-  if (PAYMENT_CONFIG.mode === 'live' && PAYMENT_CONFIG.bep20.platformWalletAddress) {
-    return PAYMENT_CONFIG.bep20.platformWalletAddress;
+export function payoutAddressFor(address: string | null | undefined): string {
+  if (address && address.trim().length > 0) {
+    return address.trim();
   }
   return PAYMENT_CONFIG.demo.demoWalletAddress;
 }

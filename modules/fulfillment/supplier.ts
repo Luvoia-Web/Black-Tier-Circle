@@ -14,7 +14,7 @@ import { decrypt } from '@/lib/encryption';
 import { AppError, FulfillmentError } from '@/lib/errors';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { logger } from '@/lib/logger';
-import { getOwnerBotToken } from '@/lib/owner-bot';
+import { getDecryptedOwnerBotToken } from '@/modules/platform';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { SUPPLIER_CONFIG } from '@/lib/supplier-config';
 import { getBotConnectionById } from '@/modules/bots';
@@ -197,7 +197,7 @@ async function resolveBotToken(supabase: DbClient, order: Order): Promise<string
       });
     }
   }
-  return getOwnerBotToken();
+  return getDecryptedOwnerBotToken(supabase);
 }
 
 async function consumeIfReserved(supabase: DbClient, order: Order): Promise<void> {

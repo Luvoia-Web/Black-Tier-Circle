@@ -20,14 +20,9 @@ vi.mock('@/integrations/telegram/delivery', () => ({
   sendSupplierDelivery: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/lib/owner-bot', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/owner-bot')>('@/lib/owner-bot');
-  return {
-    ...actual,
-    getOwnerBotToken: () => 'test-owner-bot-token',
-    isOwnerBotConfigured: () => true,
-  };
-});
+vi.mock('@/modules/platform', () => ({
+  getDecryptedOwnerBotToken: async () => 'test-owner-bot-token',
+}));
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000010';
 const WALLET_ID = '00000000-0000-4000-8000-000000000020';

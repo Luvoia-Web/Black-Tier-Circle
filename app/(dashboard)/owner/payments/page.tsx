@@ -6,9 +6,13 @@
  * @module Dashboard
  */
 
-import { getPaymentModeLabel } from '@/lib/payment-config';
+import { asDbClient } from '@/lib/auth/session';
+import { getPaymentModeLabel, isPlatformPaymentConfigured } from '@/lib/payment-config';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { getPlatformSettings } from '@/modules/platform';
 import { PaymentsMonitor } from './payments-monitor';
 
-export default function OwnerPaymentsPage(): JSX.Element {
-  return <PaymentsMonitor modeLabel={getPaymentModeLabel()} />;
+export default async function OwnerPaymentsPage(): Promise<JSX.Element> {
+  const settings = await getPlatformSettings(asDbClient(createAdminSupabaseClient()));
+  return <PaymentsMonitor modeLabel={getPaymentModeLabel(isPlatformPaymentConfigured(settings))} />;
 }

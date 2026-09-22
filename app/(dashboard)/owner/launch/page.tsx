@@ -55,7 +55,7 @@ export default function OwnerLaunchPage(): JSX.Element {
     <>
       <PageHeader
         title="Launch Readiness"
-        description="Production readiness. Green items pass; red items must be fixed before go-live."
+        description="Production readiness. Bot and payment checks read the database, not environment variables."
         actions={
           <div className="flex items-center gap-3">
             {items.length > 0 ? (

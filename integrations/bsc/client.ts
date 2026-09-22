@@ -4,7 +4,8 @@
  * BSC (BNB Smart Chain) USDT BEP20 transaction verifier.
  *
  * DEMO MODE (default): sandbox adapter.
- * LIVE MODE: activated when BSCSCAN_API_KEY and PLATFORM_USDT_WALLET_ADDRESS are set.
+ * LIVE MODE: activated when BSCSCAN_API_KEY is set and the caller passes live: true.
+ * The expected recipient address comes from the order's resolved wallet.
  *
  * CRITICAL DECIMAL NOTE:
  * USDT on BSC has 18 decimal places.
@@ -12,7 +13,7 @@
  * Conversion: rawBscValue / 10^12 = our minor units.
  * Use bscValueToMinorUnits() from lib/payment-config.ts for this.
  *
- * To switch to live: add real credentials to .env — zero code changes.
+ * Wallet addresses are configured in the owner or reseller dashboard.
  */
 
 import { amountsMatch } from '@/lib/money';
@@ -63,15 +64,15 @@ export function createSandboxBscClient(): BscClient {
 
 function createRealBscClient(apiKey: string): BscClient {
   const { bscscanBaseUrl, usdtContractAddress, txWindowSeconds } = PAYMENT_CONFIG.bep20;
-  const platformWallet = PAYMENT_CONFIG.bep20.platformWalletAddress.toLowerCase();
 
   return {
     async verifyUsdtTransfer(params) {
+      const expectedWallet = params.expectedToAddress.toLowerCase();
       const url = new URL(bscscanBaseUrl);
       url.searchParams.set('module', 'account');
       url.searchParams.set('action', 'tokentx');
       url.searchParams.set('contractaddress', usdtContractAddress);
-      url.searchParams.set('address', platformWallet);
+      url.searchParams.set('address', expectedWallet);
       url.searchParams.set('apikey', apiKey);
       url.searchParams.set('sort', 'desc');
       url.searchParams.set('page', '1');
@@ -92,7 +93,7 @@ function createRealBscClient(apiKey: string): BscClient {
         return { verified: false, rejectReason: 'TX_NOT_FOUND' };
       }
 
-      if ((tx.to ?? '').toLowerCase() !== platformWallet) {
+      if ((tx.to ?? '').toLowerCase() !== expectedWallet) {
         return { verified: false, rejectReason: 'WRONG_RECIPIENT' };
       }
 
@@ -132,10 +133,10 @@ function createRealBscClient(apiKey: string): BscClient {
 }
 
 /**
- * Factory — auto-selects demo or real based on PAYMENT_CONFIG.mode
+ * Factory — real chain lookups only when the caller has a configured wallet and BscScan key.
  */
-export function createBscClient(): BscClient {
-  if (PAYMENT_CONFIG.mode === 'live') {
+export function createBscClient(options?: { readonly live?: boolean }): BscClient {
+  if (options?.live && PAYMENT_CONFIG.bep20.bscscanApiKey && !PAYMENT_CONFIG.bep20.bscscanApiKey.startsWith('PLACEHOLDER')) {
     return createRealBscClient(PAYMENT_CONFIG.bep20.bscscanApiKey);
   }
   logger.warn('BSC DEMO MODE — no real TX verification');

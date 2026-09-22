@@ -6,8 +6,8 @@
  * @module Launch
  */
 
-import { isOwnerBotConfigured, getOwnerBotWebhookSecret } from '@/lib/owner-bot';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { isPaymentLive, isPlatformPaymentConfigured } from '@/lib/payment-config';
+import { getPlatformSettings } from '@/modules/platform';
 import type { DbClient } from '@/lib/supabase/query';
 import { getBotConnection } from '@/modules/bots';
 import { getProductWithAssets, listProducts } from '@/modules/catalog';
@@ -96,7 +96,11 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
     webhookSecretsSet = false;
   }
 
-  const live = PAYMENT_CONFIG.mode === 'live';
+  const settings = await getPlatformSettings(supabase);
+  const paymentLive = isPlatformPaymentConfigured(settings);
+  const binanceLive = isPaymentLive(settings);
+  const ownerConnected = settings.ownerBotStatus === 'connected';
+  const paymentMethodEnabled = settings.binancePayEnabled || settings.bep20Enabled;
   const items: LaunchCheck[] = [
     {
       id: 'env_supabase_url',
@@ -149,46 +153,37 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
     },
     {
       id: 'pay_mode',
-      label: `Payment mode: ${PAYMENT_CONFIG.mode === 'live' ? 'Live' : 'Demo'}`,
+      label: `Payment mode: ${paymentLive ? 'Live' : 'Demo'}`,
       group: 'payment',
       passing: true,
-      detail: PAYMENT_CONFIG.mode,
+      detail: paymentLive ? 'live' : 'demo',
     },
     {
-      id: 'pay_binance',
-      label: 'If Live: BINANCE_PAY_API_KEY configured',
+      id: 'pay_method',
+      label: 'At least one payment method enabled',
       group: 'payment',
-      passing: !live || envReal('BINANCE_PAY_API_KEY'),
-      detail: live ? (envReal('BINANCE_PAY_API_KEY') ? 'Configured' : 'Missing') : 'Not required in demo',
+      passing: paymentMethodEnabled,
+      detail: paymentMethodEnabled ? 'Enabled' : 'Enable USDT BEP20 or Binance Pay in settings',
     },
     {
-      id: 'pay_wallet',
-      label: 'If Live: PLATFORM_USDT_WALLET_ADDRESS configured',
+      id: 'pay_configured',
+      label: 'Payment method configured',
       group: 'payment',
-      passing: !live || envReal('PLATFORM_USDT_WALLET_ADDRESS'),
-      detail: live
-        ? envReal('PLATFORM_USDT_WALLET_ADDRESS')
-          ? 'Configured'
-          : 'Missing'
-        : 'Not required in demo',
-    },
-    {
-      id: 'pay_webhook',
-      label: 'Binance Pay webhook URL registered with Binance',
-      group: 'payment',
-      passing: !live || envSet('BINANCE_PAY_WEBHOOK_REGISTERED'),
-      detail: live
-        ? envSet('BINANCE_PAY_WEBHOOK_REGISTERED')
-          ? 'Marked registered'
-          : 'Set BINANCE_PAY_WEBHOOK_REGISTERED=true after registering'
-        : 'Not required in demo',
+      passing: paymentLive,
+      detail: paymentLive
+        ? binanceLive
+          ? 'Binance Pay ready'
+          : 'USDT wallet ready'
+        : 'Add a USDT wallet or Binance Pay credentials in owner settings',
     },
     {
       id: 'bot_owner',
-      label: 'Owner bot token configured',
+      label: 'Owner bot connected',
       group: 'bot',
-      passing: isOwnerBotConfigured(),
-      detail: isOwnerBotConfigured() ? 'Configured' : 'OWNER_BOT_TOKEN missing',
+      passing: ownerConnected,
+      detail: ownerConnected
+        ? `Connected as @${settings.ownerBotUsername ?? 'bot'}`
+        : 'Connect the owner bot in settings',
     },
     {
       id: 'bot_reseller',
@@ -201,8 +196,8 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
       id: 'bot_webhooks',
       label: 'Webhook secrets all set',
       group: 'bot',
-      passing: Boolean(getOwnerBotWebhookSecret()) && webhookSecretsSet,
-      detail: getOwnerBotWebhookSecret() ? 'Owner + reseller secrets present' : 'Owner webhook secret missing',
+      passing: ownerConnected && webhookSecretsSet,
+      detail: ownerConnected ? 'Owner + reseller secrets present' : 'Owner webhook secret missing',
     },
     {
       id: 'prod_published',
