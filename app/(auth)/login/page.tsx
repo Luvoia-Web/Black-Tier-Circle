@@ -20,13 +20,29 @@ function isUserRole(value: unknown): value is UserRole {
   return value === 'owner' || value === 'reseller' || value === 'staff';
 }
 
+function oauthErrorMessage(code: string | null): string | null {
+  if (code === 'auth_failed') {
+    return 'Sign in failed. Please try again.';
+  }
+  if (code === 'no_profile') {
+    return 'Account not found. Contact the owner for an invite.';
+  }
+  if (code === 'no_code') {
+    return 'Sign in was cancelled. Please try again.';
+  }
+  if (code === 'unknown_role') {
+    return 'Unable to determine your account type. Contact support.';
+  }
+  return null;
+}
+
 function LoginForm(): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get('next');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => oauthErrorMessage(searchParams.get('error')));
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 

@@ -8,45 +8,56 @@
  */
 
 import { NextResponse } from 'next/server';
-import { dashboardHomeForRole, ROUTES } from '@/lib/navigation';
+import { ROUTES } from '@/lib/navigation';
 import { createAuthRouteClient } from '@/lib/supabase/server';
-import type { UserRole } from '@/modules/identity/types';
 
 export const dynamic = 'force-dynamic';
 
-function asRole(value: unknown): UserRole | null {
-  if (value === 'owner' || value === 'reseller' || value === 'staff') {
-    return value;
+function requestOrigin(request: Request): string {
+  const requestUrl = new URL(request.url);
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  if (forwardedHost) {
+    const proto = request.headers.get('x-forwarded-proto') ?? 'https';
+    return `${proto}://${forwardedHost.split(',')[0]?.trim() ?? forwardedHost}`;
   }
-  return null;
+  return requestUrl.origin;
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
   const requestUrl = new URL(request.url);
+  const origin = requestOrigin(request);
   const code = requestUrl.searchParams.get('code');
-  const origin = requestUrl.origin;
-  const loginUrl = `${origin}${ROUTES.login}`;
 
-  if (code === null || code.length === 0) {
-    return NextResponse.redirect(loginUrl);
+  if (!code) {
+    return NextResponse.redirect(`${origin}${ROUTES.login}?error=no_code`);
   }
 
   const { supabase, applyCookies } = createAuthRouteClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    return NextResponse.redirect(loginUrl);
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error || !data.session) {
+    return NextResponse.redirect(`${origin}${ROUTES.login}?error=auth_failed`);
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user === null) {
-    return NextResponse.redirect(loginUrl);
+  const redirectWithSession = (path: string): NextResponse =>
+    applyCookies(NextResponse.redirect(`${origin}${path}`));
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, status')
+    .eq('id', data.session.user.id)
+    .single();
+
+  if (!profile) {
+    return redirectWithSession(`${ROUTES.login}?error=no_profile`);
   }
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
-  const role = asRole((profile as { role?: unknown } | null)?.role);
-  const destination = `${origin}${role === null ? ROUTES.reseller.home : dashboardHomeForRole(role)}`;
+  const row = profile as { role: unknown; status: unknown };
+  if (row.role === 'owner') {
+    return redirectWithSession(ROUTES.owner.home);
+  }
+  if (row.role === 'reseller') {
+    return redirectWithSession(ROUTES.reseller.home);
+  }
 
-  return applyCookies(NextResponse.redirect(destination));
+  return redirectWithSession(`${ROUTES.login}?error=unknown_role`);
 }
