@@ -9,8 +9,13 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { DocumentTitle } from '@/components/ui/DocumentTitle';
+import { PageError } from '@/components/ui/PageError';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonTable } from '@/components/ui/Skeleton';
+import { copyToClipboard } from '@/lib/clipboard';
 import { TokenStatusBadge } from '@/components/wallet/ledger-badges';
 import { formatUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
@@ -62,7 +67,6 @@ export default function OwnerTokensPage(): JSX.Element {
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState('50.00');
   const [tenantId, setTenantId] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
@@ -76,8 +80,8 @@ export default function OwnerTokensPage(): JSX.Element {
     try {
       const url =
         tab === 'all' ? API_ROUTES.adminTokens : `${API_ROUTES.adminTokens}?status=${encodeURIComponent(tab)}`;
-      const response = await fetch(url);
-      const json = (await response.json()) as {
+      const [tokenRes, resellerRes] = await Promise.all([fetch(url), fetch(`${API_ROUTES.resellers}?limit=100`)]);
+      const json = (await tokenRes.json()) as {
         success: boolean;
         data?: TokenRow[];
         error?: { message: string };
@@ -88,6 +92,14 @@ export default function OwnerTokensPage(): JSX.Element {
         return;
       }
       setRows(json.data);
+      const resellerJson = (await resellerRes.json()) as {
+        success: boolean;
+        data?: ResellerOption[] | { rows: ResellerOption[] };
+      };
+      if (resellerJson.success && resellerJson.data) {
+        const list = Array.isArray(resellerJson.data) ? resellerJson.data : resellerJson.data.rows;
+        setResellers(list.filter((row) => row.status === 'active'));
+      }
     } catch {
       setError('Unable to load tokens');
     } finally {
@@ -98,16 +110,6 @@ export default function OwnerTokensPage(): JSX.Element {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    void (async () => {
-      const response = await fetch(API_ROUTES.resellers);
-      const json = (await response.json()) as { success: boolean; data?: ResellerOption[] };
-      if (json.success && json.data) {
-        setResellers(json.data.filter((row) => row.status === 'active'));
-      }
-    })();
-  }, []);
 
   const preview = useMemo(() => minorPreview(amount), [amount]);
 
@@ -135,6 +137,7 @@ export default function OwnerTokensPage(): JSX.Element {
         return;
       }
       setRevealedToken(json.data.token);
+      toast.success('Token generated — copy it now');
       await load();
     } finally {
       setCreating(false);
@@ -209,22 +212,13 @@ export default function OwnerTokensPage(): JSX.Element {
 
   return (
     <>
+      <DocumentTitle title="Deposit Tokens — Black Tier Circle" />
       <PageHeader
-        title="Top-up tokens"
+        title="Deposit Tokens"
         description="Generate one-use 12-digit tokens to credit reseller wallets"
-        actions={
-          <button
-            type="button"
-            onClick={() => setShowForm((open) => !open)}
-            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-soft)]"
-          >
-            Create Token
-          </button>
-        }
       />
 
-      {showForm ? (
-        <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="text-sm text-[var(--text-2)]">
               Amount (USDT)
@@ -277,14 +271,17 @@ export default function OwnerTokensPage(): JSX.Element {
               <button
                 type="button"
                 className="mt-2 text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]"
-                onClick={() => void navigator.clipboard.writeText(revealedToken)}
+                onClick={() => {
+                  void copyToClipboard(revealedToken).then((ok) => {
+                    toast[ok ? 'success' : 'error'](ok ? 'Copied' : 'Copy failed');
+                  });
+                }}
               >
                 Copy token
               </button>
             </div>
           ) : null}
         </section>
-      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((item) => (
@@ -301,9 +298,9 @@ export default function OwnerTokensPage(): JSX.Element {
         ))}
       </div>
 
-      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
+      {error ? <PageError message={error} onRetry={() => void load()} /> : null}
       {loading ? (
-        <p className="text-sm text-[var(--text-2)]">Loading tokens…</p>
+        <SkeletonTable />
       ) : (
         <DataTable
           columns={columns}

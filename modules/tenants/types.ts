@@ -38,4 +38,6 @@ export type ResellerListItem = {
   readonly status: AccountStatus;
   readonly profileStatus: AccountStatus;
   readonly joinedAt: Date;
+  readonly walletAvailableMinor: bigint;
+  readonly orderCount: number;
 };

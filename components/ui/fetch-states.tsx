@@ -6,19 +6,11 @@
  * @module Components
  */
 
-type SkeletonProps = {
-  readonly rows?: number;
-};
+import { PageError } from '@/components/ui/PageError';
+import { SkeletonPage, SkeletonTable } from '@/components/ui/Skeleton';
+import { EmptyState as RichEmptyState } from '@/components/ui/EmptyState';
 
-export function TableSkeleton({ rows = 5 }: SkeletonProps): JSX.Element {
-  return (
-    <div className="space-y-2" aria-busy="true">
-      {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="skeleton h-10" />
-      ))}
-    </div>
-  );
-}
+export { SkeletonPage, SkeletonTable, SkeletonTable as TableSkeleton };
 
 type ErrorStateProps = {
   readonly message: string;
@@ -26,21 +18,27 @@ type ErrorStateProps = {
 };
 
 export function ErrorState({ message, onRetry }: ErrorStateProps): JSX.Element {
-  return (
-    <div className="rounded-[var(--r-lg)] border border-[var(--red)]/20 bg-[var(--red-soft)] px-6 py-8 text-center">
-      <p className="text-sm text-[var(--red)]">{message}</p>
-      <button type="button" onClick={onRetry} className="btc-btn-primary mt-3">
-        Retry
-      </button>
-    </div>
-  );
+  return <PageError message={message} onRetry={onRetry} />;
 }
 
 type EmptyStateProps = {
   readonly message: string;
+  readonly icon?: string;
+  readonly title?: string;
+  readonly action?: { readonly label: string; readonly href?: string; readonly onClick?: () => void };
 };
 
-export function EmptyState({ message }: EmptyStateProps): JSX.Element {
+export function EmptyState({ message, icon, title, action }: EmptyStateProps): JSX.Element {
+  if (title) {
+    return (
+      <RichEmptyState
+        {...(icon ? { icon } : {})}
+        title={title}
+        description={message}
+        {...(action ? { action } : {})}
+      />
+    );
+  }
   return (
     <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center text-sm text-[var(--text-2)]">
       {message}

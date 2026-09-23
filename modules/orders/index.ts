@@ -237,7 +237,9 @@ export async function getOrder(supabase: DbClient, orderId: string): Promise<Ord
  * @param filters - Tenant, bot, payment status, and pagination
  */
 export async function listOrders(supabase: DbClient, filters: ListOrdersFilters = {}): Promise<Order[]> {
-  let query = supabase.from('orders').select('*').order('created_at', { ascending: false });
+  let query = supabase.from('orders').select(
+    'id, channel, tenant_id, bot_id, customer_id, product_id, product_version, quoted_retail_price, quoted_wholesale_price, currency, payment_method, external_order_ref, payment_status, funding_status, fulfillment_status, delivery_status, idempotency_key, created_at, updated_at',
+  ).order('created_at', { ascending: false });
   if (filters.tenantId !== undefined) {
     query = query.eq('tenant_id', filters.tenantId);
   }

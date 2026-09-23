@@ -37,7 +37,7 @@ export async function GET(request: Request): Promise<Response> {
             ...(category !== null && category !== '' ? { category } : {}),
           };
     const products = await listProducts(asDbClient(session.admin), filters);
-    return jsonSuccess(products);
+    return jsonSuccess(products, 200, { cache: 'short' });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

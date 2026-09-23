@@ -12,6 +12,7 @@ export type MemoryRow = Record<string, unknown>;
 
 type Filter =
   | { readonly kind: 'eq' | 'gte' | 'lte'; readonly column: string; readonly value: string }
+  | { readonly kind: 'in'; readonly column: string; readonly values: ReadonlyArray<string> }
   | { readonly kind: 'is'; readonly column: string; readonly value: null };
 
 function asMinor(value: unknown): bigint {
@@ -362,6 +363,9 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         if (filter.kind === 'is') {
           return row[filter.column] === null || row[filter.column] === undefined;
         }
+        if (filter.kind === 'in') {
+          return filter.values.includes(actual);
+        }
         if (filter.kind === 'gte') {
           return actual >= filter.value;
         }
@@ -444,6 +448,10 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       },
       eq(column, value): QueryBuilder<unknown> {
         filters.push({ kind: 'eq', column, value });
+        return builder;
+      },
+      in(column, values): QueryBuilder<unknown> {
+        filters.push({ kind: 'in', column, values });
         return builder;
       },
       is(column, value): QueryBuilder<unknown> {

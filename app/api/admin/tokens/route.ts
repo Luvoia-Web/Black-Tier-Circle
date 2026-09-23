@@ -24,7 +24,7 @@ export async function GET(request: Request): Promise<Response> {
       ...(statusParsed?.success ? { status: statusParsed.data as TokenStatus } : {}),
       ...(tenantId ? { tenantId } : {}),
     });
-    return jsonSuccess(tokens);
+    return jsonSuccess(tokens, 200, { cache: 'short' });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

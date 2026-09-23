@@ -84,6 +84,14 @@ export function TopBar({ displayName, role, onMenuClick }: TopBarProps): JSX.Ele
       </div>
       <div className="flex items-center gap-2">
         <span className="hidden text-xs text-[var(--text-3)] sm:inline">{displayName}</span>
+        <button
+          type="button"
+          aria-label="Search"
+          onClick={() => window.dispatchEvent(new Event('btc:command'))}
+          className="hidden h-8 items-center gap-2 rounded-full bg-[var(--bg-raised)] px-3 text-xs text-[var(--text-3)] hover:text-[var(--text-1)] sm:flex"
+        >
+          ⌘K
+        </button>
         <ThemeToggle />
         <button
           type="button"

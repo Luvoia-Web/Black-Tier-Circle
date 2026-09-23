@@ -10,8 +10,13 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { DocumentTitle } from '@/components/ui/DocumentTitle';
+import { PageError } from '@/components/ui/PageError';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonTable } from '@/components/ui/Skeleton';
+import { formatRelativeTime } from '@/lib/relative-time';
 import { formatUsdt } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
@@ -84,6 +89,7 @@ export default function OwnerWalletsPage(): JSX.Element {
         setError(json.error?.message ?? 'Unable to adjust wallet');
         return;
       }
+      toast.success('Wallet adjusted');
       setAdjustId(null);
       setAmount('');
       setNote('');
@@ -102,7 +108,7 @@ export default function OwnerWalletsPage(): JSX.Element {
     {
       key: 'activity',
       header: 'Last activity',
-      render: (row) => new Date(row.lastActivityAt).toLocaleString(),
+      render: (row) => formatRelativeTime(row.lastActivityAt),
     },
     {
       key: 'actions',
@@ -129,10 +135,11 @@ export default function OwnerWalletsPage(): JSX.Element {
 
   return (
     <>
+      <DocumentTitle title="Wallets — Black Tier Circle" />
       <PageHeader title="Reseller wallets" description="USDT balances, reservations, and manual adjustments" />
-      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
+      {error ? <PageError message={error} onRetry={() => void load()} /> : null}
       {loading ? (
-        <p className="text-sm text-[var(--text-2)]">Loading wallets…</p>
+        <SkeletonTable />
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(row) => row.walletId} emptyMessage="No reseller wallets yet" />
       )}

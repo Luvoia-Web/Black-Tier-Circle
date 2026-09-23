@@ -9,8 +9,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { ErrorState } from '@/components/ui/fetch-states';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { DocumentTitle } from '@/components/ui/DocumentTitle';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonPage } from '@/components/ui/Skeleton';
 import { formatUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
 import { getMarginMinor, getMarginPercent } from '@/modules/pricing';
@@ -97,8 +101,11 @@ export default function ResellerProductsPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(API_ROUTES.resellerCatalog);
-      const json = (await response.json()) as {
+      const [catalogRes, settingsRes] = await Promise.all([
+        fetch(API_ROUTES.resellerCatalog),
+        fetch(API_ROUTES.resellerSettings),
+      ]);
+      const json = (await catalogRes.json()) as {
         success: boolean;
         data?: CatalogRow[];
         error?: { message: string };
@@ -117,7 +124,6 @@ export default function ResellerProductsPage(): JSX.Element {
         }
         return next;
       });
-      const settingsRes = await fetch(API_ROUTES.resellerSettings);
       const settingsJson = (await settingsRes.json()) as {
         success: boolean;
         data?: { settings: { markupPercent: number } };
@@ -173,6 +179,7 @@ export default function ResellerProductsPage(): JSX.Element {
         setError(json.error?.message ?? 'Unable to save price');
         return;
       }
+      toast.success(row.listing ? 'Price saved' : 'Added to your store');
       await load();
     } catch {
       setError('Unable to save price');
@@ -185,17 +192,30 @@ export default function ResellerProductsPage(): JSX.Element {
     if (!row.listing) {
       return;
     }
+    const nextVisible = !row.listing.isVisible;
+    setRows((current) =>
+      current.map((item) =>
+        item.id === row.id && item.listing
+          ? { ...item, listing: { ...item.listing, isVisible: nextVisible } }
+          : item,
+      ),
+    );
     const response = await fetch(API_ROUTES.resellerListing(row.listing.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isVisible: !row.listing.isVisible }),
+      body: JSON.stringify({ isVisible: nextVisible }),
     });
     const json = (await response.json()) as { success: boolean; error?: { message: string } };
     if (!json.success) {
-      setError(json.error?.message ?? 'Unable to update visibility');
-      return;
+      setRows((current) =>
+        current.map((item) =>
+          item.id === row.id && item.listing
+            ? { ...item, listing: { ...item.listing, isVisible: row.listing!.isVisible } }
+            : item,
+        ),
+      );
+      toast.error(json.error?.message ?? 'Unable to update visibility');
     }
-    await load();
   }
 
   async function removeListing(row: CatalogRow): Promise<void> {
@@ -252,8 +272,9 @@ export default function ResellerProductsPage(): JSX.Element {
 
   return (
     <>
+      <DocumentTitle title="My Store — Black Tier Circle" />
       <PageHeader
-        title="Products"
+        title="My Store"
         description="Owner products appear here as soon as they are published. Set your price and they show in your bot."
       />
       <div className="mb-4 flex flex-wrap gap-2">
@@ -311,11 +332,22 @@ export default function ResellerProductsPage(): JSX.Element {
       </div>
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {loading ? (
-        <p className="text-sm text-[var(--text-3)]">Loading catalog…</p>
+        <SkeletonPage />
       ) : visibleRows.length === 0 ? (
-        <p className="text-sm text-[var(--text-3)]">
-          {tab === 'store' ? 'Nothing in your store yet. Add a product from Available to List.' : 'No products match.'}
-        </p>
+        <EmptyState
+          icon={tab === 'store' ? '🛍' : '📦'}
+          title={tab === 'store' ? 'Your store is empty' : 'No products match'}
+          description={
+            tab === 'store'
+              ? 'Browse the owner catalog and add products to your store. Set your own prices.'
+              : 'Try a different search or wait for the owner to publish products.'
+          }
+          action={
+            tab === 'store'
+              ? { label: 'Browse Catalog', onClick: () => setTab('available') }
+              : { label: 'Retry', onClick: () => void load() }
+          }
+        />
       ) : (
         <div className="grid gap-3">
           {visibleRows.map((row) => {

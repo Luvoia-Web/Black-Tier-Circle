@@ -10,9 +10,14 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { ProductStatusBadge } from '@/components/catalog/product-status-badge';
+import { DocumentTitle } from '@/components/ui/DocumentTitle';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageError } from '@/components/ui/PageError';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import { formatUsdt } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { ProductStatus } from '@/modules/catalog/types';
@@ -77,27 +82,34 @@ export default function OwnerProductsPage(): JSX.Element {
     void load();
   }, [load]);
 
-  const setStatus = useCallback(
-    async (productId: string, status: 'published' | 'paused'): Promise<void> => {
-      setPendingId(productId);
-      try {
-        const response = await fetch(API_ROUTES.productStatus(productId), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status }),
-        });
-        const json = (await response.json()) as { success: boolean; error?: { message: string } };
-        if (!json.success) {
-          setError(json.error?.message ?? 'Unable to update status');
-          return;
+  const setStatus = useCallback(async (productId: string, status: 'published' | 'paused'): Promise<void> => {
+    const previous = rows.find((row) => row.id === productId)?.status;
+    setRows((current) => current.map((row) => (row.id === productId ? { ...row, status } : row)));
+    setPendingId(productId);
+    try {
+      const response = await fetch(API_ROUTES.productStatus(productId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      if (!json.success) {
+        if (previous) {
+          setRows((current) => current.map((row) => (row.id === productId ? { ...row, status: previous } : row)));
         }
-        await load();
-      } finally {
-        setPendingId(null);
+        toast.error(json.error?.message ?? 'Unable to update status');
+        return;
       }
-    },
-    [load],
-  );
+      toast.success(status === 'published' ? 'Product published' : 'Product paused');
+    } catch {
+      if (previous) {
+        setRows((current) => current.map((row) => (row.id === productId ? { ...row, status: previous } : row)));
+      }
+      toast.error('Unable to update status');
+    } finally {
+      setPendingId(null);
+    }
+  }, [rows]);
 
   const columns: ReadonlyArray<DataTableColumn<ProductRow>> = useMemo(
     () => [
@@ -164,6 +176,7 @@ export default function OwnerProductsPage(): JSX.Element {
 
   return (
     <>
+      <DocumentTitle title="Products — Black Tier Circle" />
       <PageHeader
         title="Products"
         description="Create and manage digital products, prices, and availability"
@@ -192,19 +205,22 @@ export default function OwnerProductsPage(): JSX.Element {
           </button>
         ))}
       </div>
-      {error ? (
-        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
-          {error}
-        </p>
-      ) : null}
+      {error ? <PageError message={error} onRetry={() => void load()} /> : null}
       {loading ? (
-        <p className="text-sm text-[var(--text-2)]">Loading products…</p>
+        <SkeletonTable rows={8} />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon="📦"
+          title="No products yet"
+          description="Add your first product to start selling. Resellers can list your products in their bots."
+          action={{ label: 'Add Product', href: ROUTES.owner.productNew }}
+        />
       ) : (
         <DataTable
           columns={columns}
           rows={rows}
           rowKey={(row) => row.id}
-          emptyMessage="No products yet. Add your first product."
+          emptyMessage="No products in this tab."
         />
       )}
     </>

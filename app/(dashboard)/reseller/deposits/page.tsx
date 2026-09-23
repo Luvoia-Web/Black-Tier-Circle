@@ -9,13 +9,20 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { ErrorState, EmptyState, TableSkeleton } from '@/components/ui/fetch-states';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
+import { formatUsdt } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
 
 type Payload = {
+  readonly wallet?: {
+    readonly availableMinor: string;
+    readonly totalMinor: string;
+    readonly reservedMinor?: string;
+  };
   readonly tokens: ReadonlyArray<{
     readonly id: string;
     readonly prefix: string;
@@ -49,6 +56,14 @@ type Payload = {
     readonly timestamp: string;
   }>;
 };
+
+function formatUsdtDisplay(minor: string): string {
+  try {
+    return formatUsdt(BigInt(minor));
+  } catch {
+    return '0.00 USDT';
+  }
+}
 
 function statusClass(status: string): string {
   if (status === 'approved') {
@@ -118,6 +133,7 @@ export default function ResellerDepositsPage(): JSX.Element {
       return;
     }
     setMessage('Token redeemed');
+    toast.success('Token redeemed');
     setToken('');
     await load();
   }
@@ -146,12 +162,28 @@ export default function ResellerDepositsPage(): JSX.Element {
 
   return (
     <>
-      <PageHeader title="Deposits" description="Redeem tokens and review payment deposits" />
+      <PageHeader title="Wallet & Deposits" description="Redeem tokens and review payment deposits" />
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {loading || !data ? (
         <TableSkeleton />
       ) : (
         <>
+          {data.wallet ? (
+            <section className="mb-6 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <p className="text-xs text-[var(--text-3)]">Total Balance</p>
+              <p className="text-2xl font-semibold">
+                {formatUsdtDisplay(data.wallet.totalMinor)}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-6 text-sm">
+                <span className="text-[var(--green)]">
+                  Available {formatUsdtDisplay(data.wallet.availableMinor)}
+                </span>
+                <span className="text-[var(--text-3)]">
+                  Reserved {formatUsdtDisplay(data.wallet.reservedMinor ?? '0')}
+                </span>
+              </div>
+            </section>
+          ) : null}
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total credited" value={data.deposits.totalCredited} />
             <StatCard label="Approved" value={String(data.deposits.approved)} />

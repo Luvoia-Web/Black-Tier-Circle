@@ -526,33 +526,53 @@ export async function manualDebit(
 export async function listResellerWallets(supabase: DbClient): Promise<AdminWalletListItem[]> {
   const walletsResult = (await supabase
     .from('wallets')
-    .select('*')
+    .select('id, tenant_id, balance_total, balance_reserved, updated_at')
     .order('balance_total', { ascending: false })) as QueryResult<unknown[] | null>;
   if (walletsResult.error) {
     throw new AppError('WALLET_LIST_FAILED', walletsResult.error.message, 500);
   }
   const walletRows = Array.isArray(walletsResult.data) ? walletsResult.data : [];
-  const items: AdminWalletListItem[] = [];
-
-  for (const raw of walletRows) {
-    const wallet = mapWalletRow(asWalletRow(raw));
-    const tenantResult = await supabase.from('tenants').select('*').eq('id', wallet.tenantId).maybeSingle();
-    if (tenantResult.error) {
-      throw new AppError('TENANT_LOOKUP_FAILED', tenantResult.error.message, 500);
+  if (walletRows.length === 0) {
+    return [];
+  }
+  const wallets = walletRows.map((raw) => mapWalletRow(asWalletRow(raw)));
+  const tenantIds = wallets.map((wallet) => wallet.tenantId);
+  const tenantsResult = (await supabase
+    .from('tenants')
+    .select('id, display_name, status, owner_user_id')
+    .in('id', tenantIds)) as QueryResult<unknown[] | null>;
+  if (tenantsResult.error) {
+    throw new AppError('TENANT_LOOKUP_FAILED', tenantsResult.error.message, 500);
+  }
+  const tenants = new Map<string, { display_name?: string; owner_user_id?: string }>();
+  const ownerIds: string[] = [];
+  for (const raw of Array.isArray(tenantsResult.data) ? tenantsResult.data : []) {
+    const tenant = raw as { id: string; display_name?: string; owner_user_id?: string };
+    tenants.set(tenant.id, tenant);
+    if (tenant.owner_user_id) {
+      ownerIds.push(tenant.owner_user_id);
     }
-    const tenant = tenantResult.data as {
-      display_name?: string;
-      owner_user_id?: string;
-    } | null;
-    let resellerName = tenant?.display_name ?? 'Unknown reseller';
-    if (tenant?.owner_user_id) {
-      const profileResult = await supabase.from('profiles').select('*').eq('id', tenant.owner_user_id).maybeSingle();
-      const profile = profileResult.data as { display_name?: string } | null;
-      if (profile?.display_name) {
-        resellerName = profile.display_name;
+  }
+  const profiles = new Map<string, string>();
+  if (ownerIds.length > 0) {
+    const profilesResult = (await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', ownerIds)) as QueryResult<unknown[] | null>;
+    for (const raw of Array.isArray(profilesResult.data) ? profilesResult.data : []) {
+      const profile = raw as { id: string; display_name?: string };
+      if (profile.display_name) {
+        profiles.set(profile.id, profile.display_name);
       }
     }
-    items.push({
+  }
+  return wallets.map((wallet) => {
+    const tenant = tenants.get(wallet.tenantId);
+    const resellerName =
+      (tenant?.owner_user_id ? profiles.get(tenant.owner_user_id) : undefined) ??
+      tenant?.display_name ??
+      'Unknown reseller';
+    return {
       walletId: wallet.id,
       tenantId: wallet.tenantId,
       tenantName: tenant?.display_name ?? 'Unknown tenant',
@@ -561,8 +581,6 @@ export async function listResellerWallets(supabase: DbClient): Promise<AdminWall
       balanceReserved: wallet.balanceReserved,
       balanceAvailable: wallet.balanceAvailable,
       lastActivityAt: wallet.updatedAt,
-    });
-  }
-
-  return items;
+    };
+  });
 }

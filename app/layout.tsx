@@ -10,13 +10,17 @@
 
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { Toaster } from 'sonner';
 import { Inter } from 'next/font/google';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'Black Tier Circle',
+  title: {
+    default: 'Black Tier Circle',
+    template: '%s — Black Tier Circle',
+  },
   description: 'Multi-tenant Telegram reseller platform',
 };
 
@@ -37,7 +41,19 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: 'var(--bg-elevated, var(--bg-card))',
+              border: '1px solid var(--border)',
+              color: 'var(--text-1)',
+            },
+          }}
+        />
+      </body>
     </html>
   );
 }

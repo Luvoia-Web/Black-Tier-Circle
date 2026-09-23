@@ -16,7 +16,7 @@ export async function GET(): Promise<Response> {
   try {
     const session = await requireOwner();
     const wallets = await listResellerWallets(asDbClient(session.admin));
-    return jsonSuccess(wallets);
+    return jsonSuccess(wallets, 200, { cache: 'short' });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

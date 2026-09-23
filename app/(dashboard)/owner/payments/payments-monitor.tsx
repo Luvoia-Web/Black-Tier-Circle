@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { OrderDetailModal } from '@/components/ui/OrderDetailModal';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import { API_ROUTES } from '@/lib/navigation';
 
 type Tab = 'pending' | 'verified' | 'failed' | 'all';
@@ -186,6 +187,7 @@ export function PaymentsMonitor({ modeLabel }: PaymentsMonitorProps): JSX.Elemen
         </label>
       </div>
       {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
+      {loading ? <SkeletonTable /> : null}
       {loading ? (
         <p className="text-sm text-[var(--text-2)]">Loading…</p>
       ) : (

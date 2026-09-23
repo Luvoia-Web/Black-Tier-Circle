@@ -10,6 +10,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Sidebar } from '@/components/ui/sidebar';
 import { TopBar } from '@/components/ui/top-bar';
 import type { UserRole } from '@/modules/identity/types';
@@ -48,6 +49,7 @@ export function DashboardShell({ displayName, role, demoMode = false, children }
         ) : null}
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
         <main className="page-enter flex-1 p-6">{children}</main>
+        <CommandPalette role={role} />
       </div>
     </div>
   );

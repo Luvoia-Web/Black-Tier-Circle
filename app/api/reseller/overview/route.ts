@@ -10,8 +10,8 @@
 
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { listProductsByIds } from '@/lib/lookups';
 import { inPeriod, parseDashboardPeriod, periodRange } from '@/lib/period';
-import { getProduct } from '@/modules/catalog';
 import { listOrders } from '@/modules/orders';
 import { listResellerListings } from '@/modules/pricing';
 import { getTenantSettings } from '@/modules/tenant-settings';
@@ -39,29 +39,36 @@ export async function GET(request: Request): Promise<Response> {
       (order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification',
     ).length;
     const revenueMinor = paid.reduce((sum, order) => sum + order.quotedRetailPriceMinor, 0n);
-    const recent = await Promise.all(
-      inRange.slice(0, 8).map(async (order) => ({
-        id: order.id,
-        productTitle: (await getProduct(db, order.productId)).title,
-        total: order.quotedRetailPriceMinor.toString(),
-        paymentStatus: order.paymentStatus,
-        createdAt: order.createdAt.toISOString(),
-      })),
+    const recentSlice = inRange.slice(0, 8);
+    const products = await listProductsByIds(
+      db,
+      recentSlice.map((order) => order.productId),
     );
-    return jsonSuccess({
-      period,
-      storeName: settings.storeName ?? session.tenant.displayName,
-      tenantStatus: session.tenant.status,
-      profileStatus: session.profile.status,
-      stats: {
-        revenueMinor: revenueMinor.toString(),
-        paidOrders: paid.length,
-        pendingOrders: pendingCount,
-        productsListed: listings.filter((item) => item.isVisible).length,
-        walletAvailableMinor: wallet.balanceAvailable.toString(),
+    const recent = recentSlice.map((order) => ({
+      id: order.id,
+      productTitle: products.get(order.productId)?.title ?? order.productId.slice(0, 8).toUpperCase(),
+      total: order.quotedRetailPriceMinor.toString(),
+      paymentStatus: order.paymentStatus,
+      createdAt: order.createdAt.toISOString(),
+    }));
+    return jsonSuccess(
+      {
+        period,
+        storeName: settings.storeName ?? session.tenant.displayName,
+        tenantStatus: session.tenant.status,
+        profileStatus: session.profile.status,
+        stats: {
+          revenueMinor: revenueMinor.toString(),
+          paidOrders: paid.length,
+          pendingOrders: pendingCount,
+          productsListed: listings.filter((item) => item.isVisible).length,
+          walletAvailableMinor: wallet.balanceAvailable.toString(),
+        },
+        recent,
       },
-      recent,
-    });
+      200,
+      { cache: 'short' },
+    );
   } catch (error: unknown) {
     return handleRouteError(error);
   }

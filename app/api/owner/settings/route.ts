@@ -18,7 +18,7 @@ export async function GET(): Promise<Response> {
   try {
     const session = await requireOwner();
     const settings = await getPlatformSettings(asDbClient(session.admin));
-    return jsonSuccess({ settings, webhookUrl: getOwnerBotWebhookUrl() });
+    return jsonSuccess({ settings, webhookUrl: getOwnerBotWebhookUrl() }, 200, { cache: 'short' });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

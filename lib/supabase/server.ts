@@ -38,6 +38,9 @@ export function createServerSupabaseClient(): ReturnType<typeof createServerClie
     requirePublicEnv('NEXT_PUBLIC_SUPABASE_URL'),
     requirePublicEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
+      auth: {
+        detectSessionInUrl: false,
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll();
@@ -73,6 +76,9 @@ export function createAuthRouteClient(): {
     requirePublicEnv('NEXT_PUBLIC_SUPABASE_URL'),
     requirePublicEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
+      auth: {
+        detectSessionInUrl: false,
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll();

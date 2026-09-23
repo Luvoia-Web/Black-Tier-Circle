@@ -8,30 +8,56 @@
 
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { asDbClient, requireOwner } from '@/lib/auth/session';
+import { pageMeta, parsePageParams } from '@/lib/pagination';
 import { listResellerRows } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireOwner();
+    const { page, limit, offset } = parsePageParams(new URL(request.url).searchParams, { limit: 50 });
     const rows = await listResellerRows(asDbClient(session.admin));
-    const withEmail = await Promise.all(
-      rows.map(async (row) => {
-        const tenant = await session.admin.from('tenants').select('owner_user_id').eq('id', row.tenantId).maybeSingle();
-        const ownerUserId = (tenant.data as { owner_user_id?: string } | null)?.owner_user_id;
-        if (!ownerUserId) {
-          return { ...row, email: row.email, joinedAt: row.joinedAt.toISOString() };
+    const emails = new Map<string, string>();
+    try {
+      const { data } = await session.admin.auth.admin.listUsers({ perPage: 1000 });
+      for (const user of data.users) {
+        if (user.email) {
+          emails.set(user.id, user.email);
         }
-        const { data } = await session.admin.auth.admin.getUserById(ownerUserId);
-        return {
-          ...row,
-          email: data.user?.email ?? '',
-          joinedAt: row.joinedAt.toISOString(),
-        };
-      }),
+      }
+    } catch {
+      // Auth admin listing is optional; table still works without emails.
+    }
+    const tenants = await session.admin
+      .from('tenants')
+      .select('id, owner_user_id')
+      .in(
+        'id',
+        rows.map((row) => row.tenantId),
+      );
+    const ownerByTenant = new Map<string, string>();
+    for (const raw of tenants.data ?? []) {
+      const tenant = raw as { id: string; owner_user_id: string };
+      ownerByTenant.set(tenant.id, tenant.owner_user_id);
+    }
+    const withEmail = rows.map((row) => {
+      const ownerUserId = ownerByTenant.get(row.tenantId);
+      return {
+        ...row,
+        email: ownerUserId ? (emails.get(ownerUserId) ?? row.email) : row.email,
+        joinedAt: row.joinedAt.toISOString(),
+        walletAvailableMinor: row.walletAvailableMinor.toString(),
+      };
+    });
+    return jsonSuccess(
+      {
+        rows: withEmail.slice(offset, offset + limit),
+        meta: pageMeta(page, limit, withEmail.length),
+      },
+      200,
+      { cache: 'short' },
     );
-    return jsonSuccess(withEmail);
   } catch (error: unknown) {
     return handleRouteError(error);
   }

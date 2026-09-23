@@ -31,8 +31,23 @@ export type ApiFailure = {
  * @param data - Response body
  * @param status - HTTP status code
  */
-export function jsonSuccess<T>(data: T, status: number = 200): NextResponse<ApiSuccess<unknown>> {
-  return NextResponse.json({ success: true, data: serializeForJson(data) }, { status });
+const READ_CACHE_HEADERS = {
+  'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
+};
+
+export function jsonSuccess<T>(
+  data: T,
+  status: number = 200,
+  options?: { readonly cache?: 'none' | 'short' | 'static' },
+): NextResponse<ApiSuccess<unknown>> {
+  const cache = options?.cache;
+  const init: ResponseInit = { status };
+  if (cache === 'short') {
+    init.headers = READ_CACHE_HEADERS;
+  } else if (cache === 'static') {
+    init.headers = { 'Cache-Control': 'private, max-age=30' };
+  }
+  return NextResponse.json({ success: true, data: serializeForJson(data) }, init);
 }
 
 /**

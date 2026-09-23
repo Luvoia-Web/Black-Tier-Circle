@@ -75,7 +75,7 @@ function mapTenantRow(row: TenantRow): Tenant {
 export async function getTenantByUserId(supabase: DbClient, userId: string): Promise<Tenant> {
   const { data, error } = await supabase
     .from('tenants')
-    .select('*')
+    .select('id, owner_user_id, display_name, business_name, support_contact, status, created_at, updated_at')
     .eq('owner_user_id', userId)
     .maybeSingle();
   if (error) {
@@ -122,7 +122,11 @@ export async function createTenant(
  * @param tenantId - Tenant ID
  */
 export async function getTenantById(supabase: DbClient, tenantId: string): Promise<Tenant> {
-  const { data, error } = await supabase.from('tenants').select('*').eq('id', tenantId).maybeSingle();
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('id, owner_user_id, display_name, business_name, support_contact, status, created_at, updated_at')
+    .eq('id', tenantId)
+    .maybeSingle();
   if (error) {
     throw new AppError('TENANT_LOOKUP_FAILED', error.message, 500);
   }
@@ -140,7 +144,7 @@ export async function getTenantById(supabase: DbClient, tenantId: string): Promi
 export async function listTenants(supabase: DbClient): Promise<Tenant[]> {
   const result = (await supabase
     .from('tenants')
-    .select('*')
+    .select('id, owner_user_id, display_name, business_name, support_contact, status, created_at, updated_at')
     .order('created_at', { ascending: false })) as QueryResult<unknown[] | null>;
   if (result.error) {
     throw new AppError('TENANT_LIST_FAILED', result.error.message, 500);
@@ -200,27 +204,56 @@ export async function updateTenantDisplayName(
 }
 
 /**
- * Combines tenants with profile names. Emails are filled by the API using Auth admin.
+ * Combines tenants with profile names, wallets, and order counts in batched queries.
  *
  * @param supabase - Service-role database client
  */
 export async function listResellerRows(supabase: DbClient): Promise<ResellerListItem[]> {
   const tenants = await listTenants(supabase);
-  const items: ResellerListItem[] = [];
-  for (const tenant of tenants) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', tenant.ownerUserId)
-      .maybeSingle();
-    if (error) {
-      throw new AppError('PROFILE_LOOKUP_FAILED', error.message, 500);
+  if (tenants.length === 0) {
+    return [];
+  }
+  const ownerIds = tenants.map((tenant) => tenant.ownerUserId);
+  const tenantIds = tenants.map((tenant) => tenant.id);
+  const [profilesResult, walletsResult, ordersResult] = await Promise.all([
+    Promise.resolve(supabase.from('profiles').select('id, display_name, status').in('id', ownerIds)) as unknown as Promise<
+      QueryResult<unknown[] | null>
+    >,
+    Promise.resolve(
+      supabase.from('wallets').select('tenant_id, balance_total, balance_reserved').in('tenant_id', tenantIds),
+    ) as unknown as Promise<QueryResult<unknown[] | null>>,
+    Promise.resolve(supabase.from('orders').select('tenant_id').in('tenant_id', tenantIds)) as unknown as Promise<
+      QueryResult<unknown[] | null>
+    >,
+  ]);
+  if (profilesResult.error) {
+    throw new AppError('PROFILE_LOOKUP_FAILED', profilesResult.error.message, 500);
+  }
+  const profiles = new Map<string, { display_name?: string; status?: AccountStatus }>();
+  for (const raw of Array.isArray(profilesResult.data) ? profilesResult.data : []) {
+    const row = raw as { id: string; display_name?: string; status?: AccountStatus };
+    profiles.set(row.id, row);
+  }
+  const wallets = new Map<string, bigint>();
+  for (const raw of Array.isArray(walletsResult.data) ? walletsResult.data : []) {
+    const row = raw as {
+      tenant_id: string;
+      balance_total: string | number;
+      balance_reserved: string | number;
+    };
+    wallets.set(row.tenant_id, BigInt(row.balance_total) - BigInt(row.balance_reserved));
+  }
+  const orderCounts = new Map<string, number>();
+  for (const raw of Array.isArray(ordersResult.data) ? ordersResult.data : []) {
+    const tenantId = (raw as { tenant_id: string | null }).tenant_id;
+    if (!tenantId) {
+      continue;
     }
-    const profile = data as {
-      display_name?: string;
-      status?: AccountStatus;
-    } | null;
-    items.push({
+    orderCounts.set(tenantId, (orderCounts.get(tenantId) ?? 0) + 1);
+  }
+  return tenants.map((tenant) => {
+    const profile = profiles.get(tenant.ownerUserId) ?? null;
+    return {
       tenantId: tenant.id,
       displayName: profile?.display_name ?? tenant.displayName,
       email: '',
@@ -228,7 +261,8 @@ export async function listResellerRows(supabase: DbClient): Promise<ResellerList
       status: tenant.status,
       profileStatus: profile?.status ?? tenant.status,
       joinedAt: tenant.createdAt,
-    });
-  }
-  return items;
+      walletAvailableMinor: wallets.get(tenant.id) ?? 0n,
+      orderCount: orderCounts.get(tenant.id) ?? 0,
+    };
+  });
 }

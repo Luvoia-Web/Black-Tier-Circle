@@ -3,19 +3,17 @@
  *
  * GET token history, payment deposit status, and tenant audit log.
  *
- * Phase 9 auth audit: getUser() via requireReseller.
- *
  * @module Api
  */
 
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { customerLabel, listCustomersByIds } from '@/lib/lookups';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
-import { getCustomerById } from '@/modules/bots';
 import { listOrders } from '@/modules/orders';
 import { mapPaymentClaimRow } from '@/modules/payments/map';
-import type { PaymentClaimRow } from '@/modules/payments/types';
+import type { PaymentClaim, PaymentClaimRow } from '@/modules/payments/types';
 import { getWallet, listTopupTokens } from '@/modules/wallet';
 
 export const dynamic = 'force-dynamic';
@@ -28,10 +26,21 @@ export async function GET(request: Request): Promise<Response> {
     const statusFilter = params.get('status') ?? 'all';
     const sourceFilter = params.get('source') ?? 'all';
     const db = asDbClient(session.admin);
-    const [wallet, tokens, orders] = await Promise.all([
+    const [wallet, tokens, orders, audit] = await Promise.all([
       getWallet(db, session.tenant.id),
       listTopupTokens(db, { tenantId: session.tenant.id }),
       listOrders(db, { tenantId: session.tenant.id, limit: 500 }),
+      listAudit(db, session.tenant.id),
+    ]);
+    const [claimsByOrder, customers] = await Promise.all([
+      listClaimsByOrder(
+        db,
+        orders.map((order) => order.id),
+      ),
+      listCustomersByIds(
+        db,
+        orders.map((order) => order.customerId ?? ''),
+      ),
     ]);
 
     const depositRows = [];
@@ -40,8 +49,7 @@ export async function GET(request: Request): Promise<Response> {
     let failed = 0;
     let creditedMinor = 0n;
     for (const order of orders) {
-      const claims = await listClaims(db, order.id);
-      const claim = claims[0];
+      const claim = claimsByOrder.get(order.id);
       let depositStatus: 'approved' | 'pending' | 'failed' = 'pending';
       if (order.paymentStatus === 'verified') {
         depositStatus = 'approved';
@@ -65,22 +73,10 @@ export async function GET(request: Request): Promise<Response> {
       if (sourceFilter !== 'all' && source !== sourceFilter) {
         continue;
       }
-      if (
-        search &&
-        !txid.toLowerCase().includes(search) &&
-        !order.id.toLowerCase().includes(search)
-      ) {
+      if (search && !txid.toLowerCase().includes(search) && !order.id.toLowerCase().includes(search)) {
         continue;
       }
-      let userLabel = '—';
-      if (order.customerId) {
-        try {
-          const customer = await getCustomerById(db, order.customerId);
-          userLabel = customer.username ? `@${customer.username}` : customer.telegramUserId;
-        } catch {
-          userLabel = '—';
-        }
-      }
+      const customer = order.customerId ? customers.get(order.customerId) : undefined;
       depositRows.push({
         status: depositStatus,
         source,
@@ -88,55 +84,68 @@ export async function GET(request: Request): Promise<Response> {
         endpoint: order.channel,
         result: claim?.rejectReason ?? order.paymentStatus,
         credited: depositStatus === 'approved' ? formatUsdt(order.quotedRetailPriceMinor) : '—',
-        user: userLabel,
+        user: customer ? customerLabel(customer, order.customerId) : '—',
         when: order.createdAt.toISOString(),
       });
     }
 
-    const audit = await listAudit(db, session.tenant.id);
-
-    return jsonSuccess({
-      wallet: {
-        availableMinor: wallet.balanceAvailable.toString(),
-        totalMinor: wallet.balanceTotal.toString(),
+    return jsonSuccess(
+      {
+        wallet: {
+          availableMinor: wallet.balanceAvailable.toString(),
+          totalMinor: wallet.balanceTotal.toString(),
+          reservedMinor: wallet.balanceReserved.toString(),
+        },
+        tokens: tokens.map((token) => ({
+          id: token.id,
+          prefix: token.token.slice(0, 4),
+          amount: formatUsdt(token.amountUsdt),
+          status: token.status === 'redeemed' ? 'used' : token.status === 'active' ? 'active' : token.status,
+          date: (token.redeemedAt ?? token.createdAt).toISOString(),
+        })),
+        deposits: {
+          totalCredited: formatUsdt(creditedMinor),
+          approved,
+          pending,
+          failed,
+          rows: depositRows,
+        },
+        audit,
       },
-      tokens: tokens.map((token) => ({
-        id: token.id,
-        prefix: token.token.slice(0, 4),
-        amount: formatUsdt(token.amountUsdt),
-        status: token.status === 'redeemed' ? 'used' : token.status === 'active' ? 'active' : token.status,
-        date: (token.redeemedAt ?? token.createdAt).toISOString(),
-      })),
-      deposits: {
-        totalCredited: formatUsdt(creditedMinor),
-        approved,
-        pending,
-        failed,
-        rows: depositRows,
-      },
-      audit,
-    });
+      200,
+      { cache: 'short' },
+    );
   } catch (error: unknown) {
     return handleRouteError(error);
   }
 }
 
-async function listClaims(supabase: DbClient, orderId: string) {
+async function listClaimsByOrder(supabase: DbClient, orderIds: ReadonlyArray<string>): Promise<Map<string, PaymentClaim>> {
+  const unique = [...new Set(orderIds.filter((id) => id.length > 0))];
+  const map = new Map<string, PaymentClaim>();
+  if (unique.length === 0) {
+    return map;
+  }
   const result = (await supabase
     .from('payment_claims')
-    .select('*')
-    .eq('order_id', orderId)
+    .select(
+      'id, order_id, payment_method, binance_order_id, tx_hash, submitted_at, verified_at, rejected_at, reject_reason, verification_evidence',
+    )
+    .in('order_id', unique)
     .order('submitted_at', { ascending: false })) as QueryResult<unknown[] | null>;
-  if (result.error || !Array.isArray(result.data)) {
-    return [];
+  for (const raw of Array.isArray(result.data) ? result.data : []) {
+    const claim = mapPaymentClaimRow(raw as PaymentClaimRow);
+    if (!map.has(claim.orderId)) {
+      map.set(claim.orderId, claim);
+    }
   }
-  return result.data.map((row) => mapPaymentClaimRow(row as PaymentClaimRow));
+  return map;
 }
 
 async function listAudit(supabase: DbClient, tenantId: string) {
   const result = (await supabase
     .from('audit_log')
-    .select('*')
+    .select('id, action, actor_id, reason, after_val, created_at')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(100)) as QueryResult<unknown[] | null>;

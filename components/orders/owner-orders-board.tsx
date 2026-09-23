@@ -15,7 +15,10 @@ import { MarkFulfilledButton } from '@/components/orders/mark-fulfilled-button';
 import { TrackBadge } from '@/components/orders/track-badge';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { OrderDetailModal } from '@/components/ui/OrderDetailModal';
+import { PageError } from '@/components/ui/PageError';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonTable } from '@/components/ui/Skeleton';
+import { formatRelativeTime } from '@/lib/relative-time';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { OwnerOrderTab } from '@/modules/fulfillment';
 
@@ -114,7 +117,7 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
       header: 'Placed',
       render: (row) => (
         <span>
-          {new Date(row.createdAt).toLocaleString()}
+          {formatRelativeTime(row.createdAt)}
           {row.overdue ? <span className="ml-2 text-xs text-[var(--amber)]">Overdue</span> : null}
         </span>
       ),
@@ -143,7 +146,7 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
 
   return (
     <>
-      <PageHeader title="Orders" description="All customer orders across channels" />
+      <PageHeader title="Orders" description="Full order operations across channels" />
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
           <p className="text-xs text-[var(--text-2)]">Total today</p>
@@ -182,9 +185,20 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
         placeholder="Search by order ID (first 8 chars)"
         className="btc-input mb-4 max-w-sm"
       />
-      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
-      {loading ? <p className="text-sm text-[var(--text-2)]">Loading…</p> : null}
-      <DataTable columns={columns} rows={rows} emptyMessage="No orders in this tab." rowKey={(row) => row.orderId} />
+      {error ? <PageError message={error} onRetry={() => void load()} /> : null}
+      {loading ? <SkeletonTable /> : null}
+      <DataTable
+        columns={columns}
+        rows={rows}
+        emptyMessage={
+          tab === 'awaiting_payment'
+            ? 'No orders waiting for payment'
+            : tab === 'manual_pending'
+              ? 'No orders need manual attention'
+              : 'No orders in this tab.'
+        }
+        rowKey={(row) => row.orderId}
+      />
       <OrderDetailModal
         orderId={selectedOrderId}
         onClose={() => setSelectedOrderId(null)}

@@ -12,10 +12,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { Eye } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { ErrorState, TableSkeleton } from '@/components/ui/fetch-states';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { OrderDetailModal } from '@/components/ui/OrderDetailModal';
 import { PageHeader } from '@/components/ui/page-header';
 import { PeriodPills } from '@/components/ui/period-pills';
-import { API_ROUTES } from '@/lib/navigation';
+import { formatRelativeTime } from '@/lib/relative-time';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { DashboardPeriod } from '@/lib/period';
 
 type Row = {
@@ -115,7 +117,7 @@ export default function ResellerOrdersPage(): JSX.Element {
   }
 
   const columns: ReadonlyArray<DataTableColumn<Row>> = [
-    { key: 'date', header: 'DATE', render: (row) => new Date(row.createdAt).toLocaleString() },
+    { key: 'date', header: 'DATE', render: (row) => formatRelativeTime(row.createdAt) },
     { key: 'product', header: 'PRODUCT', render: (row) => row.productTitle },
     { key: 'customer', header: 'CUSTOMER', render: (row) => row.customerLabel },
     { key: 'qty', header: 'QTY', render: (row) => String(row.quantity) },
@@ -210,6 +212,13 @@ export default function ResellerOrdersPage(): JSX.Element {
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {loading ? (
         <TableSkeleton />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon="📭"
+          title="No orders yet"
+          description="Add products to your store and share your bot link to get started."
+          action={{ label: 'Go to Products', href: ROUTES.reseller.products }}
+        />
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(row) => row.orderId} emptyMessage="No orders match these filters." />
       )}

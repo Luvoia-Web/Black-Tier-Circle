@@ -32,6 +32,9 @@ function sanitizeFields(fields?: LogFields): LogFields | undefined {
 }
 
 function writeLog(level: LogLevel, message: string, fields?: LogFields): void {
+  if ((level === 'debug' || level === 'info') && process.env.NODE_ENV !== 'development') {
+    return;
+  }
   const timestamp = new Date().toISOString();
   const context = sanitizeFields(fields);
   if (process.env.NODE_ENV === 'production') {

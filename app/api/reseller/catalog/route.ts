@@ -85,7 +85,7 @@ export async function GET(): Promise<Response> {
       }
       return left.title.localeCompare(right.title);
     });
-    return jsonSuccess(rows);
+    return jsonSuccess(rows, 200, { cache: 'static' });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

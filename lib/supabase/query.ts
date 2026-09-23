@@ -48,6 +48,7 @@ export type QueryBuilder<T> = {
   update: (values: Record<string, unknown>) => QueryBuilder<T>;
   delete: () => QueryBuilder<T>;
   eq: (column: string, value: string) => QueryBuilder<T>;
+  in: (column: string, values: ReadonlyArray<string>) => QueryBuilder<T>;
   is: (column: string, value: null) => QueryBuilder<T>;
   gte: (column: string, value: string) => QueryBuilder<T>;
   lte: (column: string, value: string) => QueryBuilder<T>;

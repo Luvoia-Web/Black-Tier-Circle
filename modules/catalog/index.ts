@@ -10,6 +10,8 @@
  */
 
 import { AppError, NotFoundError, ValidationError } from '@/lib/errors';
+import { invalidateCache, withCache } from '@/lib/cache';
+import { PRODUCT_LIST_COLUMNS } from '@/lib/lookups';
 import { usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult, StorageAdapter } from '@/lib/supabase/query';
 import { mapProductAssetRow, mapProductRow, toPublicAsset } from './map';
@@ -164,6 +166,7 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
   if (error || data === null) {
     throw new AppError('PRODUCT_CREATE_FAILED', error?.message ?? 'Unable to create product', 500);
   }
+  invalidateCache('published_products');
   return mapProductRow(asProductRow(data));
 }
 
@@ -221,7 +224,7 @@ export async function listProducts(
   supabase: DbClient,
   filters?: { status?: ProductStatus; category?: string },
 ): Promise<Product[]> {
-  let query = supabase.from('products').select('*').order('created_at', { ascending: false });
+  let query = supabase.from('products').select(PRODUCT_LIST_COLUMNS).order('created_at', { ascending: false });
   if (filters?.status !== undefined) {
     query = query.eq('status', filters.status);
   }
@@ -242,8 +245,10 @@ export async function listProducts(
  * @param supabase - Database client
  */
 export async function listPublishedProducts(supabase: DbClient): Promise<Product[]> {
-  const published = await listProducts(supabase, { status: 'published' });
-  return published.filter((product) => product.resellerEligible);
+  return withCache('published_products', 30_000, async () => {
+    const published = await listProducts(supabase, { status: 'published' });
+    return published.filter((product) => product.resellerEligible);
+  });
 }
 
 /**
@@ -338,6 +343,7 @@ export async function updateProduct(
   if (error || data === null) {
     throw new AppError('PRODUCT_UPDATE_FAILED', error?.message ?? 'Unable to update product', 500);
   }
+  invalidateCache('published_products');
   return mapProductRow(asProductRow(data));
 }
 

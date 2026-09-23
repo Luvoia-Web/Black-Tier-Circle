@@ -11,6 +11,8 @@ import { asDbClient } from '@/lib/auth/session';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { listOrders } from '@/modules/orders';
 
+export const metadata = { title: 'Orders' };
+
 function startOfToday(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());

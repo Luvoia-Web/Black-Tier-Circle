@@ -34,6 +34,7 @@ export function createAdminSupabaseClient(): ReturnType<typeof createClient> {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
     },
   );

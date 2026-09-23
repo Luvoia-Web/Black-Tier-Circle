@@ -10,12 +10,16 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Package, ShoppingBag, Wallet } from 'lucide-react';
+import { DocumentTitle } from '@/components/ui/DocumentTitle';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { Card } from '@/components/ui/Card';
-import { ErrorState, EmptyState, TableSkeleton } from '@/components/ui/fetch-states';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState, SkeletonPage } from '@/components/ui/fetch-states';
 import { PeriodPills } from '@/components/ui/period-pills';
 import { StatCard } from '@/components/ui/stat-card';
+import { formatRelativeTime } from '@/lib/relative-time';
 import { formatUsdt } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { DashboardPeriod } from '@/lib/period';
@@ -24,6 +28,7 @@ type Overview = {
   readonly period: DashboardPeriod;
   readonly storeName: string;
   readonly profileStatus: string;
+  readonly tenantStatus?: string;
   readonly stats: {
     readonly revenueMinor: string;
     readonly paidOrders: number;
@@ -39,14 +44,6 @@ type Overview = {
     readonly createdAt: string;
   }>;
 };
-
-const QUICK_LINKS: ReadonlyArray<{ readonly href: string; readonly label: string }> = [
-  { href: ROUTES.reseller.orders, label: 'Orders' },
-  { href: ROUTES.reseller.deliveries, label: 'Deliveries' },
-  { href: ROUTES.reseller.deposits, label: 'Deposits' },
-  { href: ROUTES.reseller.products, label: 'Catalog' },
-  { href: ROUTES.reseller.settings, label: 'Settings' },
-];
 
 export default function ResellerDashboardPage(): JSX.Element {
   const [period, setPeriod] = useState<DashboardPeriod>('today');
@@ -91,6 +88,7 @@ export default function ResellerDashboardPage(): JSX.Element {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storeName }),
       });
+      toast.success('Store name saved');
       await load();
     } finally {
       setSavingName(false);
@@ -99,6 +97,7 @@ export default function ResellerDashboardPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
+      <DocumentTitle title="Dashboard — Black Tier Circle" />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -118,17 +117,18 @@ export default function ResellerDashboardPage(): JSX.Element {
         </div>
         <PeriodPills value={period} onChange={setPeriod} />
       </div>
-      {data?.profileStatus === 'pending' ? (
+      {data?.profileStatus === 'pending' || data?.tenantStatus === 'pending' ? (
         <div className="rounded-[var(--r-md)] border border-[var(--amber)]/20 bg-[var(--amber-soft)] px-4 py-3 text-sm text-[var(--amber)]">
-          Your account is pending owner approval.
+          Account pending owner activation. Contact support.
+        </div>
+      ) : null}
+      {data?.tenantStatus === 'suspended' ? (
+        <div className="rounded-[var(--r-md)] border border-[var(--red)]/20 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
+          Account suspended. Contact platform support.
         </div>
       ) : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
-      {loading || !data ? (
-        loading ? <TableSkeleton /> : null
-      ) : (
-        <ResellerDashboardBody data={data} />
-      )}
+      {loading || !data ? loading ? <SkeletonPage /> : null : <ResellerDashboardBody data={data} />}
     </div>
   );
 }
@@ -167,7 +167,12 @@ function ResellerDashboardBody({ data }: { readonly data: Overview }): JSX.Eleme
             <h2 className="text-sm font-semibold">Recent orders</h2>
           </div>
           {data.recent.length === 0 ? (
-            <EmptyState message="No activity yet" />
+            <EmptyState
+              icon="📭"
+              title="No orders yet"
+              description="Orders will appear here when customers buy from your bot."
+              action={{ label: 'Configure Bot', href: ROUTES.reseller.bot }}
+            />
           ) : (
             <ul>
               {data.recent.map((row) => (
@@ -182,7 +187,7 @@ function ResellerDashboardBody({ data }: { readonly data: Overview }): JSX.Eleme
                     >
                       {row.productTitle}
                     </Link>
-                    <p className="text-xs text-[var(--text-3)]">{new Date(row.createdAt).toLocaleString()}</p>
+                    <p className="text-xs text-[var(--text-3)]">{formatRelativeTime(row.createdAt)}</p>
                   </div>
                   <span className="text-sm">{formatUsdt(BigInt(row.total))}</span>
                 </li>
@@ -210,15 +215,15 @@ function ResellerDashboardBody({ data }: { readonly data: Overview }): JSX.Eleme
         </Card>
       </div>
       <div className="flex flex-wrap gap-2">
-        {QUICK_LINKS.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className="rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs text-[var(--text-2)] hover:border-[var(--accent)] hover:text-[var(--text-1)]"
-          >
-            {link.label}
-          </Link>
-        ))}
+        <Link href={ROUTES.reseller.products} className="btc-btn-primary text-xs">
+          Add Products
+        </Link>
+        <Link href={ROUTES.reseller.deposits} className="btc-btn-secondary text-xs">
+          Deposit Funds
+        </Link>
+        <Link href={ROUTES.reseller.bot} className="btc-btn-secondary text-xs">
+          Configure Bot
+        </Link>
       </div>
     </>
   );

@@ -15,6 +15,7 @@ import {
 import { decrypt, encrypt } from '@/lib/encryption';
 import { getAppUrl } from '@/lib/env';
 import { AppError, ValidationError } from '@/lib/errors';
+import { invalidateCache, withCache } from '@/lib/cache';
 import { logger } from '@/lib/logger';
 import type { DbClient } from '@/lib/supabase/query';
 import { generateWebhookSecret } from '@/lib/tokens';
@@ -119,7 +120,7 @@ export async function loadPlatformSettingsRow(supabase: DbClient): Promise<Platf
  * Returns current platform settings. Encrypted fields are omitted.
  */
 export async function getPlatformSettings(supabase: DbClient): Promise<PlatformSettings> {
-  return mapRow(await loadPlatformSettingsRow(supabase));
+  return withCache('platform_settings', 60_000, async () => mapRow(await loadPlatformSettingsRow(supabase)));
 }
 
 /**
@@ -182,6 +183,7 @@ export async function connectOwnerBot(supabase: DbClient, botToken: string): Pro
     throw new AppError('WEBHOOK_REGISTER_FAILED', 'Unable to register Telegram webhook', 502);
   }
 
+  invalidateCache('platform_settings');
   return { username: info.username, botId: info.id, webhookUrl };
 }
 
@@ -212,6 +214,7 @@ export async function disconnectOwnerBot(supabase: DbClient): Promise<void> {
   if (error) {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error.message, 500);
   }
+  invalidateCache('platform_settings');
 }
 
 /**
@@ -283,6 +286,7 @@ export async function updatePaymentSettings(
   if (error || data === null) {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update payments', 500);
   }
+  invalidateCache('platform_settings');
   return mapRow(asRow(data));
 }
 
@@ -313,6 +317,7 @@ export async function updatePlatformInfo(
   if (error || data === null) {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update platform info', 500);
   }
+  invalidateCache('platform_settings');
   return mapRow(asRow(data));
 }
 
