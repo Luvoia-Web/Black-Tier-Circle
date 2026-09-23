@@ -50,7 +50,13 @@ export function enqueueTelegramUpdate(
   update: Update,
 ): void {
   const engine = createBotEngine(botToken, { supabase, botConnection, tenantId });
+  // #region agent log
+  fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H5',location:'webhook.ts:enqueue',message:'background process started',data:{updateId:update.update_id,tenantNull:tenantId===null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   void engine.processUpdate(update).catch((error: unknown) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'webhook.ts:enqueue-catch',message:'background process rejected',data:{updateId:update.update_id,errorMessage:error instanceof Error?error.message:'unknown'},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     logger.error('telegram background processing failed', {
       botId: botConnection.id === OWNER_STORE_BOT_ID ? OWNER_STORE_BOT_ID : botConnection.id,
       update_id: update.update_id,

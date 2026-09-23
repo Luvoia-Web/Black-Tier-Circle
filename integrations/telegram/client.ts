@@ -249,7 +249,21 @@ function updateType(update: Update): string {
  * @param context - Database client, bot connection, tenant (null = owner store)
  */
 export function createBotEngine(botToken: string, context: BotEngineContext): BotEngine {
-  const bot = new Bot(botToken);
+  const telegramId = Number(context.botConnection.telegramBotId);
+  const knownBot = Number.isInteger(telegramId) && telegramId > 0;
+  const bot = new Bot(
+    botToken,
+    knownBot
+      ? {
+          botInfo: {
+            id: telegramId,
+            is_bot: true,
+            first_name: context.botConnection.username,
+            username: context.botConnection.username,
+          },
+        }
+      : undefined,
+  );
   let customer: CustomerRecord | null = null;
   let store: BotContext | null = null;
 
@@ -1010,7 +1024,14 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           });
           return;
         }
+        const command = update.message?.text?.trim().split(/\s/)[0]?.split('@')[0] ?? '';
+        // #region agent log
+        fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'client.ts:processUpdate:start',message:'processUpdate identity ok',data:{updateId:update.update_id,type:updateType(update),command:command.startsWith('/')?command:''},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         customer = await getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId);
+        // #region agent log
+        fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'client.ts:processUpdate:customer',message:'customer ready',data:{updateId:update.update_id,blocked:customer.isBlocked},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (customer.isBlocked) {
           await bot.api.sendMessage(identity.chatId, '🚫 Your account has been blocked\\. Contact support for assistance\\.', {
             parse_mode: 'MarkdownV2',
@@ -1022,11 +1043,20 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           update_id: update.update_id,
           type: updateType(update),
         });
+        if (!knownBot) {
+          await bot.init();
+        }
         await bot.handleUpdate(update);
+        // #region agent log
+        fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'client.ts:processUpdate:handled',message:'handleUpdate finished',data:{updateId:update.update_id},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (context.botConnection.id !== OWNER_STORE_BOT_ID) {
           await updateBotHealth(context.supabase, context.botConnection.id);
         }
       } catch (error: unknown) {
+        // #region agent log
+        fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'client.ts:processUpdate:catch',message:'processUpdate threw',data:{updateId:update.update_id,errorName:error instanceof Error?error.name:'unknown',errorMessage:error instanceof Error?error.message:'unknown'},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         logger.error('telegram processUpdate failed', {
           botId: context.botConnection.id,
           update_id: update.update_id,

@@ -31,6 +31,9 @@ export async function POST(request: Request): Promise<Response> {
       connectedAt: connection.updatedAt.toISOString(),
     });
   } catch (error: unknown) {
+    // #region agent log
+    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H1',location:'api/bots/connect/route.ts',message:'connect route failed',data:{errorName:error instanceof Error?error.name:'unknown',errorMessage:error instanceof Error?error.message:'unknown',errorCode:typeof error==='object'&&error!==null&&'code' in error?String((error as {code:unknown}).code):''},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     return handleRouteError(error);
   }
 }
