@@ -127,13 +127,22 @@ export default function ResellerDepositsPage(): JSX.Element {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: digitsOnly }),
     });
-    const json = (await response.json()) as { success: boolean; error?: { message: string } };
+    const json = (await response.json()) as {
+      success: boolean;
+      data?: { amountCredited?: string; newBalance?: string };
+      error?: { message: string };
+    };
     if (!json.success) {
       setError(json.error?.message ?? 'Unable to redeem token');
+      toast.error(json.error?.message ?? 'Unable to redeem token');
       return;
     }
-    setMessage('Token redeemed');
-    toast.success('Token redeemed');
+    const added = json.data?.amountCredited ? formatUsdt(BigInt(json.data.amountCredited)) : '';
+    const next = json.data?.newBalance ? formatUsdt(BigInt(json.data.newBalance)) : '';
+    const notice =
+      added && next ? `+${added} added. New balance: ${next}` : 'Token redeemed';
+    setMessage(notice);
+    toast.success(notice);
     setToken('');
     await load();
   }

@@ -12,6 +12,8 @@ import { Bot, InlineKeyboard } from 'grammy';
 import { resolveBotContext, type BotContext } from './bot-context';
 import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
 import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
+import { withCache } from '@/lib/cache';
+import { listProductsByIds } from '@/lib/lookups';
 import { PAYMENT_CONFIG } from '@/lib/payment-config';
 import { AppError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
@@ -20,7 +22,7 @@ import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
-import { getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
+import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import type { Product } from '@/modules/catalog/types';
@@ -29,13 +31,15 @@ import type { Order } from '@/modules/orders/types';
 import { createBinancePayOrder, verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
 import { listResellerListings } from '@/modules/pricing';
 import { getTenantById } from '@/modules/tenants';
-import { redeemTopupToken } from '@/modules/wallet';
+import { redeemCustomerCreditToken, redeemTopupToken } from '@/modules/wallet';
 
 export type { TelegramChatId, TelegramClient, TelegramSendMessageParams } from './types';
 export type { BotEngine, BotEngineContext };
 
 const processedUpdateIds = new Set<string>();
 const PROCESSED_UPDATE_LIMIT = 5000;
+const botInfoMemory = new Map<string, ReturnType<typeof buildBotInfo>>();
+const PRODUCT_CACHE_MS = 30_000;
 const KNOWN_COMMANDS = new Set(['/start', '/shop', '/orders', '/wallet', '/deposit', '/support']);
 
 const ERROR_TEXT: Record<string, string> = {
@@ -69,6 +73,37 @@ function md(text: string): string {
   return sanitizeForTelegram(text, 3500);
 }
 
+function html(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildBotInfo(id: number, username: string) {
+  const name = username.length > 0 ? username : 'store';
+  return {
+    id,
+    is_bot: true as const,
+    first_name: name,
+    username: name,
+    can_join_groups: true as const,
+    can_read_all_group_messages: false as const,
+    supports_inline_queries: false as const,
+    can_connect_to_business: false as const,
+    has_main_web_app: false as const,
+    has_topics_enabled: false as const,
+    allows_users_to_create_topics: false as const,
+    can_manage_bots: false as const,
+    supports_join_request_queries: false as const,
+  };
+}
+
+function rememberedBotInfo(botConnectionId: string, telegramBotId: string, username: string) {
+  const telegramId = Number(telegramBotId);
+  if (Number.isInteger(telegramId) && telegramId > 0) {
+    return buildBotInfo(telegramId, username);
+  }
+  return botInfoMemory.get(botConnectionId);
+}
+
 function money(minor: bigint): string {
   return md(formatUsdt(minor));
 }
@@ -92,10 +127,6 @@ function botError(code: string): string {
 function friendly(error: unknown): string {
   const code = error instanceof AppError ? error.code : 'DEFAULT';
   return botError(code);
-}
-
-function tokenError(code: string | undefined): string {
-  return botError(code ?? 'DEFAULT');
 }
 
 function deliveryLabel(product: Product): string {
@@ -169,9 +200,15 @@ function navRow(keyboard: InlineKeyboard, backData?: string): InlineKeyboard {
   return keyboard;
 }
 
-async function show(bot: Bot, screen: Screen, text: string, keyboard?: InlineKeyboard): Promise<void> {
+async function show(
+  bot: Bot,
+  screen: Screen,
+  text: string,
+  keyboard?: InlineKeyboard,
+  parseMode: 'MarkdownV2' | 'HTML' = 'MarkdownV2',
+): Promise<void> {
   const extra = {
-    parse_mode: 'MarkdownV2' as const,
+    parse_mode: parseMode,
     ...(keyboard ? { reply_markup: keyboard } : {}),
   };
   if (screen.messageId !== undefined) {
@@ -190,9 +227,9 @@ async function show(bot: Bot, screen: Screen, text: string, keyboard?: InlineKey
 
 function welcomeText(store: BotContext, balanceMinor: bigint): string {
   return (
-    `👋 *Welcome to ${md(store.storeName)}\\!*\n\n` +
-    `🛒 Browse products, pay, and get delivery in this chat\\.\n\n` +
-    `💰 Balance: *${money(balanceMinor)}*\n\n` +
+    `👋 <b>Welcome to ${html(store.storeName)}!</b>\n\n` +
+    `🛒 Browse products, pay, and get delivery in this chat.\n\n` +
+    `💰 Balance: <b>${html(formatUsdt(balanceMinor))}</b>\n\n` +
     `Choose an option below:`
   );
 }
@@ -249,30 +286,13 @@ function updateType(update: Update): string {
  * @param context - Database client, bot connection, tenant (null = owner store)
  */
 export function createBotEngine(botToken: string, context: BotEngineContext): BotEngine {
-  const telegramId = Number(context.botConnection.telegramBotId);
-  const knownBot = Number.isInteger(telegramId) && telegramId > 0;
-  const bot = new Bot(
-    botToken,
-    knownBot
-      ? {
-          botInfo: {
-            id: telegramId,
-            is_bot: true,
-            first_name: context.botConnection.username,
-            username: context.botConnection.username,
-            can_join_groups: true,
-            can_read_all_group_messages: false,
-            supports_inline_queries: false,
-            can_connect_to_business: false,
-            has_main_web_app: false,
-            has_topics_enabled: false,
-            allows_users_to_create_topics: false,
-            can_manage_bots: false,
-            supports_join_request_queries: false,
-          },
-        }
-      : undefined,
+  const knownInfo = rememberedBotInfo(
+    context.botConnection.id,
+    context.botConnection.telegramBotId,
+    context.botConnection.username,
   );
+  const knownBot = knownInfo !== undefined;
+  const bot = new Bot(botToken, knownInfo ? { botInfo: knownInfo } : undefined);
   let customer: CustomerRecord | null = null;
   let store: BotContext | null = null;
 
@@ -284,14 +304,17 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function loadCatalog(): Promise<CatalogItem[]> {
-    if (context.tenantId === null) {
-      const products = await listProducts(context.supabase, { status: 'published' });
-      return products.map((product) => ({ product, priceMinor: product.retailPriceMinor }));
-    }
-    const listings = await listResellerListings(context.supabase, context.tenantId);
-    return listings
-      .filter((listing) => listing.isVisible && listing.product.status === 'published')
-      .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
+    const cacheKey = `bot_products_${context.botConnection.id}`;
+    return withCache(cacheKey, PRODUCT_CACHE_MS, async () => {
+      if (context.tenantId === null) {
+        const products = await listProducts(context.supabase, { status: 'published' });
+        return products.map((product) => ({ product, priceMinor: product.retailPriceMinor }));
+      }
+      const listings = await listResellerListings(context.supabase, context.tenantId);
+      return listings
+        .filter((listing) => listing.isVisible && listing.product.status === 'published')
+        .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
+    });
   }
 
   async function maintenanceBlock(screen: Screen): Promise<boolean> {
@@ -311,7 +334,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function showHome(screen: Screen): Promise<void> {
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
-    await show(bot, screen, welcomeText(current, balance), homeKeyboard(current));
+    await show(bot, screen, welcomeText(current, balance), homeKeyboard(current), 'HTML');
   }
 
   async function showShop(screen: Screen, categoryToken?: string): Promise<void> {
@@ -628,48 +651,95 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     return true;
   }
 
+  function tokenHtml(code: string | undefined): string {
+    if (code === 'TOKEN_NOT_FOUND') {
+      return '❌ <b>Invalid token</b>\n\nThis token does not exist. Please check and try again.';
+    }
+    if (code === 'TOKEN_REDEEMED') {
+      return '❌ <b>Token already used</b>\n\nThis token has already been redeemed.';
+    }
+    if (code === 'TOKEN_EXPIRED') {
+      return '❌ <b>Token expired</b>\n\nThis token is no longer valid.';
+    }
+    if (code === 'TOKEN_REVOKED') {
+      return '❌ <b>Token revoked</b>\n\nThis token is no longer valid.';
+    }
+    if (code === 'TOKEN_IS_STORE_WALLET' || code === 'TOKEN_WRONG_TENANT') {
+      return '❌ <b>Store wallet token</b>\n\nThis token funds a reseller store wallet. Ask your store owner for a customer top-up token.';
+    }
+    return '❌ Failed to credit balance. Please contact support.';
+  }
+
   async function redeemToken(screen: Screen, token: string): Promise<void> {
-    if (context.tenantId === null) {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    await show(bot, screen, '⏳ Verifying token...', undefined, 'HTML');
+    const credit = await redeemCustomerCreditToken(context.supabase, token, customer.id);
+    if (credit.errorCode === 'TOKEN_IS_STORE_WALLET' && context.tenantId !== null && credit.storeTenantId === context.tenantId) {
+      const tenant = await getTenantById(context.supabase, context.tenantId);
+      const result = await redeemTopupToken(context.supabase, token, context.tenantId, tenant.ownerUserId);
+      if (!result.success || result.amountCredited === undefined || result.newBalance === undefined) {
+        await show(bot, screen, tokenHtml(result.errorCode), homeKeyboard(await storeContext()), 'HTML');
+        return;
+      }
       await show(
         bot,
         screen,
-        `🔑 Top\\-up tokens are redeemed from the reseller dashboard\\.`,
-        homeKeyboard(await storeContext()),
+        `✅ <b>Token Redeemed!</b>\n\n` +
+          `Added: <b>+${html(formatUsdt(result.amountCredited))}</b>\n` +
+          `New store balance: <b>${html(formatUsdt(result.newBalance))}</b>`,
+        new InlineKeyboard().text('🏠 Home', 'home:').text('🛍 Shop Now', 'shop:'),
+        'HTML',
       );
       return;
     }
-    const tenant = await getTenantById(context.supabase, context.tenantId);
-    const result = await redeemTopupToken(context.supabase, token, context.tenantId, tenant.ownerUserId);
-    if (!result.success || result.amountCredited === undefined || result.newBalance === undefined) {
-      await show(bot, screen, tokenError(result.errorCode), homeKeyboard(await storeContext()));
+    if (!credit.success || credit.amountCredited === undefined || credit.newBalance === undefined) {
+      await show(bot, screen, tokenHtml(credit.errorCode), homeKeyboard(await storeContext()), 'HTML');
       return;
     }
-    const keyboard = new InlineKeyboard().text('🏠 Home', 'home:').text('🛍 Shop Now', 'shop:');
+    customer = { ...customer, creditBalanceMinor: credit.newBalance };
     await show(
       bot,
       screen,
-      `✅ *Token Redeemed\\!*\n\n` +
-        `*\\+${money(result.amountCredited)}* added to the store wallet\\.\n` +
-        `New balance: *${money(result.newBalance)}*`,
-      keyboard,
+      `✅ <b>Token Redeemed!</b>\n\n` +
+        `Added: <b>+${html(formatUsdt(credit.amountCredited))}</b>\n` +
+        `New Balance: <b>${html(formatUsdt(credit.newBalance))}</b>\n\n` +
+        `Your funds are ready to use. Tap below to browse products!`,
+      new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('💰 My Wallet', 'wallet:'),
+      'HTML',
     );
   }
 
   async function showWallet(screen: Screen): Promise<void> {
-    const balance = customer?.creditBalanceMinor ?? 0n;
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const fresh = await getCustomerById(context.supabase, customer.id);
+    customer = fresh;
+    const balance = fresh.creditBalanceMinor;
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 5 });
+    const paid = orders.filter((order) => order.paymentStatus === 'verified');
+    const products = await listProductsByIds(
+      context.supabase,
+      paid.map((order) => order.productId),
+    );
+    let text = `💰 <b>My Wallet</b>\n\nBalance: <b>${html(formatUsdt(balance))}</b>\n\n`;
+    if (paid.length > 0) {
+      text += `<b>Recent Activity:</b>\n`;
+      for (const order of paid) {
+        const title = products.get(order.productId)?.title ?? 'Product';
+        text += `• ${html(title)} — ${html(formatUsdt(order.quotedRetailPriceMinor))}\n`;
+      }
+    } else {
+      text += `No purchases yet. Browse the shop to get started!`;
+    }
     const keyboard = new InlineKeyboard()
       .text('💳 Add Funds', 'deposit:')
+      .text('🛍 Shop Now', 'shop:')
       .row()
       .text('🏠 Home', 'home:');
-    await show(
-      bot,
-      screen,
-      `💰 *Your Wallet*\n\n` +
-        `Total Balance: *${money(balance)}*\n` +
-        `Reserved: ${money(0n)} \\(pending orders\\)\n` +
-        `Available: *${money(balance)}*`,
-      keyboard,
-    );
+    await show(bot, screen, text, keyboard, 'HTML');
   }
 
   async function showDeposit(screen: Screen): Promise<void> {
@@ -677,15 +747,21 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     const current = await storeContext();
-    const keyboard = new InlineKeyboard();
-    if (current.bep20Enabled) {
+    const keyboard = new InlineKeyboard().text('🔑 Redeem Top-Up Token', 'dep_token:').row();
+    if (current.bep20Enabled && current.usdtWalletAddress) {
       keyboard.text('📤 Send USDT (BEP20)', 'dep_bep20:').row();
     }
     if (current.binancePayEnabled) {
       keyboard.text('💳 Binance Pay', 'dep_bp:').row();
     }
-    keyboard.text('🔑 Redeem Top-Up Token', 'dep_token:').row().text('⬅ Back', 'wallet:');
-    await show(bot, screen, `💳 *Add Funds*\n\nChoose a deposit method:`, keyboard);
+    keyboard.text('⬅ Back', 'wallet:');
+    await show(
+      bot,
+      screen,
+      `💳 <b>Add Funds</b>\n\nChoose how to add funds to your wallet:`,
+      keyboard,
+      'HTML',
+    );
   }
 
   async function showOrders(screen: Screen): Promise<void> {
@@ -702,13 +778,18 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       );
       return;
     }
+    const products = await listProductsByIds(
+      context.supabase,
+      orders.map((order) => order.productId),
+    );
     const keyboard = new InlineKeyboard();
     for (const order of orders) {
-      const product = await getProduct(context.supabase, order.productId);
+      const product = products.get(order.productId);
+      const title = product?.title ?? 'Product';
       const mark = statusEmoji(order.paymentStatus === 'verified' ? order.deliveryStatus : order.paymentStatus);
       keyboard
         .text(
-          clip(`${mark} #${orderRef(order.id)} — ${product.title} — ${formatUsdt(order.quotedRetailPriceMinor)}`, 64),
+          clip(`${mark} #${orderRef(order.id)} — ${title} — ${formatUsdt(order.quotedRetailPriceMinor)}`, 64),
           `order:${order.id}`,
         )
         .row();
@@ -911,7 +992,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     if (data === 'dep_token:') {
-      await show(bot, screen, `🔑 *Redeem Top\\-Up Token*\n\nSend your *12\\-digit token* now\\.`, navRow(new InlineKeyboard(), 'deposit:'));
+      await show(
+        bot,
+        screen,
+        `🔑 <b>Redeem Top-Up Token</b>\n\n` +
+          `Send your <b>12-digit token</b> now:\n` +
+          `(numbers only, e.g. 123456789012)\n\n` +
+          `Tokens are provided by your store owner.`,
+        new InlineKeyboard().text('❌ Cancel', 'wallet:'),
+        'HTML',
+      );
       return;
     }
     if (data === 'copy_addr:') {
@@ -996,7 +1086,6 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   });
 
   bot.on('callback_query:data', async (ctx) => {
-    await ctx.answerCallbackQuery();
     const chatId = ctx.chat?.id ?? ctx.from.id;
     const message = ctx.callbackQuery.message;
     const messageId = message && 'message_id' in message ? message.message_id : undefined;
@@ -1033,7 +1122,29 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           });
           return;
         }
-        customer = await getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId);
+        if (update.callback_query) {
+          try {
+            await bot.api.answerCallbackQuery(update.callback_query.id);
+          } catch (error: unknown) {
+            logger.info('telegram callback answer skipped', {
+              botId: context.botConnection.id,
+              message: error instanceof Error ? error.message : 'unknown',
+            });
+          }
+        }
+        const [loadedCustomer, loadedStore] = await Promise.all([
+          getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
+          resolveBotContext(context.supabase, context.botConnection.id, context.tenantId),
+          loadCatalog().catch((error: unknown) => {
+            logger.info('telegram catalog prefetch skipped', {
+              botId: context.botConnection.id,
+              message: error instanceof Error ? error.message : 'unknown',
+            });
+            return [];
+          }),
+        ]);
+        customer = loadedCustomer;
+        store = loadedStore;
         if (customer.isBlocked) {
           await bot.api.sendMessage(identity.chatId, '🚫 Your account has been blocked\\. Contact support for assistance\\.', {
             parse_mode: 'MarkdownV2',
@@ -1047,6 +1158,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         });
         if (!knownBot) {
           await bot.init();
+          if (bot.botInfo) {
+            botInfoMemory.set(
+              context.botConnection.id,
+              buildBotInfo(bot.botInfo.id, bot.botInfo.username ?? context.botConnection.username),
+            );
+          }
         }
         await bot.handleUpdate(update);
         if (context.botConnection.id !== OWNER_STORE_BOT_ID) {

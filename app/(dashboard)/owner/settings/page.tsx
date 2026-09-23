@@ -11,8 +11,15 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { FormField } from '@/components/settings/FormField';
+import { SaveButton } from '@/components/settings/SaveButton';
+import { SettingsCard } from '@/components/settings/SettingsCard';
+import { Toggle } from '@/components/settings/Toggle';
+import { SkeletonCard } from '@/components/ui/Skeleton';
 import { PageHeader } from '@/components/ui/page-header';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import type { LaunchCheck } from '@/modules/launch';
 
 type Settings = {
   readonly id: string;
@@ -35,8 +42,6 @@ type SettingsPayload = {
   readonly data?: { settings: Settings; webhookUrl?: string };
   readonly error?: { code?: string; message: string };
 };
-
-const inputClass = 'btc-input mt-1 w-full';
 
 function relativeTime(value: string | null): string {
   if (!value) {
@@ -67,24 +72,34 @@ export default function OwnerSettingsPage(): JSX.Element {
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [botBusy, setBotBusy] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
+  const [infoBusy, setInfoBusy] = useState(false);
+  const [checks, setChecks] = useState<LaunchCheck[]>([]);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
-    setError(null);
     try {
-      const response = await fetch(API_ROUTES.ownerSettings);
-      const json = (await response.json()) as SettingsPayload;
+      const [settingsResponse, launchResponse] = await Promise.all([
+        fetch(API_ROUTES.ownerSettings),
+        fetch(API_ROUTES.ownerLaunch),
+      ]);
+      const json = (await settingsResponse.json()) as SettingsPayload;
       if (!json.success || !json.data) {
-        setError(json.error?.message ?? 'Unable to load settings');
+        toast.error(json.error?.message ?? 'Unable to load settings');
         return;
       }
       setSettings(json.data.settings);
       setWebhookUrl(json.data.webhookUrl ?? '');
+      const launchJson = (await launchResponse.json()) as {
+        success: boolean;
+        data?: { items: LaunchCheck[] };
+      };
+      if (launchJson.success && launchJson.data) {
+        setChecks(launchJson.data.items);
+      }
     } catch {
-      setError('Unable to load settings');
+      toast.error('Unable to load settings');
     } finally {
       setLoading(false);
     }
@@ -114,63 +129,57 @@ export default function OwnerSettingsPage(): JSX.Element {
 
   async function connectBot(): Promise<void> {
     if (!botToken.trim()) {
-      setError('Paste a bot token from BotFather');
+      toast.error('Paste a bot token from BotFather');
       return;
     }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    setBotBusy(true);
     try {
       const json = await post(API_ROUTES.ownerSettingsBotConnect, { botToken });
       if (!json.success) {
-        setError(json.error?.message ?? 'Unable to connect bot');
+        toast.error(json.error?.message ?? 'Unable to connect bot');
         return;
       }
       setBotToken('');
-      setMessage('Owner bot connected');
+      toast.success('Owner bot connected');
       await load();
     } catch {
-      setError('Unable to connect bot');
+      toast.error('Unable to connect bot');
     } finally {
-      setBusy(false);
+      setBotBusy(false);
     }
   }
 
   async function disconnectBot(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    setBotBusy(true);
     try {
       const json = await post(API_ROUTES.ownerSettingsBotDisconnect);
       if (!json.success) {
-        setError(json.error?.message ?? 'Unable to disconnect bot');
+        toast.error(json.error?.message ?? 'Unable to disconnect bot');
         return;
       }
-      setMessage('Owner bot disconnected');
+      toast.success('Owner bot disconnected');
       await load();
     } catch {
-      setError('Unable to disconnect bot');
+      toast.error('Unable to disconnect bot');
     } finally {
-      setBusy(false);
+      setBotBusy(false);
     }
   }
 
   async function testBot(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    setBotBusy(true);
     try {
       const json = await post(API_ROUTES.ownerSettingsBotTest);
       if (!json.success) {
-        setError(json.error?.message ?? 'Bot test failed');
+        toast.error(json.error?.message ?? 'Bot test failed');
         return;
       }
-      setMessage('Bot responded to a health check');
+      toast.success('Bot responded to a health check');
       await load();
     } catch {
-      setError('Bot test failed');
+      toast.error('Bot test failed');
     } finally {
-      setBusy(false);
+      setBotBusy(false);
     }
   }
 
@@ -178,9 +187,7 @@ export default function OwnerSettingsPage(): JSX.Element {
     if (!settings) {
       return;
     }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    setPayBusy(true);
     try {
       const json = await patch(API_ROUTES.ownerSettingsPayments, {
         platformUsdtWalletBep20: settings.platformUsdtWalletBep20,
@@ -191,17 +198,17 @@ export default function OwnerSettingsPage(): JSX.Element {
         ...(apiSecret ? { binancePayApiSecret: apiSecret } : {}),
       });
       if (!json.success || !json.data) {
-        setError(json.error?.message ?? 'Unable to save payment settings');
+        toast.error(json.error?.message ?? 'Unable to save payment settings');
         return;
       }
       setSettings(json.data.settings);
       setApiKey('');
       setApiSecret('');
-      setMessage('Payment settings saved');
+      toast.success('Payment settings saved');
     } catch {
-      setError('Unable to save payment settings');
+      toast.error('Unable to save payment settings');
     } finally {
-      setBusy(false);
+      setPayBusy(false);
     }
   }
 
@@ -209,9 +216,7 @@ export default function OwnerSettingsPage(): JSX.Element {
     if (!settings) {
       return;
     }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
+    setInfoBusy(true);
     try {
       const json = await patch(API_ROUTES.ownerSettings, {
         platformName: settings.platformName,
@@ -219,19 +224,20 @@ export default function OwnerSettingsPage(): JSX.Element {
         supportTelegram: settings.supportTelegram,
       });
       if (!json.success || !json.data) {
-        setError(json.error?.message ?? 'Unable to save platform info');
+        toast.error(json.error?.message ?? 'Unable to save platform info');
         return;
       }
       setSettings(json.data.settings);
-      setMessage('Platform info saved');
+      toast.success('Platform info saved');
     } catch {
-      setError('Unable to save platform info');
+      toast.error('Unable to save platform info');
     } finally {
-      setBusy(false);
+      setInfoBusy(false);
     }
   }
 
   const connected = settings?.ownerBotStatus === 'connected';
+  const passing = checks.filter((item) => item.passing).length;
 
   return (
     <>
@@ -239,176 +245,140 @@ export default function OwnerSettingsPage(): JSX.Element {
         title="Settings"
         description="Bots, payments, and platform info. Changes apply immediately — no environment variable updates."
       />
-      {error ? (
-        <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
-          {error}
-        </p>
-      ) : null}
-      {message ? (
-        <p className="mb-4 rounded-md border border-[var(--green)]/20 bg-[var(--green-soft)] px-3 py-2 text-sm text-[var(--green)]">
-          {message}
-        </p>
-      ) : null}
       {loading || !settings ? (
-        <p className="text-sm text-[var(--text-2)]">Loading settings…</p>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <SkeletonCard className="h-64" />
+          <SkeletonCard className="h-64" />
+          <SkeletonCard className="h-48" />
+          <SkeletonCard className="h-48" />
+        </div>
       ) : (
-        <div className="space-y-6">
-          <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-            <h2 className="text-lg font-medium">Owner store bot</h2>
-            <p className="mt-1 text-sm text-[var(--text-2)]">This is your store bot that customers use directly.</p>
-            <p className="mt-3 text-sm">
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <div className="space-y-6">
+            <SettingsCard title="Owner Store Bot" description="This is your store bot that customers use directly.">
               {connected ? (
-                <span className="text-[var(--green)]">● Connected as @{settings.ownerBotUsername}</span>
-              ) : (
-                <span className="text-[var(--text-2)]">○ Not connected</span>
-              )}
-            </p>
-            {connected ? (
-              <div className="mt-4 space-y-2 text-sm text-[var(--text-2)]">
-                <p>
-                  Bot: @{settings.ownerBotUsername} (ID: {settings.ownerBotId})
-                </p>
-                <p>Last health check: {relativeTime(settings.ownerBotLastHealthAt)}</p>
-                <p className="break-all">Webhook URL: {webhookUrl}</p>
-                <div className="flex gap-2 pt-2">
-                  <button type="button" className="btc-btn-secondary" disabled={busy} onClick={() => void disconnectBot()}>
-                    Disconnect bot
-                  </button>
-                  <button type="button" className="btc-btn-primary" disabled={busy} onClick={() => void testBot()}>
-                    Test bot
-                  </button>
+                <div className="space-y-2 text-sm">
+                  <p className="text-[var(--green)]">● Connected</p>
+                  <p>
+                    Bot: @{settings.ownerBotUsername} | Bot ID: {settings.ownerBotId}
+                  </p>
+                  <p>Last active: {relativeTime(settings.ownerBotLastHealthAt)}</p>
+                  <p className="break-all text-[var(--text-2)]">Webhook: {webhookUrl || 'Not set'}</p>
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" className="btc-btn-primary" disabled={botBusy} onClick={() => void testBot()}>
+                      Test Bot
+                    </button>
+                    <button type="button" className="btc-btn-secondary" disabled={botBusy} onClick={() => void disconnectBot()}>
+                      Disconnect Bot
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="mt-4">
-                <p className="text-sm font-medium">How to get a token</p>
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[var(--text-2)]">
-                  <li>Open Telegram and message @BotFather</li>
-                  <li>Send /newbot and follow the steps</li>
-                  <li>Copy the token and paste it below</li>
-                </ol>
-                <label className="mt-4 block text-sm text-[var(--text-2)]">
-                  Bot token
-                  <input
-                    type="password"
-                    className={inputClass}
-                    value={botToken}
-                    autoComplete="off"
-                    onChange={(event) => setBotToken(event.target.value)}
-                  />
-                </label>
-                <button type="button" className="btc-btn-primary mt-3" disabled={busy} onClick={() => void connectBot()}>
-                  Connect bot
-                </button>
-              </div>
-            )}
-          </section>
+              ) : (
+                <div>
+                  <ol className="list-decimal space-y-1 pl-5 text-sm text-[var(--text-2)]">
+                    <li>Open Telegram and message @BotFather</li>
+                    <li>Send /newbot and follow the prompts</li>
+                    <li>Copy the token BotFather gives you</li>
+                    <li>Paste below and click Connect</li>
+                  </ol>
+                  <FormField label="Bot token" type="password" value={botToken} onChange={setBotToken} helper="Your token is encrypted and stored securely" />
+                  <SaveButton busy={botBusy} onClick={() => void connectBot()}>
+                    Connect Bot
+                  </SaveButton>
+                </div>
+              )}
+            </SettingsCard>
 
-          <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-            <h2 className="text-lg font-medium">Payment methods</h2>
-            <p className="mt-1 text-sm text-[var(--text-2)]">Configure how customers pay for orders.</p>
-            <h3 className="mt-4 text-sm font-medium">USDT BEP20</h3>
-            <label className="mt-3 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+            <SettingsCard title="Payment Methods" description="Configure how customers pay for orders.">
+              <Toggle
+                label="USDT BEP20"
                 checked={settings.bep20Enabled}
-                onChange={(event) => setSettings({ ...settings, bep20Enabled: event.target.checked })}
+                onChange={(checked) => setSettings({ ...settings, bep20Enabled: checked })}
               />
-              Enabled
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              Your USDT wallet address (BEP20)
-              <input
-                className={inputClass}
+              <FormField
+                label="Your wallet"
                 value={settings.platformUsdtWalletBep20 ?? ''}
                 placeholder="0x..."
-                onChange={(event) => setSettings({ ...settings, platformUsdtWalletBep20: event.target.value })}
+                helper="Customers send USDT to this address."
+                onChange={(value) => setSettings({ ...settings, platformUsdtWalletBep20: value })}
               />
-            </label>
-            <p className="mt-1 text-sm text-[var(--text-3)]">Customers send USDT to this address.</p>
-
-            <h3 className="mt-6 text-sm font-medium">Binance Pay</h3>
-            <label className="mt-3 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+              <div className="my-4 border-t border-[var(--border)]" />
+              <Toggle
+                label="Binance Pay"
                 checked={settings.binancePayEnabled}
-                onChange={(event) => setSettings({ ...settings, binancePayEnabled: event.target.checked })}
+                onChange={(checked) => setSettings({ ...settings, binancePayEnabled: checked })}
               />
-              Enabled
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              Merchant ID
-              <input
-                className={inputClass}
+              <FormField
+                label="Merchant ID"
                 value={settings.binancePayMerchantId ?? ''}
-                onChange={(event) => setSettings({ ...settings, binancePayMerchantId: event.target.value })}
+                onChange={(value) => setSettings({ ...settings, binancePayMerchantId: value })}
               />
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              API key
-              <input
+              <FormField
+                label="API Key"
                 type="password"
-                className={inputClass}
                 value={apiKey}
-                autoComplete="off"
                 placeholder={settings.binancePayConfigured ? '••••••••' : ''}
-                onChange={(event) => setApiKey(event.target.value)}
+                onChange={setApiKey}
               />
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              API secret
-              <input
+              <FormField
+                label="API Secret"
                 type="password"
-                className={inputClass}
                 value={apiSecret}
-                autoComplete="off"
                 placeholder={settings.binancePayConfigured ? '••••••••' : ''}
-                onChange={(event) => setApiSecret(event.target.value)}
+                onChange={setApiSecret}
               />
-            </label>
-            <p className={`mt-2 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
-              Status: {settings.binancePayConfigured ? '● Configured' : '○ Not configured'}
-            </p>
-            <button type="button" className="btc-btn-primary mt-3" disabled={busy} onClick={() => void savePayments()}>
-              Save payment settings
-            </button>
-          </section>
+              <p className={`mt-2 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
+                Status: {settings.binancePayConfigured ? '● Configured' : '○ Not configured'}
+              </p>
+              <SaveButton busy={payBusy} onClick={() => void savePayments()}>
+                Save Payment Settings
+              </SaveButton>
+            </SettingsCard>
+          </div>
 
-          <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-            <h2 className="text-lg font-medium">Platform info</h2>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              Platform name
-              <input
-                className={inputClass}
+          <div className="space-y-6">
+            <SettingsCard title="Platform Info" description="Shown to customers and resellers.">
+              <FormField
+                label="Platform Name"
                 value={settings.platformName}
-                onChange={(event) => setSettings({ ...settings, platformName: event.target.value })}
+                onChange={(value) => setSettings({ ...settings, platformName: value })}
               />
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              Support contact
-              <input
-                className={inputClass}
+              <FormField
+                label="Support Contact"
                 value={settings.supportContact ?? ''}
-                onChange={(event) => setSettings({ ...settings, supportContact: event.target.value })}
+                onChange={(value) => setSettings({ ...settings, supportContact: value })}
               />
-            </label>
-            <label className="mt-3 block text-sm text-[var(--text-2)]">
-              Support Telegram
-              <input
-                className={inputClass}
+              <FormField
+                label="Support Telegram"
                 value={settings.supportTelegram ?? ''}
                 placeholder="t.me/..."
-                onChange={(event) => setSettings({ ...settings, supportTelegram: event.target.value })}
+                onChange={(value) => setSettings({ ...settings, supportTelegram: value })}
               />
-            </label>
-            <button type="button" className="btc-btn-primary mt-3" disabled={busy} onClick={() => void saveInfo()}>
-              Save info
-            </button>
-          </section>
+              <SaveButton busy={infoBusy} onClick={() => void saveInfo()}>
+                Save Info
+              </SaveButton>
+            </SettingsCard>
 
-          <Link href={ROUTES.public.apiDocs} className="inline-flex text-sm text-[var(--accent)] hover:underline">
-            Open API documentation
-          </Link>
+            <SettingsCard title="Launch Readiness" description="A short view of the production checklist.">
+              <p className="text-sm">
+                {checks.length === 0 ? 'Checklist not loaded yet.' : `${passing}/${checks.length} checks passing`}
+              </p>
+              <ul className="mt-3 space-y-1 text-sm text-[var(--text-2)]">
+                {checks.slice(0, 6).map((item) => (
+                  <li key={item.id}>
+                    {item.passing ? 'Y' : 'N'} — {item.label}
+                  </li>
+                ))}
+              </ul>
+              <Link href={ROUTES.owner.launch} className="mt-4 inline-flex text-sm text-[var(--accent)] hover:underline">
+                Open full launch checklist
+              </Link>
+            </SettingsCard>
+
+            <Link href={ROUTES.public.apiDocs} className="inline-flex text-sm text-[var(--accent)] hover:underline">
+              Open API documentation
+            </Link>
+          </div>
         </div>
       )}
     </>

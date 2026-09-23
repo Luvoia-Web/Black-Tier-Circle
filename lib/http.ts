@@ -42,7 +42,9 @@ export function jsonSuccess<T>(
 ): NextResponse<ApiSuccess<unknown>> {
   const cache = options?.cache;
   const init: ResponseInit = { status };
-  if (cache === 'short') {
+  if (cache === 'none') {
+    init.headers = { 'Cache-Control': 'no-store' };
+  } else if (cache === 'short') {
     init.headers = READ_CACHE_HEADERS;
   } else if (cache === 'static') {
     init.headers = { 'Cache-Control': 'private, max-age=30' };

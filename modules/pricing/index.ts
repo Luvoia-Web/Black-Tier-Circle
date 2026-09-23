@@ -7,6 +7,7 @@
  * @module Pricing
  */
 
+import { invalidateCache } from '@/lib/cache';
 import { AppError, NotFoundError, ValidationError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
@@ -114,6 +115,7 @@ export async function createListing(
     if (error || data === null) {
       throw new AppError('LISTING_UPDATE_FAILED', error?.message ?? 'Unable to update listing', 500);
     }
+    invalidateCache('bot_products_');
     return mapListingRow(asListingRow(data));
   }
 
@@ -131,6 +133,7 @@ export async function createListing(
   if (error || data === null) {
     throw new AppError('LISTING_CREATE_FAILED', error?.message ?? 'Unable to create listing', 500);
   }
+  invalidateCache('bot_products_');
   return mapListingRow(asListingRow(data));
 }
 
@@ -244,6 +247,7 @@ export async function updateListingPrice(
   if (error || data === null) {
     throw new AppError('LISTING_UPDATE_FAILED', error?.message ?? 'Unable to update listing price', 500);
   }
+  invalidateCache('bot_products_');
   return mapListingRow(asListingRow(data));
 }
 
@@ -275,6 +279,7 @@ export async function setListingVisibility(
   if (error || data === null) {
     throw new AppError('LISTING_UPDATE_FAILED', error?.message ?? 'Unable to update listing visibility', 500);
   }
+  invalidateCache('bot_products_');
   return mapListingRow(asListingRow(data));
 }
 

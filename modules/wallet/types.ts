@@ -90,6 +90,8 @@ export type RedeemTokenResult = {
   readonly amountCredited?: bigint;
   readonly newBalance?: bigint;
   readonly errorCode?: string;
+  /** Set when the token funds a reseller store wallet instead of customer credit. */
+  readonly storeTenantId?: string;
 };
 
 export type WalletStatement = {

@@ -333,6 +333,83 @@ export async function redeemTopupToken(
   };
 }
 
+/**
+ * Credits a customer's balance from an unrestricted top-up token.
+ * Store-wallet tokens (tenant_id set) are left untouched and reported back.
+ *
+ * @param supabase - Service-role database client
+ * @param token - 12-digit token
+ * @param customerId - Customer UUID
+ */
+export async function redeemCustomerCreditToken(
+  supabase: DbClient,
+  token: string,
+  customerId: string,
+): Promise<RedeemTokenResult> {
+  const existing = await supabase.from('topup_tokens').select('*').eq('token', token).maybeSingle();
+  if (existing.error) {
+    throw new AppError('TOKEN_REDEEM_FAILED', existing.error.message, 500);
+  }
+  if (existing.data === null) {
+    return { success: false, errorCode: 'TOKEN_NOT_FOUND' };
+  }
+  const current = mapTopupTokenRow(asTokenRow(existing.data));
+  if (current.status === 'redeemed') {
+    return { success: false, errorCode: 'TOKEN_REDEEMED' };
+  }
+  if (current.status === 'revoked') {
+    return { success: false, errorCode: 'TOKEN_REVOKED' };
+  }
+  if (current.status === 'expired' || (current.expiresAt !== null && current.expiresAt.getTime() <= Date.now())) {
+    return { success: false, errorCode: 'TOKEN_EXPIRED' };
+  }
+  if (current.status !== 'active') {
+    return { success: false, errorCode: 'TOKEN_REVOKED' };
+  }
+  if (current.tenantId !== null) {
+    return { success: false, errorCode: 'TOKEN_IS_STORE_WALLET', storeTenantId: current.tenantId };
+  }
+
+  const claimed = await supabase
+    .from('topup_tokens')
+    .update({ status: 'redeemed', redeemed_at: new Date().toISOString() })
+    .eq('id', current.id)
+    .eq('status', 'active')
+    .select('id')
+    .maybeSingle();
+  if (claimed.error) {
+    throw new AppError('TOKEN_REDEEM_FAILED', claimed.error.message, 500);
+  }
+  if (claimed.data === null) {
+    return { success: false, errorCode: 'TOKEN_REDEEMED' };
+  }
+
+  const credited = await supabase.rpc('adjust_customer_credit', {
+    p_customer_id: customerId,
+    p_delta: current.amountUsdt.toString(),
+  });
+  if (credited.error) {
+    await supabase
+      .from('topup_tokens')
+      .update({ status: 'active', redeemed_at: null })
+      .eq('id', current.id);
+    throw new AppError('TOKEN_REDEEM_FAILED', credited.error.message, 500);
+  }
+  const row = firstRpcRow(credited.data);
+  if (row === null || !rpcBool(row.success)) {
+    await supabase
+      .from('topup_tokens')
+      .update({ status: 'active', redeemed_at: null })
+      .eq('id', current.id);
+    return { success: false, errorCode: rpcErrorCode(row?.error_code) ?? 'WALLET_NOT_FOUND' };
+  }
+  return {
+    success: true,
+    amountCredited: current.amountUsdt,
+    newBalance: rpcMinor(row.new_balance),
+  };
+}
+
 function throwWalletRpcError(code: string | undefined, fallback: string): never {
   const resolved = code ?? fallback;
   if (resolved === 'INSUFFICIENT_FUNDS' || resolved === 'INSUFFICIENT_AVAILABLE_FUNDS') {

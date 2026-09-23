@@ -16,11 +16,15 @@ export async function GET(): Promise<Response> {
   try {
     const session = await requireReseller();
     const wallet = await getWallet(asDbClient(session.admin), session.tenant.id);
-    return jsonSuccess({
-      balanceTotal: wallet.balanceTotal,
-      balanceReserved: wallet.balanceReserved,
-      balanceAvailable: wallet.balanceAvailable,
-    });
+    return jsonSuccess(
+      {
+        balanceTotal: wallet.balanceTotal,
+        balanceReserved: wallet.balanceReserved,
+        balanceAvailable: wallet.balanceAvailable,
+      },
+      200,
+      { cache: 'none' },
+    );
   } catch (error: unknown) {
     return handleRouteError(error);
   }

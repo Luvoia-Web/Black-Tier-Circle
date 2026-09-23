@@ -167,6 +167,7 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
     throw new AppError('PRODUCT_CREATE_FAILED', error?.message ?? 'Unable to create product', 500);
   }
   invalidateCache('published_products');
+  invalidateCache('bot_products_');
   return mapProductRow(asProductRow(data));
 }
 
@@ -344,6 +345,7 @@ export async function updateProduct(
     throw new AppError('PRODUCT_UPDATE_FAILED', error?.message ?? 'Unable to update product', 500);
   }
   invalidateCache('published_products');
+  invalidateCache('bot_products_');
   return mapProductRow(asProductRow(data));
 }
 

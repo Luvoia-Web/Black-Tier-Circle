@@ -10,7 +10,13 @@
 
 import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
-import { ErrorState, TableSkeleton } from '@/components/ui/fetch-states';
+import { toast } from 'sonner';
+import { FormField } from '@/components/settings/FormField';
+import { SaveButton } from '@/components/settings/SaveButton';
+import { SettingsCard } from '@/components/settings/SettingsCard';
+import { Toggle } from '@/components/settings/Toggle';
+import { ErrorState } from '@/components/ui/fetch-states';
+import { SkeletonCard } from '@/components/ui/Skeleton';
 import { PageHeader } from '@/components/ui/page-header';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
@@ -41,8 +47,6 @@ type BotStatus = {
   readonly status?: string;
 };
 
-const inputClass = 'btc-input';
-
 export default function ResellerSettingsPage(): JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [bot, setBot] = useState<BotStatus | null>(null);
@@ -53,7 +57,7 @@ export default function ResellerSettingsPage(): JSX.Element {
   const [binanceEnabled, setBinanceEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -93,45 +97,77 @@ export default function ResellerSettingsPage(): JSX.Element {
     void load();
   }, [load]);
 
-  async function patch(body: Record<string, unknown>, ok: string): Promise<void> {
-    setMessage(null);
-    const response = await fetch(API_ROUTES.resellerSettings, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const json = (await response.json()) as { success: boolean; error?: { message: string } };
-    if (!json.success) {
-      setError(json.error?.message ?? 'Unable to save');
-      return;
+  async function patch(section: string, body: Record<string, unknown>, ok: string): Promise<void> {
+    setBusy(section);
+    try {
+      const response = await fetch(API_ROUTES.resellerSettings, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      if (!json.success) {
+        toast.error(json.error?.message ?? 'Unable to save');
+        return;
+      }
+      toast.success(ok);
+      await load();
+    } catch {
+      toast.error('Unable to save');
+    } finally {
+      setBusy(null);
     }
-    setMessage(ok);
-    await load();
   }
 
   async function connectBot(event: FormEvent): Promise<void> {
     event.preventDefault();
-    const response = await fetch(API_ROUTES.botsConnect, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ botToken: token }),
-    });
-    const json = (await response.json()) as { success: boolean; error?: { message: string } };
-    if (!json.success) {
-      setError(json.error?.message ?? 'Unable to connect bot');
-      return;
+    setBusy('bot');
+    try {
+      const response = await fetch(API_ROUTES.botsConnect, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: token }),
+      });
+      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      if (!json.success) {
+        toast.error(json.error?.message ?? 'Unable to connect bot');
+        return;
+      }
+      setToken('');
+      toast.success('Bot connected');
+      await load();
+    } catch {
+      toast.error('Unable to connect bot');
+    } finally {
+      setBusy(null);
     }
-    setToken('');
-    await load();
   }
 
   async function disconnectBot(): Promise<void> {
-    await fetch(API_ROUTES.botsDisconnect, { method: 'POST' });
-    await load();
+    setBusy('bot');
+    try {
+      await fetch(API_ROUTES.botsDisconnect, { method: 'POST' });
+      toast.success('Bot disconnected');
+      await load();
+    } catch {
+      toast.error('Unable to disconnect bot');
+    } finally {
+      setBusy(null);
+    }
   }
 
   if (loading && settings === null) {
-    return <TableSkeleton />;
+    return (
+      <>
+        <PageHeader title="Settings" description="Store, bot, payments, and policies" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <SkeletonCard className="h-40" />
+          <SkeletonCard className="h-40" />
+          <SkeletonCard className="h-56" />
+          <SkeletonCard className="h-56" />
+        </div>
+      </>
+    );
   }
   if (error && settings === null) {
     return <ErrorState message={error} onRetry={() => void load()} />;
@@ -145,328 +181,270 @@ export default function ResellerSettingsPage(): JSX.Element {
   return (
     <>
       <PageHeader title="Settings" description="Store, bot, payments, and policies" />
-      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
-      {message ? <p className="mb-3 text-sm text-[var(--green)]">{message}</p> : null}
-
       <div className="grid items-start gap-6 lg:grid-cols-2">
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Telegram bot</h2>
-        <p className={`mt-2 text-sm ${connected ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
-          {connected ? `Connected as @${bot?.username ?? 'bot'}` : 'Not connected'}
-        </p>
-        <form onSubmit={(event) => void connectBot(event)} className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="Bot token"
-            className={inputClass}
-          />
-          <button type="submit" className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white">
-            Connect
-          </button>
-          <button type="button" onClick={() => void disconnectBot()} className="rounded-md border border-[var(--border-soft)] px-3 py-2 text-sm">
-            Disconnect
-          </button>
-        </form>
-        <button type="button" className="mt-2 text-xs text-[var(--accent-soft)]" onClick={() => void load()}>
-          Refresh bot status
-        </button>
-      </section>
+        <div className="space-y-6">
+          <SettingsCard title="Telegram bot" description="Customers reach your store through this bot.">
+            <p className={`text-sm ${connected ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
+              {connected ? `● Connected as @${bot?.username ?? 'bot'}` : '○ Not connected'}
+            </p>
+            <form onSubmit={(event) => void connectBot(event)} className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="password"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                placeholder="Bot token"
+                className="btc-input"
+              />
+              <button type="submit" className="btc-btn-primary" disabled={busy === 'bot'}>
+                Connect
+              </button>
+              <button type="button" onClick={() => void disconnectBot()} className="btc-btn-secondary" disabled={busy === 'bot'}>
+                Disconnect
+              </button>
+            </form>
+          </SettingsCard>
 
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Store name</h2>
-        <div className="mt-3 flex gap-2">
-          <input
-            className={inputClass}
-            value={settings.storeName ?? ''}
-            onChange={(event) => setSettings({ ...settings, storeName: event.target.value })}
-          />
-          <button
-            type="button"
-            className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-            onClick={() => void patch({ storeName: settings.storeName }, 'Name saved')}
-          >
-            Save name
-          </button>
-        </div>
-      </section>
-
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Store status</h2>
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings.storeStatus === 'maintenance'}
-            onChange={(event) =>
-              setSettings({ ...settings, storeStatus: event.target.checked ? 'maintenance' : 'open' })
-            }
-          />
-          Store in maintenance
-        </label>
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={3}
-          value={settings.maintenanceMsg ?? ''}
-          onChange={(event) => setSettings({ ...settings, maintenanceMsg: event.target.value })}
-          placeholder="Custom maintenance message"
-        />
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              { storeStatus: settings.storeStatus, maintenanceMsg: settings.maintenanceMsg },
-              'Message saved',
-            )
-          }
-        >
-          Save message
-        </button>
-      </section>
-
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">API payment mode</h2>
-        <p className="mt-2 text-sm text-[var(--green)]">Credit (wallet) — purchases deduct from buyer credit</p>
-        <p className="mt-1 text-sm text-[var(--text-3)]">Bill on account — coming soon</p>
-      </section>
-
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Payment methods for your bot</h2>
-        <p className="mt-1 text-sm text-[var(--text-2)]">These settings control how your customers pay on your bot.</p>
-        <h3 className="mt-4 text-sm font-medium">Your USDT wallet (BEP20)</h3>
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={useOwnWallet} onChange={(event) => setUseOwnWallet(event.target.checked)} />
-          Use my own wallet
-        </label>
-        <p className="mt-1 text-sm text-[var(--text-3)]">
-          {useOwnWallet
-            ? 'Customers send USDT to your address.'
-            : 'Customers use the platform wallet when you leave this off.'}
-        </p>
-        {useOwnWallet ? (
-          <label className="mt-3 block text-sm text-[var(--text-2)]">
-            Address
-            <input
-              className={`${inputClass} mt-1`}
-              value={settings.usdtWalletBep20 ?? ''}
-              onChange={(event) => setSettings({ ...settings, usdtWalletBep20: event.target.value })}
-              placeholder="0x..."
+          <SettingsCard title="Store Identity" description="Shown in your bot's welcome message.">
+            <FormField
+              label="Store Name"
+              value={settings.storeName ?? ''}
+              onChange={(value) => setSettings({ ...settings, storeName: value })}
             />
-          </label>
-        ) : null}
-        <label className="mt-3 block text-sm text-[var(--text-2)]">
-          USDT minimum (BEP20)
-          <input
-            className={`${inputClass} mt-1`}
-            value={settings.usdtMinimumBep20}
-            onChange={(event) => setSettings({ ...settings, usdtMinimumBep20: event.target.value })}
-          />
-        </label>
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              {
-                useOwnUsdtWallet: useOwnWallet,
-                usdtWalletBep20: settings.usdtWalletBep20,
-                usdtMinimumBep20: settings.usdtMinimumBep20,
-              },
-              'Payment settings saved',
-            )
-          }
-        >
-          Save payment settings
-        </button>
-      </section>
+            <SaveButton
+              busy={busy === 'name'}
+              onClick={() => void patch('name', { storeName: settings.storeName }, 'Name saved')}
+            >
+              Save
+            </SaveButton>
+          </SettingsCard>
 
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Binance Pay</h2>
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={binanceEnabled}
-            onChange={(event) => setBinanceEnabled(event.target.checked)}
-          />
-          Enable Binance Pay on my bot
-        </label>
-        <p className={`mt-2 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
-          {settings.binancePayConfigured ? 'Configured' : 'Not configured'}
-        </p>
-        <p className="mt-1 text-sm text-[var(--text-3)]">
-          If you do not add Binance Pay, the platform default payment method is used for your customers.
-        </p>
-        <label className="mt-3 block text-sm text-[var(--text-2)]">
-          Merchant UID
-          <input
-            className={`${inputClass} mt-1`}
-            value={settings.binanceMerchantUid ?? ''}
-            onChange={(event) => setSettings({ ...settings, binanceMerchantUid: event.target.value })}
-          />
-        </label>
-        <label className="mt-3 block text-sm text-[var(--text-2)]">
-          API key
-          <input
-            type="password"
-            className={`${inputClass} mt-1`}
-            value={binanceKey}
-            onChange={(event) => setBinanceKey(event.target.value)}
-            placeholder={settings.binancePayConfigured ? '••••••••' : ''}
-          />
-        </label>
-        <label className="mt-3 block text-sm text-[var(--text-2)]">
-          API secret
-          <input
-            type="password"
-            className={`${inputClass} mt-1`}
-            value={binanceSecret}
-            onChange={(event) => setBinanceSecret(event.target.value)}
-            placeholder={settings.binancePayConfigured ? '••••••••' : ''}
-          />
-        </label>
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              {
-                binancePayEnabled: binanceEnabled,
-                binanceMerchantUid: settings.binanceMerchantUid,
-                ...(binanceKey ? { binanceApiKey: binanceKey } : {}),
-                ...(binanceSecret ? { binanceApiSecret: binanceSecret } : {}),
-              },
-              'Binance Pay saved',
-            )
-          }
-        >
-          Save Binance Pay settings
-        </button>
-      </section>
+          <SettingsCard title="Store Status" description="Choose whether customers can place orders.">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                className={`rounded-lg border p-4 text-left ${settings.storeStatus === 'open' ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}
+                onClick={() => setSettings({ ...settings, storeStatus: 'open' })}
+              >
+                <p className="font-medium">{settings.storeStatus === 'open' ? '● Open' : '○ Open'}</p>
+                <p className="mt-1 text-sm text-[var(--text-2)]">Accepting orders</p>
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg border p-4 text-left ${settings.storeStatus === 'maintenance' ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}
+                onClick={() => setSettings({ ...settings, storeStatus: 'maintenance' })}
+              >
+                <p className="font-medium">{settings.storeStatus === 'maintenance' ? '● Maintenance' : '○ Maintenance'}</p>
+                <p className="mt-1 text-sm text-[var(--text-2)]">Temp. closed</p>
+              </button>
+            </div>
+            {settings.storeStatus === 'maintenance' ? (
+              <FormField
+                label="Maintenance Message"
+                multiline
+                value={settings.maintenanceMsg ?? ''}
+                onChange={(value) => setSettings({ ...settings, maintenanceMsg: value })}
+              />
+            ) : null}
+            <SaveButton
+              busy={busy === 'status'}
+              onClick={() =>
+                void patch(
+                  'status',
+                  { storeStatus: settings.storeStatus, maintenanceMsg: settings.maintenanceMsg },
+                  'Status saved',
+                )
+              }
+            >
+              Save Status
+            </SaveButton>
+          </SettingsCard>
 
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Support</h2>
-        <input
-          className={`${inputClass} mt-3`}
-          placeholder="Support contact"
-          value={settings.supportContact ?? ''}
-          onChange={(event) => setSettings({ ...settings, supportContact: event.target.value })}
-        />
-        <input
-          className={`${inputClass} mt-3`}
-          placeholder="Support chat URL"
-          value={settings.supportChatUrl ?? ''}
-          onChange={(event) => setSettings({ ...settings, supportChatUrl: event.target.value })}
-        />
-        <input
-          className={`${inputClass} mt-3`}
-          placeholder="Support phone"
-          value={settings.supportPhone ?? ''}
-          onChange={(event) => setSettings({ ...settings, supportPhone: event.target.value })}
-        />
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={3}
-          placeholder="Support message"
-          value={settings.supportMessage ?? ''}
-          onChange={(event) => setSettings({ ...settings, supportMessage: event.target.value })}
-        />
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              {
-                supportContact: settings.supportContact,
-                supportChatUrl: settings.supportChatUrl,
-                supportPhone: settings.supportPhone,
-                supportMessage: settings.supportMessage,
-              },
-              'Support saved',
-            )
-          }
-        >
-          Save support settings
-        </button>
-      </section>
+          <SettingsCard title="Payment Methods" description="These settings control how your customers pay on your bot.">
+            <p className="text-sm text-[var(--green)]">Credit (wallet) — purchases deduct from buyer credit</p>
+            <div className="my-4 border-t border-[var(--border)]" />
+            <Toggle label="Use my own USDT wallet" checked={useOwnWallet} onChange={setUseOwnWallet} />
+            <p className="mt-2 text-sm text-[var(--text-3)]">
+              {useOwnWallet ? 'Customers send USDT to your address.' : 'Using platform wallet'}
+            </p>
+            {useOwnWallet ? (
+              <FormField
+                label="USDT address"
+                value={settings.usdtWalletBep20 ?? ''}
+                placeholder="0x..."
+                onChange={(value) => setSettings({ ...settings, usdtWalletBep20: value })}
+              />
+            ) : null}
+            <FormField
+              label="USDT minimum (BEP20)"
+              value={settings.usdtMinimumBep20}
+              onChange={(value) => setSettings({ ...settings, usdtMinimumBep20: value })}
+            />
+            <div className="my-4 border-t border-[var(--border)]" />
+            <Toggle label="Binance Pay" checked={binanceEnabled} onChange={setBinanceEnabled} />
+            <p className={`mt-2 text-sm ${settings.binancePayConfigured ? 'text-[var(--green)]' : 'text-[var(--text-2)]'}`}>
+              {settings.binancePayConfigured ? 'Configured' : 'Not configured'}
+            </p>
+            <FormField
+              label="Merchant UID"
+              value={settings.binanceMerchantUid ?? ''}
+              onChange={(value) => setSettings({ ...settings, binanceMerchantUid: value })}
+            />
+            <FormField
+              label="API Key"
+              type="password"
+              value={binanceKey}
+              placeholder={settings.binancePayConfigured ? '••••••••' : ''}
+              onChange={setBinanceKey}
+            />
+            <FormField
+              label="API Secret"
+              type="password"
+              value={binanceSecret}
+              placeholder={settings.binancePayConfigured ? '••••••••' : ''}
+              onChange={setBinanceSecret}
+            />
+            <SaveButton
+              busy={busy === 'pay'}
+              onClick={() =>
+                void patch(
+                  'pay',
+                  {
+                    useOwnUsdtWallet: useOwnWallet,
+                    usdtWalletBep20: settings.usdtWalletBep20,
+                    usdtMinimumBep20: settings.usdtMinimumBep20,
+                    binancePayEnabled: binanceEnabled,
+                    binanceMerchantUid: settings.binanceMerchantUid,
+                    ...(binanceKey ? { binanceApiKey: binanceKey } : {}),
+                    ...(binanceSecret ? { binanceApiSecret: binanceSecret } : {}),
+                  },
+                  'Payment settings saved',
+                )
+              }
+            >
+              Save Payment Settings
+            </SaveButton>
+          </SettingsCard>
+        </div>
 
-      <section className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Reseller signups</h2>
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings.resellerSignupEnabled}
-            onChange={(event) => setSettings({ ...settings, resellerSignupEnabled: event.target.checked })}
-          />
-          Show “Become a Reseller” in bot
-        </label>
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={3}
-          value={settings.resellerSignupMessage ?? ''}
-          onChange={(event) => setSettings({ ...settings, resellerSignupMessage: event.target.value })}
-        />
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              {
-                resellerSignupEnabled: settings.resellerSignupEnabled,
-                resellerSignupMessage: settings.resellerSignupMessage,
-              },
-              'Signup settings saved',
-            )
-          }
-        >
-          Save
-        </button>
-      </section>
+        <div className="space-y-6">
+          <SettingsCard title="Customer Support" description="Shown when a customer types /support.">
+            <FormField
+              label="Support Contact"
+              value={settings.supportContact ?? ''}
+              onChange={(value) => setSettings({ ...settings, supportContact: value })}
+            />
+            <FormField
+              label="Telegram Link"
+              value={settings.supportChatUrl ?? ''}
+              placeholder="t.me/..."
+              onChange={(value) => setSettings({ ...settings, supportChatUrl: value })}
+            />
+            <FormField
+              label="Support phone"
+              value={settings.supportPhone ?? ''}
+              onChange={(value) => setSettings({ ...settings, supportPhone: value })}
+            />
+            <FormField
+              label="Support Message"
+              multiline
+              value={settings.supportMessage ?? ''}
+              onChange={(value) => setSettings({ ...settings, supportMessage: value })}
+            />
+            <SaveButton
+              busy={busy === 'support'}
+              onClick={() =>
+                void patch(
+                  'support',
+                  {
+                    supportContact: settings.supportContact,
+                    supportChatUrl: settings.supportChatUrl,
+                    supportPhone: settings.supportPhone,
+                    supportMessage: settings.supportMessage,
+                  },
+                  'Support saved',
+                )
+              }
+            >
+              Save Support
+            </SaveButton>
+          </SettingsCard>
 
+          <SettingsCard title="Terms & Policies">
+            <FormField
+              label="Terms of Service"
+              multiline
+              rows={4}
+              value={settings.termsOfService ?? ''}
+              onChange={(value) => setSettings({ ...settings, termsOfService: value })}
+            />
+            <FormField
+              label="Return & Refund"
+              multiline
+              rows={4}
+              value={settings.refundPolicy ?? ''}
+              onChange={(value) => setSettings({ ...settings, refundPolicy: value })}
+            />
+            <FormField
+              label="Privacy Policy"
+              multiline
+              rows={4}
+              value={settings.privacyPolicy ?? ''}
+              onChange={(value) => setSettings({ ...settings, privacyPolicy: value })}
+            />
+            <SaveButton
+              busy={busy === 'terms'}
+              onClick={() =>
+                void patch(
+                  'terms',
+                  {
+                    termsOfService: settings.termsOfService,
+                    refundPolicy: settings.refundPolicy,
+                    privacyPolicy: settings.privacyPolicy,
+                  },
+                  'Policies saved',
+                )
+              }
+            >
+              Save Policies
+            </SaveButton>
+          </SettingsCard>
+        </div>
       </div>
 
-      <section className="mt-6 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
-        <h2 className="text-lg font-medium">Terms & policies</h2>
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={4}
-          placeholder="Terms of service"
-          value={settings.termsOfService ?? ''}
-          onChange={(event) => setSettings({ ...settings, termsOfService: event.target.value })}
-        />
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={4}
-          placeholder="Return & refund policy"
-          value={settings.refundPolicy ?? ''}
-          onChange={(event) => setSettings({ ...settings, refundPolicy: event.target.value })}
-        />
-        <textarea
-          className={`${inputClass} mt-3`}
-          rows={4}
-          placeholder="Privacy policy"
-          value={settings.privacyPolicy ?? ''}
-          onChange={(event) => setSettings({ ...settings, privacyPolicy: event.target.value })}
-        />
-        <button
-          type="button"
-          className="mt-3 rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
-          onClick={() =>
-            void patch(
-              {
-                termsOfService: settings.termsOfService,
-                refundPolicy: settings.refundPolicy,
-                privacyPolicy: settings.privacyPolicy,
-              },
-              'Policies saved',
-            )
-          }
-        >
-          Save terms & policies
-        </button>
-      </section>
+      <div className="mt-6">
+        <SettingsCard title="Reseller Signups" description="Optional invite shown in the bot menu.">
+          <Toggle
+            label='Show "Become a Reseller" in bot menu'
+            checked={settings.resellerSignupEnabled}
+            onChange={(checked) => setSettings({ ...settings, resellerSignupEnabled: checked })}
+          />
+          {settings.resellerSignupEnabled ? (
+            <FormField
+              label="Message"
+              multiline
+              value={settings.resellerSignupMessage ?? ''}
+              onChange={(value) => setSettings({ ...settings, resellerSignupMessage: value })}
+            />
+          ) : null}
+          <SaveButton
+            busy={busy === 'signup'}
+            onClick={() =>
+              void patch(
+                'signup',
+                {
+                  resellerSignupEnabled: settings.resellerSignupEnabled,
+                  resellerSignupMessage: settings.resellerSignupMessage,
+                },
+                'Signup settings saved',
+              )
+            }
+          >
+            Save
+          </SaveButton>
+        </SettingsCard>
+      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Link href={ROUTES.reseller.settingsApiKeys} className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-5">
           Developer API
         </Link>
