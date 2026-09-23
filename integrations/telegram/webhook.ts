@@ -34,7 +34,7 @@ export function verifyTelegramSecret(expected: string, provided: string | null):
 }
 
 /**
- * Processes an update without blocking the webhook HTTP response.
+ * Handles a Telegram update on the webhook request so Vercel does not freeze the work after 200.
  *
  * @param botToken - Decrypted token (never log)
  * @param supabase - Service-role client
@@ -42,27 +42,29 @@ export function verifyTelegramSecret(expected: string, provided: string | null):
  * @param tenantId - Reseller tenant or null for owner store
  * @param update - Telegram update
  */
-export function enqueueTelegramUpdate(
+export async function processTelegramUpdate(
   botToken: string,
   supabase: DbClient,
   botConnection: BotConnection,
   tenantId: string | null,
   update: Update,
-): void {
+): Promise<void> {
   const engine = createBotEngine(botToken, { supabase, botConnection, tenantId });
   // #region agent log
-  fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H5',location:'webhook.ts:enqueue',message:'background process started',data:{updateId:update.update_id,tenantNull:tenantId===null},timestamp:Date.now()})}).catch(()=>{});
+  fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H5',location:'webhook.ts:enqueue',message:'processUpdate awaited',data:{updateId:update.update_id,tenantNull:tenantId===null},timestamp:Date.now()})}).catch(()=>{});
   // #endregion
-  void engine.processUpdate(update).catch((error: unknown) => {
+  try {
+    await engine.processUpdate(update);
+  } catch (error: unknown) {
     // #region agent log
-    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'webhook.ts:enqueue-catch',message:'background process rejected',data:{updateId:update.update_id,errorMessage:error instanceof Error?error.message:'unknown'},timestamp:Date.now()})}).catch(()=>{});
+    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H4',location:'webhook.ts:enqueue-catch',message:'processUpdate rejected',data:{updateId:update.update_id,errorMessage:error instanceof Error?error.message:'unknown'},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
     logger.error('telegram background processing failed', {
       botId: botConnection.id === OWNER_STORE_BOT_ID ? OWNER_STORE_BOT_ID : botConnection.id,
       update_id: update.update_id,
       message: error instanceof Error ? error.message : 'unknown',
     });
-  });
+  }
 }
 
 /**

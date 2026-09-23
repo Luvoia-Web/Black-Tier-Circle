@@ -50,6 +50,16 @@ describe('getOrCreateCustomer', () => {
     expect(second.username).toBe('adal');
     expect(db.tables.customers).toHaveLength(1);
   });
+
+  it('creates an owner-store customer with a null bot_id', async () => {
+    const db = createMemoryDb();
+    const customer = await getOrCreateCustomer(db, 'owner', {
+      id: 99,
+      first_name: 'OwnerBuyer',
+    });
+    expect(customer.botId).toBe('owner');
+    expect(db.tables.customers).toEqual([expect.objectContaining({ bot_id: null, telegram_user_id: '99' })]);
+  });
 });
 
 describe('connectBot', () => {

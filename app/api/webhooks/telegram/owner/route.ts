@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { enqueueTelegramUpdate, verifyTelegramSecret } from '@/integrations/telegram/webhook';
+import { processTelegramUpdate, verifyTelegramSecret } from '@/integrations/telegram/webhook';
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
@@ -17,12 +17,12 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { BotConnection } from '@/modules/bots/types';
 import { getDecryptedOwnerBotToken, getOwnerBotWebhookSecret, getPlatformSettings } from '@/modules/platform';
 
-function ownerConnection(secret: string, username: string): BotConnection {
+function ownerConnection(secret: string, username: string, telegramBotId: string | null): BotConnection {
   const now = new Date();
   return {
     id: OWNER_STORE_BOT_ID,
     tenantId: '',
-    telegramBotId: OWNER_STORE_BOT_ID,
+    telegramBotId: telegramBotId && /^\d+$/.test(telegramBotId) ? telegramBotId : OWNER_STORE_BOT_ID,
     username,
     webhookSecret: secret,
     status: 'connected',
@@ -64,10 +64,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     const settings = await getPlatformSettings(db);
-    enqueueTelegramUpdate(
+    await processTelegramUpdate(
       token,
       db,
-      ownerConnection(secret, settings.ownerBotUsername ?? 'owner_store'),
+      ownerConnection(secret, settings.ownerBotUsername ?? 'owner_store', settings.ownerBotId),
       null,
       update,
     );

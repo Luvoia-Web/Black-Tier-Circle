@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { decryptBotToken, enqueueTelegramUpdate, verifyTelegramSecret } from '@/integrations/telegram/webhook';
+import { decryptBotToken, processTelegramUpdate, verifyTelegramSecret } from '@/integrations/telegram/webhook';
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
     // #region agent log
     fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H5',location:'webhooks/telegram/[botId]/route.ts:accepted',message:'update accepted, enqueueing',data:{updateId:update.update_id??0,type:updateKind(update),isStart:update.message?.text?.trim().startsWith('/start')===true,tenantPresent:connection.tenantId.length>0},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-    enqueueTelegramUpdate(token, db, connection, connection.tenantId, update);
+    await processTelegramUpdate(token, db, connection, connection.tenantId, update);
     return NextResponse.json({ ok: true });
   } catch (error: unknown) {
     // #region agent log
