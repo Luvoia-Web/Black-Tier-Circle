@@ -445,7 +445,13 @@ export async function deliverViaBot(supabase: DbClient, order: Order, signedUrl:
     if (!token) {
       throw new Error('bot unavailable');
     }
-    await sendFileDelivery(token, customer.telegramChatId, signedUrl, product.title);
+    await sendFileDelivery(
+      token,
+      customer.telegramChatId,
+      signedUrl,
+      product.title,
+      order.id.slice(0, 8).toUpperCase(),
+    );
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'telegram document sent' });
     const latest = await getOrder(supabase, order.id);
     if (latest.deliveryStatus === 'sending') {
@@ -512,9 +518,12 @@ export async function deliverManualCompletion(
     if (!token) {
       throw new Error('bot unavailable');
     }
+    const product = await getProduct(supabase, order.productId);
+    const orderRef = order.id.slice(0, 8).toUpperCase();
+    const title = sanitizeInput(product.title).replace(/[*_`[\]]/g, '').slice(0, 200);
     const message =
       deliveryContent && deliveryContent.length > 0
-        ? `✅ *Your order has been delivered!*\n\n${sanitizeForTelegram(deliveryContent)}`
+        ? `🎉 *Your order is ready!*\n\n📦 *${title}*\n\nHere is your delivery:\n\n${sanitizeInput(deliveryContent).slice(0, 3000)}\n\n✅ Order \`${orderRef}\` complete.\nThank you for your purchase!\n\nNeed help? /support`
         : FULFILLMENT_CONFIG.delivery.orderDelivered;
     await sendTextDelivery(token, customer.telegramChatId, message);
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'telegram text sent' });

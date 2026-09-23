@@ -75,6 +75,7 @@ export const API_ROUTES = {
     `${API_PREFIX}/products/${productId}/download/${assetId}`,
   productAsset: (productId: string, assetId: string) =>
     `${API_PREFIX}/products/${productId}/assets/${assetId}`,
+  resellerCatalog: `${API_PREFIX}/reseller/catalog`,
   resellerListings: `${API_PREFIX}/reseller/listings`,
   resellerListing: (listingId: string) => `${API_PREFIX}/reseller/listings/${listingId}`,
   wallet: `${API_PREFIX}/wallet`,

@@ -1,93 +1,129 @@
 /**
  * @file app/(dashboard)/reseller/products/page.tsx
  *
- * Reseller catalog: available products and own listings with a pricing modal.
+ * Reseller store catalog. Published owner products appear here without a manual sync.
  *
  * @module Dashboard
  */
 
 'use client';
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
-import { ErrorState, TableSkeleton } from '@/components/ui/fetch-states';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ErrorState } from '@/components/ui/fetch-states';
 import { PageHeader } from '@/components/ui/page-header';
 import { formatUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
 import { getMarginMinor, getMarginPercent } from '@/modules/pricing';
 
-type ProductDto = {
+type CatalogListing = {
+  readonly id: string;
+  readonly retailPriceMinor: string;
+  readonly isVisible: boolean;
+};
+
+type CatalogRow = {
   readonly id: string;
   readonly title: string;
+  readonly description: string | null;
   readonly category: string | null;
   readonly deliveryType: string;
   readonly wholesalePriceMinor: string;
   readonly retailPriceMinor: string;
+  readonly stockUnlimited: boolean;
+  readonly stockCount: number | null;
+  readonly estimatedDeliveryMinutes: number | null;
+  readonly listing: CatalogListing | null;
+  readonly isListed: boolean;
 };
 
-type ListingDto = {
-  readonly id: string;
-  readonly productId: string;
-  readonly retailPriceMinor: string;
-  readonly isVisible: boolean;
-  readonly product: ProductDto;
-};
-
-type Tab = 'available' | 'listings';
-
-const inputClass = 'btc-input';
+type Tab = 'available' | 'store';
 
 function usdtFromMinor(minor: string): string {
-  const full = formatUsdt(BigInt(minor)).replace(' USDT', '');
-  return full;
+  return formatUsdt(BigInt(minor)).replace(' USDT', '');
+}
+
+function deliveryLabel(value: string): string {
+  if (value === 'file_reusable') {
+    return 'file';
+  }
+  if (value === 'inventory_unit') {
+    return 'key';
+  }
+  if (value === 'supplier_api') {
+    return 'supplier';
+  }
+  return 'manual';
+}
+
+function stockLabel(row: CatalogRow): string {
+  if (row.stockUnlimited) {
+    return 'unlimited';
+  }
+  return `${row.stockCount ?? 0} left`;
+}
+
+function marginFor(wholesaleMinor: string, retailUsdt: string): { text: string; tone: 'ok' | 'low' | 'error' } | null {
+  try {
+    const wholesale = BigInt(wholesaleMinor);
+    const retail = usdtToMinor(retailUsdt || '0');
+    if (retail < wholesale) {
+      return { text: 'Must be above cost price', tone: 'error' };
+    }
+    const profit = getMarginMinor(wholesale, retail);
+    const percent = getMarginPercent(wholesale, retail);
+    return {
+      text: `You earn ${formatUsdt(profit)} (${percent.toFixed(0)}%)`,
+      tone: percent < 10 ? 'low' : 'ok',
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Reseller products page with available-to-list and my-listings tabs.
+ * Reseller products: list the owner catalog and manage this store's prices.
  */
 export default function ResellerProductsPage(): JSX.Element {
   const [tab, setTab] = useState<Tab>('available');
-  const [available, setAvailable] = useState<ProductDto[]>([]);
-  const [listings, setListings] = useState<ListingDto[]>([]);
+  const [rows, setRows] = useState<CatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [modalProduct, setModalProduct] = useState<ProductDto | null>(null);
-  const [modalListingId, setModalListingId] = useState<string | null>(null);
-  const [overrideDraft, setOverrideDraft] = useState<Record<string, string>>({});
-  const [overrideErrors, setOverrideErrors] = useState<Record<string, string>>({});
-  const [retailUsdt, setRetailUsdt] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [markup, setMarkup] = useState('0');
-  const [currentMarkup, setCurrentMarkup] = useState(0);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(API_ROUTES.resellerListings);
+      const response = await fetch(API_ROUTES.resellerCatalog);
       const json = (await response.json()) as {
         success: boolean;
-        data?: { listings: ListingDto[]; available: ProductDto[] };
+        data?: CatalogRow[];
         error?: { message: string };
       };
       if (!json.success || !json.data) {
         setError(json.error?.message ?? 'Unable to load products');
         return;
       }
-      setListings(json.data.listings);
-      setAvailable(json.data.available);
-      try {
-        const settingsRes = await fetch(API_ROUTES.resellerSettings);
-        const settingsJson = (await settingsRes.json()) as {
-          success: boolean;
-          data?: { settings: { markupPercent: number } };
-        };
-        if (settingsJson.success && settingsJson.data) {
-          setCurrentMarkup(settingsJson.data.settings.markupPercent);
-          setMarkup(String(settingsJson.data.settings.markupPercent));
+      setRows(json.data);
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const row of json.data ?? []) {
+          if (next[row.id] === undefined) {
+            next[row.id] = usdtFromMinor(row.listing?.retailPriceMinor ?? row.retailPriceMinor);
+          }
         }
-      } catch {
-        // ignore markup load
+        return next;
+      });
+      const settingsRes = await fetch(API_ROUTES.resellerSettings);
+      const settingsJson = (await settingsRes.json()) as {
+        success: boolean;
+        data?: { settings: { markupPercent: number } };
+      };
+      if (settingsJson.success && settingsJson.data) {
+        setMarkup(String(settingsJson.data.settings.markupPercent));
       }
     } catch {
       setError('Unable to load products');
@@ -100,89 +136,59 @@ export default function ResellerProductsPage(): JSX.Element {
     void load();
   }, [load]);
 
-  const listedIds = useMemo(() => new Set(listings.map((item) => item.productId)), [listings]);
-  const unlisted = available.filter((product) => !listedIds.has(product.id));
-
-  const marginCopy = useMemo(() => {
-    if (!modalProduct) {
-      return null;
+  const listedCount = rows.filter((row) => row.isListed).length;
+  const visibleRows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const filtered = needle.length === 0 ? rows : rows.filter((row) => row.title.toLowerCase().includes(needle));
+    if (tab === 'store') {
+      return filtered.filter((row) => row.isListed);
     }
-    try {
-      const wholesale = BigInt(modalProduct.wholesalePriceMinor);
-      const retail = usdtToMinor(retailUsdt || '0');
-      if (retail < wholesale) {
-        return { text: 'Retail price must be at least wholesale.', warning: true };
-      }
-      const minor = getMarginMinor(wholesale, retail);
-      const percent = getMarginPercent(wholesale, retail);
-      const warning = percent < 10;
-      return {
-        text: `You earn ${formatUsdt(minor)} (${percent.toFixed(2)}%) per sale`,
-        warning,
-      };
-    } catch {
-      return null;
-    }
-  }, [modalProduct, retailUsdt]);
+    return filtered;
+  }, [query, rows, tab]);
 
-  function openCreate(product: ProductDto): void {
-    setModalProduct(product);
-    setModalListingId(null);
-    setRetailUsdt(usdtFromMinor(product.retailPriceMinor));
-  }
-
-  async function submitPrice(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!modalProduct) {
+  async function savePrice(row: CatalogRow): Promise<void> {
+    const draft = drafts[row.id] ?? '';
+    const margin = marginFor(row.wholesalePriceMinor, draft);
+    if (margin?.tone === 'error' || margin === null) {
+      setError(margin?.text ?? 'Enter a price above the cost');
       return;
     }
-    setSaving(true);
+    setSavingId(row.id);
     setError(null);
     try {
-      const retailPriceMinor = usdtToMinor(retailUsdt);
-      const wholesale = BigInt(modalProduct.wholesalePriceMinor);
-      if (retailPriceMinor < wholesale) {
-        setError(`Retail price must be at least ${formatUsdt(wholesale)} (wholesale price)`);
+      const retailPriceMinor = usdtToMinor(draft).toString();
+      const response = row.listing
+        ? await fetch(API_ROUTES.resellerListing(row.listing.id), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ retailPriceStr: retailPriceMinor }),
+          })
+        : await fetch(API_ROUTES.resellerCatalog, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productId: row.id, retailPriceMinor }),
+          });
+      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      if (!json.success) {
+        setError(json.error?.message ?? 'Unable to save price');
         return;
       }
-      if (modalListingId) {
-        const response = await fetch(API_ROUTES.resellerListing(modalListingId), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ retailPriceStr: retailPriceMinor.toString() }),
-        });
-        const json = (await response.json()) as { success: boolean; error?: { message: string } };
-        if (!json.success) {
-          setError(json.error?.message ?? 'Unable to update listing');
-          return;
-        }
-      } else {
-        const response = await fetch(API_ROUTES.productListings(modalProduct.id), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ retailPriceMinor: retailPriceMinor.toString() }),
-        });
-        const json = (await response.json()) as { success: boolean; error?: { message: string } };
-        if (!json.success) {
-          setError(json.error?.message ?? 'Unable to create listing');
-          return;
-        }
-      }
-      setModalProduct(null);
-      setModalListingId(null);
       await load();
     } catch {
-      setError('Unable to save listing');
+      setError('Unable to save price');
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
   }
 
-  async function toggleVisible(listing: ListingDto): Promise<void> {
-    const response = await fetch(API_ROUTES.resellerListing(listing.id), {
+  async function toggleVisible(row: CatalogRow): Promise<void> {
+    if (!row.listing) {
+      return;
+    }
+    const response = await fetch(API_ROUTES.resellerListing(row.listing.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isVisible: !listing.isVisible }),
+      body: JSON.stringify({ isVisible: !row.listing.isVisible }),
     });
     const json = (await response.json()) as { success: boolean; error?: { message: string } };
     if (!json.success) {
@@ -192,8 +198,11 @@ export default function ResellerProductsPage(): JSX.Element {
     await load();
   }
 
-  async function hideListing(listing: ListingDto): Promise<void> {
-    const response = await fetch(API_ROUTES.resellerListing(listing.id), {
+  async function removeListing(row: CatalogRow): Promise<void> {
+    if (!row.listing) {
+      return;
+    }
+    const response = await fetch(API_ROUTES.resellerListing(row.listing.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isVisible: false }),
@@ -207,269 +216,180 @@ export default function ResellerProductsPage(): JSX.Element {
   }
 
   async function applyMarkup(): Promise<void> {
+    const percent = Number(markup);
+    if (!Number.isFinite(percent) || percent < 0) {
+      setError('Enter a markup percent of 0 or more');
+      return;
+    }
     const response = await fetch(API_ROUTES.resellerMarkup, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markupPercent: Number(markup) }),
+      body: JSON.stringify({ markupPercent: percent }),
     });
     const json = (await response.json()) as { success: boolean; error?: { message: string } };
     if (!json.success) {
       setError(json.error?.message ?? 'Unable to apply markup');
       return;
     }
-    await load();
-  }
-
-  function setFieldError(listingId: string, message: string): void {
-    setOverrideErrors((current) => ({ ...current, [listingId]: message }));
-  }
-
-  async function setOverride(listing: ListingDto): Promise<void> {
-    const draft = overrideDraft[listing.id] ?? usdtFromMinor(listing.retailPriceMinor);
-    let retailPriceMinor: bigint;
-    try {
-      retailPriceMinor = usdtToMinor(draft);
-      if (retailPriceMinor <= 0n) {
-        throw new Error('Price must be greater than 0');
+    const hundredths = BigInt(Math.round(percent * 100));
+    const unlisted = rows.filter((row) => !row.isListed);
+    for (const row of unlisted) {
+      const retail = (BigInt(row.wholesalePriceMinor) * (10000n + hundredths)) / 10000n;
+      const created = await fetch(API_ROUTES.resellerCatalog, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: row.id, retailPriceMinor: retail.toString() }),
+      });
+      const createdJson = (await created.json()) as { success: boolean; error?: { message: string } };
+      if (!createdJson.success) {
+        setError(createdJson.error?.message ?? 'Unable to list every product');
+        return;
       }
-    } catch {
-      setFieldError(listing.id, 'Invalid USDT amount. Enter a value like "10.50"');
-      return;
     }
-    setOverrideErrors((current) => {
-      const next = { ...current };
-      delete next[listing.id];
-      return next;
-    });
-    const response = await fetch(API_ROUTES.resellerListing(listing.id), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ retailPriceStr: retailPriceMinor.toString() }),
-    });
-    const json = (await response.json()) as { success: boolean; error?: { message: string } };
-    if (!json.success) {
-      setError(json.error?.message ?? 'Unable to set override');
-      return;
-    }
+    setDrafts({});
     await load();
   }
-
-  const availableColumns: ReadonlyArray<DataTableColumn<ProductDto>> = [
-    { key: 'title', header: 'Title', render: (row) => row.title },
-    { key: 'category', header: 'Category', render: (row) => row.category ?? '—' },
-    {
-      key: 'wholesale',
-      header: 'Wholesale Price',
-      render: (row) => formatUsdt(BigInt(row.wholesalePriceMinor)),
-    },
-    {
-      key: 'retail',
-      header: 'Default Retail Price',
-      render: (row) => formatUsdt(BigInt(row.retailPriceMinor)),
-    },
-    { key: 'delivery', header: 'Delivery Type', render: (row) => row.deliveryType.replace('_', ' ') },
-    {
-      key: 'action',
-      header: 'Action',
-      render: (row) => (
-        <button
-          type="button"
-          onClick={() => openCreate(row)}
-          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-soft)]"
-        >
-          Add to My Store
-        </button>
-      ),
-    },
-  ];
-
-  const listingColumns: ReadonlyArray<DataTableColumn<ListingDto>> = [
-    { key: 'title', header: 'Title', render: (row) => row.product.title },
-    {
-      key: 'price',
-      header: 'My Price',
-      render: (row) => formatUsdt(BigInt(row.retailPriceMinor)),
-    },
-    {
-      key: 'wholesale',
-      header: 'Wholesale Price',
-      render: (row) => formatUsdt(BigInt(row.product.wholesalePriceMinor)),
-    },
-    {
-      key: 'margin',
-      header: 'Margin',
-      render: (row) => {
-        const wholesale = BigInt(row.product.wholesalePriceMinor);
-        const retail = BigInt(row.retailPriceMinor);
-        return `${formatUsdt(getMarginMinor(wholesale, retail))} (${getMarginPercent(wholesale, retail).toFixed(2)}%)`;
-      },
-    },
-    {
-      key: 'visible',
-      header: 'Visible',
-      render: (row) => (
-        <button
-          type="button"
-          onClick={() => void toggleVisible(row)}
-          className="text-xs font-medium text-[var(--accent-soft)]"
-        >
-          {row.isVisible ? 'Visible' : 'Hidden'}
-        </button>
-      ),
-    },
-    {
-      key: 'override',
-      header: 'Override price',
-      render: (row) => (
-        <div className="flex flex-col gap-1">
-          <div className="flex gap-2">
-            <input
-              className="w-24 rounded border border-[var(--border)] bg-[var(--bg-card)] px-2 py-1 text-xs"
-              value={overrideDraft[row.id] ?? usdtFromMinor(row.retailPriceMinor)}
-              onChange={(event) => {
-                const value = event.target.value;
-                setOverrideDraft((current) => ({ ...current, [row.id]: value }));
-                setOverrideErrors((current) => {
-                  if (!current[row.id]) {
-                    return current;
-                  }
-                  const next = { ...current };
-                  delete next[row.id];
-                  return next;
-                });
-              }}
-              aria-label={`Override price for ${row.product.title}`}
-            />
-            <button type="button" onClick={() => void setOverride(row)} className="text-xs text-[var(--accent-soft)]">
-              Set
-            </button>
-          </div>
-          {overrideErrors[row.id] ? (
-            <p className="text-xs text-[var(--red)]">{overrideErrors[row.id]}</p>
-          ) : null}
-        </div>
-      ),
-    },
-    {
-      key: 'remove',
-      header: 'Remove',
-      render: (row) => (
-        <button type="button" onClick={() => void hideListing(row)} className="text-xs font-medium text-[var(--red)]">
-          Remove
-        </button>
-      ),
-    },
-  ];
 
   return (
     <>
       <PageHeader
         title="Products"
-        description="Browse the owner catalog and set your retail prices"
+        description="Owner products appear here as soon as they are published. Set your price and they show in your bot."
       />
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setTab('available')}
           className={`rounded-md px-3 py-1.5 text-sm ${
-            tab === 'available' ? 'bg-[var(--accent)] text-white' : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-2)]'
+            tab === 'available'
+              ? 'bg-[var(--accent)] text-white'
+              : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-2)]'
           }`}
         >
-          Available to List
+          Available to List ({rows.length - listedCount})
         </button>
         <button
           type="button"
-          onClick={() => setTab('listings')}
+          onClick={() => setTab('store')}
           className={`rounded-md px-3 py-1.5 text-sm ${
-            tab === 'listings' ? 'bg-[var(--accent)] text-white' : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-2)]'
+            tab === 'store'
+              ? 'bg-[var(--accent)] text-white'
+              : 'border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-2)]'
           }`}
         >
-          My Listings
+          My Store ({listedCount})
         </button>
       </div>
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
-      {tab === 'listings' ? (
-        <section className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
-          <h2 className="text-sm font-medium text-[var(--text-1)]">Bulk pricing</h2>
-          <p className="mt-1 text-xs text-[var(--text-3)]">Current markup: {currentMarkup}%. This clears individual price overrides.</p>
-          <div className="mt-3 flex gap-2">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search products"
+          className="btc-input max-w-sm"
+          aria-label="Search products"
+        />
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3">
+          <p className="text-sm font-medium text-[var(--text-1)]">Apply markup to all products</p>
+          <p className="mt-1 text-xs text-[var(--text-3)]">This will set selling price = cost × (1 + markup%)</p>
+          <div className="mt-2 flex gap-2">
             <input
               value={markup}
               onChange={(event) => setMarkup(event.target.value)}
-              className={`${inputClass} w-32`}
+              className="btc-input w-24"
               aria-label="Markup percent"
+              inputMode="decimal"
             />
-            <button type="button" onClick={() => void applyMarkup()} className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white">
-              Apply to all
+            <button
+              type="button"
+              onClick={() => void applyMarkup()}
+              className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white"
+            >
+              Apply to All Products
             </button>
           </div>
-        </section>
-      ) : null}
-      {loading ? (
-        <TableSkeleton />
-      ) : tab === 'available' ? (
-        <DataTable
-          columns={availableColumns}
-          rows={unlisted}
-          rowKey={(row) => row.id}
-          emptyMessage="No products available to list."
-        />
-      ) : (
-        <DataTable
-          columns={listingColumns}
-          rows={listings}
-          rowKey={(row) => row.id}
-          emptyMessage="You have not listed any products yet."
-        />
-      )}
-
-      {modalProduct ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--bg-page)] p-6">
-            <h2 className="text-lg font-semibold text-[var(--text-1)]">{modalProduct.title}</h2>
-            <p className="mt-1 text-sm text-[var(--text-2)]">
-              Wholesale price {formatUsdt(BigInt(modalProduct.wholesalePriceMinor))}
-            </p>
-            <form onSubmit={(event) => void submitPrice(event)} className="mt-4 space-y-4">
-              <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
-                Your retail price
-                <input
-                  required
-                  inputMode="decimal"
-                  value={retailUsdt}
-                  onChange={(event) => setRetailUsdt(event.target.value)}
-                  className={inputClass}
-                />
-                <span className="text-xs text-[var(--text-3)]">Enter in USDT (e.g. 10.50)</span>
-              </label>
-              {marginCopy ? (
-                <p className={`text-sm ${marginCopy.warning ? 'text-[var(--amber)]' : 'text-[var(--green)]'}`}>
-                  {marginCopy.text}
-                  {marginCopy.warning && marginCopy.text.startsWith('You earn')
-                    ? ' Low margin — consider pricing higher'
-                    : null}
-                </p>
-              ) : null}
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalProduct(null)}
-                  className="rounded-md border border-[var(--border-soft)] px-3 py-1.5 text-sm text-[var(--text-1)]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--accent-soft)] disabled:opacity-60"
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
-      ) : null}
+      </div>
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {loading ? (
+        <p className="text-sm text-[var(--text-3)]">Loading catalog…</p>
+      ) : visibleRows.length === 0 ? (
+        <p className="text-sm text-[var(--text-3)]">
+          {tab === 'store' ? 'Nothing in your store yet. Add a product from Available to List.' : 'No products match.'}
+        </p>
+      ) : (
+        <div className="grid gap-3">
+          {visibleRows.map((row) => {
+            const draft = drafts[row.id] ?? '';
+            const margin = marginFor(row.wholesalePriceMinor, draft);
+            const toneClass =
+              margin?.tone === 'error'
+                ? 'text-[var(--red)]'
+                : margin?.tone === 'low'
+                  ? 'text-[var(--amber)]'
+                  : 'text-[var(--green)]';
+            return (
+              <article key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-[var(--text-1)]">📦 {row.title}</h2>
+                    <p className="mt-1 text-sm text-[var(--text-2)]">
+                      Cost: {formatUsdt(BigInt(row.wholesalePriceMinor))} · Delivery: {deliveryLabel(row.deliveryType)} ·
+                      Stock: {stockLabel(row)}
+                      {row.category ? ` · ${row.category}` : ''}
+                    </p>
+                  </div>
+                  {row.listing ? (
+                    <button
+                      type="button"
+                      onClick={() => void toggleVisible(row)}
+                      className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--text-1)]"
+                    >
+                      {row.listing.isVisible ? 'ON' : 'OFF'}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <label className="flex flex-col gap-1 text-xs text-[var(--text-3)]">
+                    Your price (USDT)
+                    <input
+                      value={draft}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [row.id]: event.target.value }))}
+                      className="btc-input w-36"
+                      inputMode="decimal"
+                      aria-label={`Price for ${row.title}`}
+                    />
+                  </label>
+                  {margin ? (
+                    <p className={`pb-2 text-sm ${toneClass}`}>
+                      {margin.tone === 'error' ? '❌ ' : margin.tone === 'low' ? '⚠ Low margin · ' : '✅ '}
+                      {margin.text}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={savingId === row.id}
+                    onClick={() => void savePrice(row)}
+                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-60"
+                  >
+                    {row.listing ? 'Save price' : 'Add to My Store'}
+                  </button>
+                  {row.listing ? (
+                    <button
+                      type="button"
+                      onClick={() => void removeListing(row)}
+                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--red)]"
+                    >
+                      Remove from Store
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

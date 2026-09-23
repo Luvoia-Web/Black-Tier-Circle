@@ -1,152 +1,200 @@
 /**
  * @file integrations/telegram/client.ts
  *
- * Telegram bot engine using grammY.
- * One BotEngine instance per connected bot (created per webhook request).
+ * Telegram store bot. One engine per webhook update.
+ * Customers browse the reseller's listings (or the owner catalog), pay, and receive delivery in chat.
  *
- * Bot UX flow for customers:
- * /start → welcome message + main menu
- * "🛍 Browse Products" → product list with inline keyboard
- * [Select product] → product detail with price + "Buy Now" button
- * "Buy Now" → order created + payment instructions shown
- * "📦 My Orders" → list of customer's recent orders
- * "❓ Help" → support message
- *
- * SECURITY: webhook secret verified BEFORE this engine is invoked.
- * Bot token decrypted only here, used only for sending messages, never logged.
+ * @module Telegram
  */
 
-import { Bot, InlineKeyboard, Keyboard } from 'grammy';
-import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
+import { createHash } from 'node:crypto';
+import { Bot, InlineKeyboard } from 'grammy';
+import { resolveBotContext, type BotContext } from './bot-context';
+import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
+import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
+import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { AppError } from '@/lib/errors';
+import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { PAYMENT_CONFIG, payoutAddressFor } from '@/lib/payment-config';
-import { sanitizeInput } from '@/lib/sanitize';
+import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
-import { getProduct, listProducts } from '@/modules/catalog';
-import { createOrder, listOrders } from '@/modules/orders';
-import {
-  createBinancePayOrder,
-  resolveOrderPayments,
-  verifyBep20Claim,
-  verifyBinancePayClaim,
-} from '@/modules/payments';
-import { listResellerListings } from '@/modules/pricing';
-import { getTenantSettings, storeAllowsBotOrders } from '@/modules/tenant-settings';
-import type { Product } from '@/modules/catalog/types';
 import type { CustomerRecord } from '@/modules/bots/types';
-import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
-import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
+import { getProduct, listProducts } from '@/modules/catalog';
+import type { Product } from '@/modules/catalog/types';
+import { cancelOrder, createOrder, getOrder, listOrders } from '@/modules/orders';
+import type { Order } from '@/modules/orders/types';
+import { createBinancePayOrder, verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
+import { listResellerListings } from '@/modules/pricing';
+import { getTenantById } from '@/modules/tenants';
+import { redeemTopupToken } from '@/modules/wallet';
 
 export type { TelegramChatId, TelegramClient, TelegramSendMessageParams } from './types';
 export type { BotEngine, BotEngineContext };
 
 const processedUpdateIds = new Set<string>();
 const PROCESSED_UPDATE_LIMIT = 5000;
+const KNOWN_COMMANDS = new Set(['/start', '/shop', '/orders', '/wallet', '/deposit', '/support']);
 
-export const MESSAGES = {
-  welcome: (firstName: string) =>
-    `👋 Welcome${firstName ? `, ${firstName}` : ''}!\n\nYou can browse and buy products directly here.\n\nUse the menu below to get started.`,
+const ERROR_TEXT: Record<string, string> = {
+  INSUFFICIENT_FUNDS: '❌ This store cannot complete that purchase right now\\. Please try again later or contact support\\.',
+  INSUFFICIENT_AVAILABLE_FUNDS:
+    '❌ This store cannot complete that purchase right now\\. Please try again later or contact support\\.',
+  OUT_OF_STOCK: '❌ Sorry, this product is out of stock\\.',
+  PRODUCT_NOT_AVAILABLE: '❌ This product is not available right now\\.',
+  TOKEN_NOT_FOUND: '❌ Invalid token\\. Please check and try again\\.',
+  TOKEN_REDEEMED: '❌ This token has already been used\\.',
+  TOKEN_EXPIRED: '❌ This token has expired\\.',
+  TOKEN_REVOKED: '❌ This token is no longer valid\\.',
+  WALLET_NOT_FOUND: '❌ Wallet not found\\. Contact support\\.',
+  PAYMENT_VERIFICATION_FAILED: '❌ Payment not verified\\. Please check your transaction and try again\\.',
+  ORDER_NOT_FOUND: '❌ Order not found\\. Use /orders to see your orders\\.',
+  ORDER_NOT_PAYABLE: '❌ This order is not waiting for payment\\.',
+  DEFAULT: '⚠️ Something went wrong\\. Please try again or contact /support',
+};
 
-  mainMenu: 'What would you like to do?',
+type CatalogItem = {
+  readonly product: Product;
+  readonly priceMinor: bigint;
+};
 
-  productList: (products: { title: string; priceUsdt: string }[]) =>
-    products.length === 0
-      ? '😔 No products available right now. Check back soon!'
-      : `🛍 *Available Products*\n\nSelect a product to view details:`,
+type Screen = {
+  readonly chatId: string | number;
+  readonly messageId?: number;
+};
 
-  productDetail: (product: {
-    title: string;
-    description: string | null;
-    priceUsdt: string;
-    deliveryMins: number | null;
-  }) =>
-    `📦 *${product.title}*\n\n${product.description ?? 'No description.'}\n\n💵 Price: *${product.priceUsdt} USDT*${product.deliveryMins ? `\n⏱ Delivery: ~${product.deliveryMins} minutes` : ''}\n\nReady to purchase?`,
-
-  orderCreated: (orderId: string, amountUsdt: string) =>
-    `✅ *Order Placed!*\n\nOrder ID: \`${orderId.slice(0, 8).toUpperCase()}\`\nAmount: *${amountUsdt} USDT*\n\nChoose a payment method below.`,
-
-  paymentInstructions: (walletAddress: string, amountUsdt: string, orderId: string) =>
-    `💳 *Payment Instructions*\n\nSend exactly:\n*${amountUsdt} USDT* (BEP20)\n\nTo wallet:\n\`${walletAddress}\`\n\nAfter sending, reply with your transaction hash.\n\nOrder ref: \`${orderId.slice(0, 8).toUpperCase()}\``,
-
-  paymentMethodChoice: '💳 How would you like to pay?',
-  binancePayButton: '💳 Binance Pay',
-  bep20Button: '📤 Send USDT (BEP20)',
-  demoModeNotice: '⚠️ *Demo Mode* — This is a test environment. No real payment required.',
-  binancePayLink: (_checkoutUrl: string) => `Click below to complete payment on Binance Pay:`,
-  binancePayFollowUp: 'After paying, reply with your Binance Pay Order ID.',
-  bep20Instructions: (address: string, amountUsdt: string) =>
-    `📤 *BEP20 Transfer Instructions*\n\nSend exactly:\n*${amountUsdt} USDT* (BEP20 network)\n\nTo address:\n\`${address}\`\n\n_Copy the address carefully. After sending, reply with your TX hash._`,
-  verifying: '⏳ Verifying your payment...',
-  paymentVerified:
-    '✅ *Payment Confirmed!*\n\nYour order is being processed. You will receive your product shortly.',
-  paymentFailed: (reason: string) =>
-    `❌ *Payment Not Verified*\n\n${reason}\n\nPlease try again or contact support.`,
-  paymentRefNeeded: 'Please send your payment reference (Binance Pay Order ID or BEP20 TX hash).',
-
-  noOrders: '📭 You have no orders yet.',
-
-  ordersList: '📦 *Your Recent Orders*\n\nHere are your last 5 orders:',
-
-  help: '❓ *Help*\n\nTo place an order, use "Browse Products" and select what you want.\n\nFor payment issues or other help, contact support.',
-
-  error: '⚠️ Something went wrong. Please try again or contact support.',
-
-  blocked: '🚫 Your account has been blocked. Contact support for assistance.',
-
-  unrecognized: "I didn't understand that. Please use the menu below.",
-
-  orderBeingPrepared: (estimatedMinutes: number | null) =>
-    FULFILLMENT_CONFIG.delivery.manualDeliveryPending(estimatedMinutes),
-  orderDelivered: FULFILLMENT_CONFIG.delivery.orderDelivered,
-  deliveryFailed: FULFILLMENT_CONFIG.delivery.deliveryFailed,
-} as const;
-
-const MAIN_MENU_KEYBOARD = new Keyboard()
-  .text('🛍 Browse Products')
-  .text('📦 My Orders')
-  .row()
-  .text('❓ Help')
-  .resized()
-  .persistent();
-
-function priceLabel(minor: bigint): string {
-  return formatUsdt(minor).replace(' USDT', '');
+function md(text: string): string {
+  return sanitizeForTelegram(text, 3500);
 }
 
-async function paymentWallet(supabase: BotEngineContext['supabase'], tenantId: string | null): Promise<string> {
-  const resolved = await resolveOrderPayments(supabase, tenantId);
-  return payoutAddressFor(resolved.bep20Address);
+function money(minor: bigint): string {
+  return md(formatUsdt(minor));
 }
 
-async function paymentsAreDemo(supabase: BotEngineContext['supabase'], tenantId: string | null): Promise<boolean> {
-  const resolved = await resolveOrderPayments(supabase, tenantId);
-  return resolved.demo;
+function orderRef(orderId: string): string {
+  return orderId.slice(0, 8).toUpperCase();
 }
 
-function classifyPaymentText(text: string): 'binance' | 'bep20' | 'unknown' {
-  const trimmed = text.trim();
-  if (TX_HASH_REGEX.test(trimmed) || trimmed.startsWith(PAYMENT_CONFIG.demo.failTxPrefix)) {
-    return 'bep20';
+function categoryKey(name: string): string {
+  return createHash('sha256').update(name).digest('hex').slice(0, 12);
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+function botError(code: string): string {
+  return ERROR_TEXT[code] ?? '⚠️ Something went wrong\\. Please try again or contact /support';
+}
+
+function friendly(error: unknown): string {
+  const code = error instanceof AppError ? error.code : 'DEFAULT';
+  return botError(code);
+}
+
+function tokenError(code: string | undefined): string {
+  return botError(code ?? 'DEFAULT');
+}
+
+function deliveryLabel(product: Product): string {
+  if (product.deliveryType === 'file_reusable') {
+    return 'File';
   }
-  if (BINANCE_NUMERIC_ORDER_ID_REGEX.test(trimmed)) {
-    return 'binance';
+  if (product.deliveryType === 'inventory_unit') {
+    return 'License key';
   }
-  if (
-    trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) ||
-    trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix)
-  ) {
-    return 'binance';
+  if (product.deliveryType === 'supplier_api') {
+    return 'Instant';
   }
-  return 'unknown';
+  return 'Manual';
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+function stockPhrase(product: Product): string {
+  if (product.stockUnlimited) {
+    return 'Unlimited';
+  }
+  const count = product.stockCount ?? 0;
+  return count <= 0 ? 'Sold out' : `${count} units available`;
+}
+
+function soldOut(product: Product): boolean {
+  return !product.stockUnlimited && (product.stockCount ?? 0) <= 0;
+}
+
+function statusEmoji(status: string): string {
+  if (status === 'verified' || status === 'ready' || status === 'sent' || status === 'debited') {
+    return '✅';
+  }
+  if (status === 'failed' || status === 'canceled' || status === 'unreachable') {
+    return '❌';
+  }
+  if (status === 'pending_verification') {
+    return '🔍';
+  }
+  if (status === 'not_ready') {
+    return '⏸';
+  }
+  if (status === 'manual_pending' || status === 'supplier_pending') {
+    return '🔄';
+  }
+  return '⏳';
+}
+
+function homeKeyboard(store: BotContext): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+    .text('🛍 Browse Shop', 'shop:')
+    .text('💰 My Wallet', 'wallet:')
+    .row()
+    .text('📦 My Orders', 'orders:')
+    .text('👤 Profile', 'profile:')
+    .row()
+    .text('💳 Deposit', 'deposit:')
+    .text('❓ Support', 'support:')
+    .row();
+  if (store.resellerSignupEnabled) {
+    keyboard.text('🤝 Become a Reseller', 'reseller_signup:').row();
+  }
+  keyboard.text('🔑 Developer API', 'api_info:').text('📜 Terms', 'terms:');
+  return keyboard;
+}
+
+function navRow(keyboard: InlineKeyboard, backData?: string): InlineKeyboard {
+  if (backData) {
+    keyboard.text('⬅ Back', backData).text('🏠 Home', 'home:');
+    return keyboard;
+  }
+  keyboard.text('🏠 Home', 'home:');
+  return keyboard;
+}
+
+async function show(bot: Bot, screen: Screen, text: string, keyboard?: InlineKeyboard): Promise<void> {
+  const extra = {
+    parse_mode: 'MarkdownV2' as const,
+    ...(keyboard ? { reply_markup: keyboard } : {}),
+  };
+  if (screen.messageId !== undefined) {
+    try {
+      await bot.api.editMessageText(screen.chatId, screen.messageId, text, extra);
+      return;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      if (message.includes('not modified')) {
+        return;
+      }
+    }
+  }
+  await bot.api.sendMessage(screen.chatId, text, extra);
+}
+
+function welcomeText(store: BotContext, balanceMinor: bigint): string {
+  return (
+    `👋 *Welcome to ${md(store.storeName)}\\!*\n\n` +
+    `🛒 Browse products, pay, and get delivery in this chat\\.\n\n` +
+    `💰 Balance: *${money(balanceMinor)}*\n\n` +
+    `Choose an option below:`
+  );
 }
 
 function markProcessed(botId: string, updateId: number): boolean {
@@ -162,22 +210,6 @@ function markProcessed(botId: string, updateId: number): boolean {
     }
   }
   return false;
-}
-
-type CatalogItem = {
-  readonly product: Product;
-  readonly priceMinor: bigint;
-};
-
-async function loadCatalog(context: BotEngineContext): Promise<CatalogItem[]> {
-  if (context.tenantId === null) {
-    const products = await listProducts(context.supabase, { status: 'published' });
-    return products.map((product) => ({ product, priceMinor: product.retailPriceMinor }));
-  }
-  const listings = await listResellerListings(context.supabase, context.tenantId);
-  return listings
-    .filter((listing) => listing.isVisible && listing.product.status === 'published')
-    .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
 }
 
 function extractFrom(update: Update): { user: { id: number; first_name: string; username?: string }; chatId: string } | null {
@@ -219,233 +251,737 @@ function updateType(update: Update): string {
 export function createBotEngine(botToken: string, context: BotEngineContext): BotEngine {
   const bot = new Bot(botToken);
   let customer: CustomerRecord | null = null;
-  const pendingByChat = new Map<string, { orderId: string; method?: 'binance_pay' | 'usdt_bep20' }>();
+  let store: BotContext | null = null;
 
-  async function assertStoreOpen(chatId: number | string): Promise<boolean> {
+  async function storeContext(): Promise<BotContext> {
+    if (store === null) {
+      store = await resolveBotContext(context.supabase, context.botConnection.id, context.tenantId);
+    }
+    return store;
+  }
+
+  async function loadCatalog(): Promise<CatalogItem[]> {
     if (context.tenantId === null) {
-      return true;
+      const products = await listProducts(context.supabase, { status: 'published' });
+      return products.map((product) => ({ product, priceMinor: product.retailPriceMinor }));
     }
-    const settings = await getTenantSettings(context.supabase, context.tenantId);
-    if (storeAllowsBotOrders(settings)) {
-      return true;
-    }
-    const raw = settings.maintenanceMsg?.trim() ?? 'This store is temporarily closed for maintenance.';
-    await bot.api.sendMessage(chatId, sanitizeInput(raw).slice(0, 1000));
-    return false;
+    const listings = await listResellerListings(context.supabase, context.tenantId);
+    return listings
+      .filter((listing) => listing.isVisible && listing.product.status === 'published')
+      .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
   }
 
-  async function showMainMenu(chatId: number | string, text: string): Promise<void> {
-    await bot.api.sendMessage(chatId, text, { reply_markup: MAIN_MENU_KEYBOARD });
-  }
-
-  async function sendDemoNotice(chatId: number | string): Promise<void> {
-    if (await paymentsAreDemo(context.supabase, context.tenantId)) {
-      await bot.api.sendMessage(chatId, MESSAGES.demoModeNotice, { parse_mode: 'Markdown' });
-    }
-  }
-
-  async function showPaymentChoice(chatId: number | string, orderId: string): Promise<void> {
-    const keyboard = new InlineKeyboard()
-      .text(MESSAGES.binancePayButton, `pay:binance:${orderId}`)
-      .text(MESSAGES.bep20Button, `pay:bep20:${orderId}`);
-    await bot.api.sendMessage(chatId, MESSAGES.paymentMethodChoice, { reply_markup: keyboard });
-    await sendDemoNotice(chatId);
-  }
-
-  async function startBinancePay(chatId: number | string, orderId: string): Promise<void> {
-    pendingByChat.set(String(chatId), { orderId, method: 'binance_pay' });
-    const checkout = await createBinancePayOrder(context.supabase, orderId);
-    const keyboard = new InlineKeyboard().url('Open Binance Pay', checkout.checkoutUrl);
-    await bot.api.sendMessage(chatId, MESSAGES.binancePayLink(checkout.checkoutUrl), {
-      reply_markup: keyboard,
-    });
-    await sendDemoNotice(chatId);
-    await bot.api.sendMessage(chatId, MESSAGES.binancePayFollowUp);
-  }
-
-  async function startBep20(chatId: number | string, orderId: string, amountUsdt: string): Promise<void> {
-    pendingByChat.set(String(chatId), { orderId, method: 'usdt_bep20' });
-    await bot.api.sendMessage(chatId, MESSAGES.bep20Instructions(await paymentWallet(context.supabase, context.tenantId), amountUsdt), {
-      parse_mode: 'Markdown',
-    });
-    await sendDemoNotice(chatId);
-  }
-
-  async function handlePaymentReference(chatId: number | string, text: string): Promise<boolean> {
-    const kind = classifyPaymentText(text);
-    const pending = pendingByChat.get(String(chatId));
-    let orderId = pending?.orderId;
-    if (orderId === undefined && customer !== null && kind !== 'unknown') {
-      const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 5 });
-      const payable = orders.find(
-        (order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification',
-      );
-      orderId = payable?.id;
-    }
-    if (kind === 'unknown' || orderId === undefined) {
+  async function maintenanceBlock(screen: Screen): Promise<boolean> {
+    const current = await storeContext();
+    if (current.storeStatus !== 'maintenance') {
       return false;
     }
-    await bot.api.sendMessage(chatId, MESSAGES.verifying);
-    if (await paymentsAreDemo(context.supabase, context.tenantId)) {
-      await sleep(PAYMENT_CONFIG.demo.verificationDelayMs);
-    }
-    const result =
-      kind === 'binance'
-        ? await verifyBinancePayClaim(context.supabase, { orderId, binanceOrderId: text.trim() })
-        : await verifyBep20Claim(context.supabase, { orderId, txHash: text.trim() });
-    if (result.verified) {
-      pendingByChat.delete(String(chatId));
-      await bot.api.sendMessage(chatId, MESSAGES.paymentVerified, {
-        parse_mode: 'Markdown',
-        reply_markup: MAIN_MENU_KEYBOARD,
-      });
-      return true;
-    }
-    await bot.api.sendMessage(chatId, MESSAGES.paymentFailed(result.rejectReason ?? 'Verification failed'), {
-      parse_mode: 'Markdown',
-      reply_markup: MAIN_MENU_KEYBOARD,
-    });
+    await show(
+      bot,
+      screen,
+      `🔧 *Store Temporarily Closed*\n\n${md(current.maintenanceMessage)}\n\nThank you for your patience\\.`,
+      new InlineKeyboard().text('❓ Support', 'support:').text('🏠 Home', 'home:'),
+    );
     return true;
   }
 
-  async function showProductList(chatId: number | string): Promise<void> {
-    if (!(await assertStoreOpen(chatId))) {
-      return;
-    }
-    const catalog = await loadCatalog(context);
-    const summary = catalog.map((item) => ({
-      title: item.product.title,
-      priceUsdt: priceLabel(item.priceMinor),
-    }));
-    const keyboard = new InlineKeyboard();
-    for (const item of catalog) {
-      keyboard.text(`${item.product.title} · ${priceLabel(item.priceMinor)} USDT`, `product:${item.product.id}`).row();
-    }
-    await bot.api.sendMessage(chatId, MESSAGES.productList(summary), {
-      parse_mode: 'Markdown',
-      reply_markup: catalog.length > 0 ? keyboard : MAIN_MENU_KEYBOARD,
-    });
+  async function showHome(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const balance = customer?.creditBalanceMinor ?? 0n;
+    await show(bot, screen, welcomeText(current, balance), homeKeyboard(current));
   }
 
-  async function showProductDetail(chatId: number | string, productId: string): Promise<void> {
-    const catalog = await loadCatalog(context);
-    const item = catalog.find((entry) => entry.product.id === productId);
-    const product = item?.product ?? (await getProduct(context.supabase, productId));
-    const priceMinor = item?.priceMinor ?? product.retailPriceMinor;
-    const keyboard = new InlineKeyboard().text('Buy Now', `buy:${product.id}`);
-    await bot.api.sendMessage(
-      chatId,
-      MESSAGES.productDetail({
-        title: product.title,
-        description: product.description,
-        priceUsdt: priceLabel(priceMinor),
-        deliveryMins: product.estimatedDeliveryMinutes,
-      }),
-      { parse_mode: 'Markdown', reply_markup: keyboard },
+  async function showShop(screen: Screen, categoryToken?: string): Promise<void> {
+    if (await maintenanceBlock(screen)) {
+      return;
+    }
+    const current = await storeContext();
+    const catalog = await loadCatalog();
+    if (catalog.length === 0) {
+      await show(
+        bot,
+        screen,
+        `😔 *No products available right now*\n\nCheck back soon\\!`,
+        new InlineKeyboard().text('🏠 Home', 'home:'),
+      );
+      return;
+    }
+    const categories = [...new Set(catalog.map((item) => item.product.category).filter((value): value is string => Boolean(value)))];
+    if (!categoryToken && categories.length > 1) {
+      const keyboard = new InlineKeyboard();
+      for (const category of categories) {
+        keyboard.text(clip(category, 40), `cat:${categoryKey(category)}`).row();
+      }
+      keyboard.text('🏠 Home', 'home:');
+      await show(
+        bot,
+        screen,
+        `🛍 *Browse Shop*\n\n${md(current.storeName)} — ${catalog.length} products\n\nChoose a category:`,
+        keyboard,
+      );
+      return;
+    }
+    const visible =
+      categoryToken === undefined
+        ? catalog
+        : catalog.filter((item) => item.product.category !== null && categoryKey(item.product.category) === categoryToken);
+    const keyboard = new InlineKeyboard();
+    for (const item of visible) {
+      const price = formatUsdt(item.priceMinor).replace(' USDT', '');
+      const stock = item.product.stockUnlimited ? '∞' : soldOut(item.product) ? 'sold out' : `${item.product.stockCount ?? 0} left`;
+      const label = clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${price} USDT (${stock})`, 64);
+      keyboard.text(label, soldOut(item.product) ? 'sold:' : `product:${item.product.id}`).row();
+    }
+    if (categories.length > 1) {
+      keyboard.text('⬅ Categories', 'shop:');
+    }
+    keyboard.text('🏠 Home', 'home:');
+    await show(
+      bot,
+      screen,
+      `🛍 *Browse Shop*\n\n${md(current.storeName)} — ${visible.length} products\n\nSelect a product:`,
+      keyboard,
     );
   }
 
-  async function handleBuy(chatId: number | string, productId: string, updateId: number): Promise<void> {
-    if (!(await assertStoreOpen(chatId))) {
+  async function showProduct(screen: Screen, productId: string): Promise<void> {
+    if (await maintenanceBlock(screen)) {
+      return;
+    }
+    const catalog = await loadCatalog();
+    const item = catalog.find((entry) => entry.product.id === productId);
+    if (!item) {
+      await show(bot, screen, ERROR_TEXT.PRODUCT_NOT_AVAILABLE ?? ERROR_TEXT.DEFAULT ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    const product = item.product;
+    const minutes = product.estimatedDeliveryMinutes;
+    const text =
+      `📦 *${md(product.title)}*\n\n` +
+      `${md(product.description ?? 'No description.')}\n\n` +
+      `💵 Price: *${money(item.priceMinor)}*\n` +
+      `📦 Stock: ${md(stockPhrase(product))}\n` +
+      `⏱ Delivery: ${minutes ? md(`~${minutes} minutes`) : 'Instant'}\n` +
+      `📂 Type: ${md(deliveryLabel(product))}`;
+    const keyboard = new InlineKeyboard();
+    if (soldOut(product) || product.status !== 'published') {
+      keyboard.text('❌ Out of Stock', 'sold:').row();
+    } else {
+      keyboard.text('🛒 Buy Now', `buy:${product.id}`).row();
+    }
+    keyboard.text('⬅ Back to Shop', 'shop:').text('🏠 Home', 'home:');
+    await show(bot, screen, text, keyboard);
+  }
+
+  function paymentKeyboard(current: BotContext, orderId: string): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    if (current.binancePayEnabled) {
+      keyboard.text('💳 Pay with Binance Pay', `pay_bp:${orderId}`).row();
+    }
+    if (current.bep20Enabled && current.usdtWalletAddress) {
+      keyboard.text('📤 Send USDT (BEP20)', `pay_bep:${orderId}`).row();
+    }
+    if (current.isDemoMode) {
+      keyboard.text('🧪 Demo Payment (Test Mode)', `pay_demo:${orderId}`).row();
+    }
+    keyboard.text('❌ Cancel Order', `cancel_order:${orderId}`);
+    return keyboard;
+  }
+
+  async function showPaymentOptions(screen: Screen, order: Order, productTitle: string): Promise<void> {
+    const current = await storeContext();
+    const text =
+      `✅ *Order Placed\\!*\n\n` +
+      `📦 ${md(productTitle)}\n` +
+      `💵 Amount: *${money(order.quotedRetailPriceMinor)}*\n` +
+      `🔖 Order: \`${orderRef(order.id)}\`\n\n` +
+      `Choose how you'd like to pay:`;
+    await show(bot, screen, text, paymentKeyboard(current, order.id));
+  }
+
+  async function handleBuy(screen: Screen, productId: string, updateId: number): Promise<void> {
+    if (await maintenanceBlock(screen)) {
       return;
     }
     if (customer === null) {
       throw new Error('missing customer');
     }
-    const order = await createOrder(context.supabase, {
-      channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
-      ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
-      botId: context.botConnection.id,
-      customerId: customer.id,
-      productId,
-      idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
-    });
-    const amount = priceLabel(order.quotedRetailPriceMinor);
-    pendingByChat.set(String(chatId), { orderId: order.id });
-    await bot.api.sendMessage(chatId, MESSAGES.orderCreated(order.id, amount), { parse_mode: 'Markdown' });
-    await showPaymentChoice(chatId, order.id);
+    const catalog = await loadCatalog();
+    const item = catalog.find((entry) => entry.product.id === productId);
+    if (!item || soldOut(item.product)) {
+      await show(bot, screen, ERROR_TEXT.OUT_OF_STOCK ?? ERROR_TEXT.DEFAULT ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    try {
+      const order = await createOrder(context.supabase, {
+        channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
+        ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
+        botId: context.botConnection.id,
+        customerId: customer.id,
+        productId,
+        idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
+      });
+      await showPaymentOptions(screen, order, item.product.title);
+    } catch (error: unknown) {
+      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
+    }
   }
 
-  async function showOrders(chatId: number | string): Promise<void> {
+  async function ownedOrder(orderId: string): Promise<Order | null> {
+    if (customer === null) {
+      return null;
+    }
+    try {
+      const order = await getOrder(context.supabase, orderId);
+      return order.customerId === customer.id ? order : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function latestPayableOrder(): Promise<Order | null> {
+    if (customer === null) {
+      return null;
+    }
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 10 });
+    return (
+      orders.find((order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification') ??
+      null
+    );
+  }
+
+  async function confirmed(screen: Screen, order: Order): Promise<void> {
+    const product = await getProduct(context.supabase, order.productId);
+    const minutes = product.estimatedDeliveryMinutes;
+    await show(
+      bot,
+      screen,
+      `✅ *Payment Confirmed\\!*\n\n` +
+        `📦 ${md(product.title)}\n` +
+        `💵 ${money(order.quotedRetailPriceMinor)}\n` +
+        `🔖 Order: \`${orderRef(order.id)}\`\n\n` +
+        `Your order is being prepared\\.\n` +
+        `${minutes ? `⏱ Estimated delivery: ~${minutes} minutes` : 'Delivery is in progress\\.'}\n\n` +
+        `You will receive your product in this chat shortly\\.`,
+      new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+    );
+  }
+
+  async function startBinance(screen: Screen, orderId: string): Promise<void> {
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    const checkout = await createBinancePayOrder(context.supabase, order.id);
+    const keyboard = new InlineKeyboard()
+      .url('Open Binance Pay', checkout.checkoutUrl)
+      .row()
+      .text('❌ Cancel Order', `cancel_order:${order.id}`);
+    await show(
+      bot,
+      screen,
+      `💳 *Binance Pay*\n\n` +
+        `Amount: *${money(order.quotedRetailPriceMinor)}*\n` +
+        `Order: \`${orderRef(order.id)}\`\n\n` +
+        `Open Binance Pay, then send your *Binance Pay Order ID* here\\.`,
+      keyboard,
+    );
+  }
+
+  async function startBep20(screen: Screen, orderId: string): Promise<void> {
+    const current = await storeContext();
+    const order = await ownedOrder(orderId);
+    const address = current.usdtWalletAddress;
+    if (!order || !address) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current));
+      return;
+    }
+    const keyboard = new InlineKeyboard()
+      .text('📋 Copy Address', 'copy_addr:')
+      .row()
+      .text('❌ Cancel Order', `cancel_order:${order.id}`);
+    await show(
+      bot,
+      screen,
+      `📤 *Send USDT \\(BEP20\\)*\n\n` +
+        `Send exactly:\n*${money(order.quotedRetailPriceMinor)}* on BEP20\n\n` +
+        `To this address:\n\`${md(address)}\`\n\n` +
+        `⚠️ Send the EXACT amount\\.\n` +
+        `After sending, reply with your transaction hash \\(0x and 64 characters\\)\\.\n\n` +
+        `Order: \`${orderRef(order.id)}\`\n` +
+        `⏰ Expires in 24 hours`,
+      keyboard,
+    );
+  }
+
+  async function startDemo(screen: Screen, orderId: string): Promise<void> {
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      `🧪 *Demo Mode \\- Test Payment*\n\n` +
+        `⚠️ This is a TEST environment\\.\n` +
+        `No real payment is required\\.\n\n` +
+        `Order: \`${orderRef(order.id)}\``,
+      new InlineKeyboard()
+        .text('✅ Simulate Payment Success', `pay_demo_confirm:${order.id}`)
+        .row()
+        .text('❌ Cancel Order', `cancel_order:${order.id}`),
+    );
+  }
+
+  async function confirmDemo(screen: Screen, orderId: string): Promise<void> {
+    const current = await storeContext();
+    if (!current.isDemoMode) {
+      await show(bot, screen, ERROR_TEXT.DEFAULT ?? '', homeKeyboard(current));
+      return;
+    }
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current));
+      return;
+    }
+    await show(bot, screen, `⏳ Verifying your payment\\.\\.\\.`);
+    await createBinancePayOrder(context.supabase, order.id);
+    const result = await verifyBinancePayClaim(context.supabase, {
+      orderId: order.id,
+      binanceOrderId: order.id.replaceAll('-', ''),
+    });
+    if (result.verified) {
+      await confirmed(screen, order);
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      `❌ *Payment Not Verified*\n\n${md(result.rejectReason ?? 'Verification failed')}`,
+      paymentKeyboard(current, order.id),
+    );
+  }
+
+  async function verifyReference(screen: Screen, text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    const isHash = TX_HASH_REGEX.test(trimmed) || trimmed.startsWith(PAYMENT_CONFIG.demo.failTxPrefix);
+    const isBinance =
+      BINANCE_NUMERIC_ORDER_ID_REGEX.test(trimmed) ||
+      trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) ||
+      trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix);
+    if (!isHash && !isBinance) {
+      return false;
+    }
+    const order = await latestPayableOrder();
+    if (!order) {
+      await show(bot, screen, `No pending order found\\. Use /orders to check your orders\\.`, homeKeyboard(await storeContext()));
+      return true;
+    }
+    await show(bot, screen, isHash ? `⏳ Verifying your transaction on the blockchain\\.\\.\\.` : `⏳ Verifying your Binance Pay payment\\.\\.\\.`);
+    if ((await storeContext()).isDemoMode) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, PAYMENT_CONFIG.demo.verificationDelayMs);
+      });
+    }
+    try {
+      const result = isHash
+        ? await verifyBep20Claim(context.supabase, { orderId: order.id, txHash: trimmed })
+        : await verifyBinancePayClaim(context.supabase, { orderId: order.id, binanceOrderId: trimmed });
+      if (result.verified) {
+        await confirmed(screen, order);
+        return true;
+      }
+      await show(
+        bot,
+        screen,
+        `❌ *Payment Not Verified*\n\n${md(result.rejectReason ?? 'Verification failed')}\n\nPlease try again\\.`,
+        paymentKeyboard(await storeContext(), order.id),
+      );
+    } catch (error: unknown) {
+      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
+    }
+    return true;
+  }
+
+  async function redeemToken(screen: Screen, token: string): Promise<void> {
+    if (context.tenantId === null) {
+      await show(
+        bot,
+        screen,
+        `🔑 Top\\-up tokens are redeemed from the reseller dashboard\\.`,
+        homeKeyboard(await storeContext()),
+      );
+      return;
+    }
+    const tenant = await getTenantById(context.supabase, context.tenantId);
+    const result = await redeemTopupToken(context.supabase, token, context.tenantId, tenant.ownerUserId);
+    if (!result.success || result.amountCredited === undefined || result.newBalance === undefined) {
+      await show(bot, screen, tokenError(result.errorCode), homeKeyboard(await storeContext()));
+      return;
+    }
+    const keyboard = new InlineKeyboard().text('🏠 Home', 'home:').text('🛍 Shop Now', 'shop:');
+    await show(
+      bot,
+      screen,
+      `✅ *Token Redeemed\\!*\n\n` +
+        `*\\+${money(result.amountCredited)}* added to the store wallet\\.\n` +
+        `New balance: *${money(result.newBalance)}*`,
+      keyboard,
+    );
+  }
+
+  async function showWallet(screen: Screen): Promise<void> {
+    const balance = customer?.creditBalanceMinor ?? 0n;
+    const keyboard = new InlineKeyboard()
+      .text('💳 Add Funds', 'deposit:')
+      .row()
+      .text('🏠 Home', 'home:');
+    await show(
+      bot,
+      screen,
+      `💰 *Your Wallet*\n\n` +
+        `Total Balance: *${money(balance)}*\n` +
+        `Reserved: ${money(0n)} \\(pending orders\\)\n` +
+        `Available: *${money(balance)}*`,
+      keyboard,
+    );
+  }
+
+  async function showDeposit(screen: Screen): Promise<void> {
+    if (await maintenanceBlock(screen)) {
+      return;
+    }
+    const current = await storeContext();
+    const keyboard = new InlineKeyboard();
+    if (current.bep20Enabled) {
+      keyboard.text('📤 Send USDT (BEP20)', 'dep_bep20:').row();
+    }
+    if (current.binancePayEnabled) {
+      keyboard.text('💳 Binance Pay', 'dep_bp:').row();
+    }
+    keyboard.text('🔑 Redeem Top-Up Token', 'dep_token:').row().text('⬅ Back', 'wallet:');
+    await show(bot, screen, `💳 *Add Funds*\n\nChoose a deposit method:`, keyboard);
+  }
+
+  async function showOrders(screen: Screen): Promise<void> {
     if (customer === null) {
       throw new Error('missing customer');
     }
-    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 5 });
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 10 });
     if (orders.length === 0) {
-      await bot.api.sendMessage(chatId, MESSAGES.noOrders, { reply_markup: MAIN_MENU_KEYBOARD });
+      await show(
+        bot,
+        screen,
+        `📭 *No Orders Yet*\n\nYou haven't placed any orders yet\\.`,
+        new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('🏠 Home', 'home:'),
+      );
       return;
     }
-    const lines = orders.map((order) => {
-      const ref = order.id.slice(0, 8).toUpperCase();
-      return `• \`${ref}\` — ${priceLabel(order.quotedRetailPriceMinor)} USDT — ${order.paymentStatus}`;
-    });
-    await bot.api.sendMessage(chatId, `${MESSAGES.ordersList}\n\n${lines.join('\n')}`, {
-      parse_mode: 'Markdown',
-      reply_markup: MAIN_MENU_KEYBOARD,
-    });
+    const keyboard = new InlineKeyboard();
+    for (const order of orders) {
+      const product = await getProduct(context.supabase, order.productId);
+      const mark = statusEmoji(order.paymentStatus === 'verified' ? order.deliveryStatus : order.paymentStatus);
+      keyboard
+        .text(
+          clip(`${mark} #${orderRef(order.id)} — ${product.title} — ${formatUsdt(order.quotedRetailPriceMinor)}`, 64),
+          `order:${order.id}`,
+        )
+        .row();
+    }
+    keyboard.text('🏠 Home', 'home:');
+    await show(bot, screen, `📦 *Your Orders*\n\nHere are your recent orders:`, keyboard);
   }
 
-  bot.command('start', async (ctx) => {
-    const name = sanitizeInput(ctx.from?.first_name ?? '').slice(0, 64);
-    await ctx.reply(MESSAGES.welcome(name), { reply_markup: MAIN_MENU_KEYBOARD });
-  });
+  async function showOrder(screen: Screen, orderId: string): Promise<void> {
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    const product = await getProduct(context.supabase, order.productId);
+    const when = order.createdAt.toISOString().slice(0, 16).replace('T', ' ');
+    const text =
+      `📦 *Order Details*\n\n` +
+      `🔖 Order ID: \`${orderRef(order.id)}\`\n` +
+      `📦 Product: ${md(product.title)}\n` +
+      `💵 Amount: ${money(order.quotedRetailPriceMinor)}\n` +
+      `📅 Date: ${md(when)} UTC\n\n` +
+      `💳 Payment: ${statusEmoji(order.paymentStatus)} ${md(order.paymentStatus)}\n` +
+      `💼 Funding: ${statusEmoji(order.fundingStatus)} ${md(order.fundingStatus)}\n` +
+      `📦 Fulfillment: ${statusEmoji(order.fulfillmentStatus)} ${md(order.fulfillmentStatus)}\n` +
+      `🚀 Delivery: ${statusEmoji(order.deliveryStatus)} ${md(order.deliveryStatus)}`;
+    const keyboard = new InlineKeyboard();
+    if (order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification') {
+      keyboard.text('💳 Complete Payment', `pay_menu:${order.id}`).row();
+    }
+    keyboard.text('⬅ Back to Orders', 'orders:').text('🏠 Home', 'home:');
+    await show(bot, screen, text, keyboard);
+  }
 
-  bot.on('callback_query:data', async (ctx) => {
-    const data = ctx.callbackQuery.data;
-    await ctx.answerCallbackQuery();
-    const chatId = ctx.chat?.id ?? ctx.from?.id;
-    if (chatId === undefined) {
+  async function showProfile(screen: Screen): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 50 });
+    const completed = orders.filter((order) => order.deliveryStatus === 'sent');
+    const spent = completed.reduce((sum, order) => sum + order.quotedRetailPriceMinor, 0n);
+    const name = customer.firstName ?? 'Not set';
+    const username = customer.username ? `@${customer.username}` : 'Not set';
+    const joined = customer.createdAt.toISOString().slice(0, 10);
+    await show(
+      bot,
+      screen,
+      `👤 *Your Profile*\n\n` +
+        `Name: ${md(name)}\n` +
+        `Username: ${md(username)}\n` +
+        `Member since: ${md(joined)}\n\n` +
+        `📊 *Your Stats*\n` +
+        `Total Orders: ${orders.length}\n` +
+        `Completed: ${completed.length}\n` +
+        `Total Spent: ${money(spent)}`,
+      new InlineKeyboard().text('📦 My Orders', 'orders:').text('💰 My Wallet', 'wallet:').row().text('🏠 Home', 'home:'),
+    );
+  }
+
+  async function showSupport(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const contact = current.supportContact ? `Contact: ${md(current.supportContact)}\n` : '';
+    const telegram = current.supportTelegramUrl ? `Telegram: ${md(current.supportTelegramUrl)}\n` : '';
+    await show(
+      bot,
+      screen,
+      `❓ *Support*\n\n${contact}${telegram}\nInclude your *Order ID* when asking about an order\\.\nUse /orders to find it\\.`,
+      new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+    );
+  }
+
+  async function showTerms(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    if (!current.termsOfService) {
+      await show(bot, screen, `📜 *Terms & Policies*\n\nTerms are not configured yet\\.`, navRow(new InlineKeyboard()));
+      return;
+    }
+    await show(bot, screen, `📜 *Terms & Policies*\n\n${md(current.termsOfService.slice(0, 3000))}`, navRow(new InlineKeyboard()));
+  }
+
+  async function showApi(screen: Screen): Promise<void> {
+    const origin = getAppUrl();
+    await show(
+      bot,
+      screen,
+      `🔑 *Developer API*\n\n` +
+        `Integrate this store with the REST API\\.\n\n` +
+        `📚 Docs:\n${md(`${origin}/api-docs`)}\n\n` +
+        `API keys:\n${md(`${origin}/reseller/settings/api-keys`)}`,
+      navRow(new InlineKeyboard()),
+    );
+  }
+
+  async function showResellerSignup(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const pitch = current.resellerSignupMessage ?? 'Join our reseller program and start earning today!';
+    const contact = current.supportContact ?? 'Contact support for an invite link';
+    await show(
+      bot,
+      screen,
+      `🤝 *Become a Reseller*\n\n${md(pitch)}\n\nTo get started, contact us:\n${md(contact)}`,
+      new InlineKeyboard().text('❓ Support', 'support:').text('🏠 Home', 'home:'),
+    );
+  }
+
+  async function cancel(screen: Screen, orderId: string): Promise<void> {
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    try {
+      await cancelOrder(context.supabase, order.id, 'customer cancelled in telegram');
+      await show(bot, screen, `❌ Order \`${orderRef(order.id)}\` was cancelled\\.`, homeKeyboard(await storeContext()));
+    } catch (error: unknown) {
+      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
+    }
+  }
+
+  async function onCallback(screen: Screen, data: string, updateId: number): Promise<void> {
+    if (data === 'home:' || data === 'home') {
+      await showHome(screen);
+      return;
+    }
+    if (data === 'shop:' || data === 'shop') {
+      await showShop(screen);
+      return;
+    }
+    if (data.startsWith('cat:')) {
+      await showShop(screen, data.slice(4));
       return;
     }
     if (data.startsWith('product:')) {
-      await showProductDetail(chatId, data.slice('product:'.length));
+      await showProduct(screen, data.slice('product:'.length));
+      return;
+    }
+    if (data === 'sold:') {
+      await show(bot, screen, ERROR_TEXT.OUT_OF_STOCK ?? '', homeKeyboard(await storeContext()));
       return;
     }
     if (data.startsWith('buy:')) {
-      await handleBuy(chatId, data.slice('buy:'.length), ctx.update.update_id);
+      await handleBuy(screen, data.slice('buy:'.length), updateId);
       return;
     }
-    if (data.startsWith('pay:binance:')) {
-      await startBinancePay(chatId, data.slice('pay:binance:'.length));
+    if (data.startsWith('pay_bp:') || data.startsWith('pay:binance:')) {
+      const orderId = data.startsWith('pay_bp:') ? data.slice('pay_bp:'.length) : data.slice('pay:binance:'.length);
+      await startBinance(screen, orderId);
       return;
     }
-    if (data.startsWith('pay:bep20:')) {
-      const orderId = data.slice('pay:bep20:'.length);
-      const orders = await listOrders(context.supabase, {
-        ...(customer !== null ? { customerId: customer.id } : {}),
-        limit: 10,
-      });
-      const order = orders.find((item) => item.id === orderId);
-      await startBep20(chatId, orderId, priceLabel(order?.quotedRetailPriceMinor ?? 0n));
+    if (data.startsWith('pay_bep:') || data.startsWith('pay:bep20:')) {
+      const orderId = data.startsWith('pay_bep:') ? data.slice('pay_bep:'.length) : data.slice('pay:bep20:'.length);
+      await startBep20(screen, orderId);
+      return;
     }
-  });
+    if (data.startsWith('pay_menu:')) {
+      const order = await ownedOrder(data.slice('pay_menu:'.length));
+      if (!order) {
+        await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+        return;
+      }
+      const product = await getProduct(context.supabase, order.productId);
+      await showPaymentOptions(screen, order, product.title);
+      return;
+    }
+    if (data.startsWith('pay_demo_confirm:')) {
+      await confirmDemo(screen, data.slice('pay_demo_confirm:'.length));
+      return;
+    }
+    if (data.startsWith('pay_demo:')) {
+      await startDemo(screen, data.slice('pay_demo:'.length));
+      return;
+    }
+    if (data.startsWith('cancel_order:')) {
+      await cancel(screen, data.slice('cancel_order:'.length));
+      return;
+    }
+    if (data === 'orders:' || data === 'orders') {
+      await showOrders(screen);
+      return;
+    }
+    if (data.startsWith('order:')) {
+      await showOrder(screen, data.slice('order:'.length));
+      return;
+    }
+    if (data === 'wallet:' || data === 'wallet') {
+      await showWallet(screen);
+      return;
+    }
+    if (data === 'deposit:' || data === 'deposit') {
+      await showDeposit(screen);
+      return;
+    }
+    if (data === 'dep_bep20:' || data === 'dep_bp:') {
+      await show(
+        bot,
+        screen,
+        `💳 *Add Funds*\n\nUSDT and Binance Pay are applied to an open order\\.\n\nPlace an order, then send your transaction hash or Binance Pay Order ID in this chat\\.`,
+        new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('📦 My Orders', 'orders:'),
+      );
+      return;
+    }
+    if (data === 'dep_token:') {
+      await show(bot, screen, `🔑 *Redeem Top\\-Up Token*\n\nSend your *12\\-digit token* now\\.`, navRow(new InlineKeyboard(), 'deposit:'));
+      return;
+    }
+    if (data === 'copy_addr:') {
+      const address = (await storeContext()).usdtWalletAddress;
+      if (address) {
+        await bot.api.sendMessage(screen.chatId, `\`${md(address)}\``, { parse_mode: 'MarkdownV2' });
+      }
+      return;
+    }
+    if (data === 'profile:') {
+      await showProfile(screen);
+      return;
+    }
+    if (data === 'support:') {
+      await showSupport(screen);
+      return;
+    }
+    if (data === 'terms:') {
+      await showTerms(screen);
+      return;
+    }
+    if (data === 'api_info:') {
+      await showApi(screen);
+      return;
+    }
+    if (data === 'reseller_signup:') {
+      await showResellerSignup(screen);
+      return;
+    }
+    await showHome(screen);
+  }
 
-  bot.on('message:text', async (ctx) => {
-    const text = ctx.message.text;
-    if (text.startsWith('/')) {
+  async function onText(screen: Screen, text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (trimmed === '🛍 Browse Products' || trimmed === '🛍 Browse Shop') {
+      await showShop(screen);
       return;
     }
-    if (text === '🛍 Browse Products') {
-      await showProductList(ctx.chat.id);
+    if (trimmed === '📦 My Orders') {
+      await showOrders(screen);
       return;
     }
-    if (text === '📦 My Orders') {
-      await showOrders(ctx.chat.id);
+    if (trimmed === '❓ Help') {
+      await showSupport(screen);
       return;
     }
-    if (text === '❓ Help') {
-      await ctx.reply(MESSAGES.help, { parse_mode: 'Markdown', reply_markup: MAIN_MENU_KEYBOARD });
+    if (/^\d{12}$/.test(trimmed) && !trimmed.startsWith('0')) {
+      await redeemToken(screen, trimmed);
       return;
     }
-    const handled = await handlePaymentReference(ctx.chat.id, text);
+    const handled = await verifyReference(screen, trimmed);
     if (handled) {
       return;
     }
-    if (pendingByChat.has(String(ctx.chat.id))) {
-      await ctx.reply(MESSAGES.paymentRefNeeded, { reply_markup: MAIN_MENU_KEYBOARD });
-      return;
+    if (trimmed.startsWith('/')) {
+      const command = trimmed.split(/\s/)[0]?.split('@')[0] ?? '';
+      if (KNOWN_COMMANDS.has(command)) {
+        return;
+      }
     }
-    await showMainMenu(ctx.chat.id, MESSAGES.unrecognized);
+    const current = await storeContext();
+    await show(bot, screen, `🤔 I didn't understand that\\.\n\nUse the menu below to navigate:`, homeKeyboard(current));
+  }
+
+  bot.command('start', async (ctx) => {
+    await showHome({ chatId: ctx.chat.id });
+  });
+  bot.command('shop', async (ctx) => {
+    await showShop({ chatId: ctx.chat.id });
+  });
+  bot.command('orders', async (ctx) => {
+    await showOrders({ chatId: ctx.chat.id });
+  });
+  bot.command('wallet', async (ctx) => {
+    await showWallet({ chatId: ctx.chat.id });
+  });
+  bot.command('deposit', async (ctx) => {
+    await showDeposit({ chatId: ctx.chat.id });
+  });
+  bot.command('support', async (ctx) => {
+    await showSupport({ chatId: ctx.chat.id });
+  });
+
+  bot.on('callback_query:data', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const chatId = ctx.chat?.id ?? ctx.from.id;
+    const message = ctx.callbackQuery.message;
+    const messageId = message && 'message_id' in message ? message.message_id : undefined;
+    await onCallback({ chatId, ...(messageId !== undefined ? { messageId } : {}) }, ctx.callbackQuery.data, ctx.update.update_id);
+  });
+
+  bot.on('message:text', async (ctx) => {
+    await onText({ chatId: ctx.chat.id }, ctx.message.text);
   });
 
   return {
@@ -476,7 +1012,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         }
         customer = await getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId);
         if (customer.isBlocked) {
-          await bot.api.sendMessage(identity.chatId, MESSAGES.blocked);
+          await bot.api.sendMessage(identity.chatId, '🚫 Your account has been blocked\\. Contact support for assistance\\.', {
+            parse_mode: 'MarkdownV2',
+          });
           return;
         }
         logger.info('telegram update processing', {
@@ -497,7 +1035,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         const identity = extractFrom(update);
         if (identity !== null) {
           try {
-            await bot.api.sendMessage(identity.chatId, MESSAGES.error, { reply_markup: MAIN_MENU_KEYBOARD });
+            await bot.api.sendMessage(identity.chatId, ERROR_TEXT.DEFAULT ?? '⚠️ Something went wrong.', {
+              parse_mode: 'MarkdownV2',
+            });
           } catch {
             logger.error('telegram error reply failed', { botId: context.botConnection.id });
           }

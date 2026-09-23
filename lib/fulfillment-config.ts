@@ -24,8 +24,8 @@ export const FULFILLMENT_CONFIG = {
 
   delivery: {
     /** Message sent to customer along with the file */
-    fileDeliveryCaption: (productTitle: string) =>
-      `✅ *Your order is ready!*\n\n📦 *${productTitle}*\n\nHere is your file. Enjoy!\n\n_This link expires in 1 hour. Download it now._`,
+    fileDeliveryCaption: (productTitle: string, orderRef?: string) =>
+      `🎉 *Your order is ready!*\n\n📦 *${productTitle}*\n\nHere is your file.\n\n${orderRef ? `✅ Order \`${orderRef}\` complete.\n` : ''}Thank you for your purchase!\n\nNeed help? /support`,
 
     /** Message when manual delivery is pending */
     manualDeliveryPending: (estimatedMinutes: number | null) =>

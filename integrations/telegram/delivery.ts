@@ -10,7 +10,11 @@
 import { Bot } from 'grammy';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { logger } from '@/lib/logger';
-import { sanitizeForTelegram } from '@/lib/sanitize';
+import { sanitizeInput } from '@/lib/sanitize';
+
+function plainTitle(text: string): string {
+  return sanitizeInput(text).replace(/[*_`[\]]/g, '').slice(0, 200);
+}
 
 /**
  * Sends a file to the customer using a short-lived signed URL.
@@ -19,17 +23,19 @@ import { sanitizeForTelegram } from '@/lib/sanitize';
  * @param chatId - Telegram chat id
  * @param signedUrl - Signed download URL
  * @param productTitle - Product title for the caption
+ * @param orderRef - Short order id shown in the caption
  */
 export async function sendFileDelivery(
   botToken: string,
   chatId: string,
   signedUrl: string,
   productTitle: string,
+  orderRef?: string,
 ): Promise<void> {
   const bot = new Bot(botToken);
   try {
     await bot.api.sendDocument(chatId, signedUrl, {
-      caption: FULFILLMENT_CONFIG.delivery.fileDeliveryCaption(sanitizeForTelegram(productTitle, 200)),
+      caption: FULFILLMENT_CONFIG.delivery.fileDeliveryCaption(plainTitle(productTitle), orderRef),
       parse_mode: 'Markdown',
     });
   } catch (error: unknown) {
@@ -78,8 +84,8 @@ export async function sendSupplierDelivery(
   const bot = new Bot(botToken);
   const isUrl = /^https?:\/\//i.test(deliveryData.trim());
   try {
-    const safeTitle = sanitizeForTelegram(productTitle, 200);
-    const safeContent = sanitizeForTelegram(deliveryData, 3000);
+    const safeTitle = plainTitle(productTitle);
+    const safeContent = sanitizeInput(deliveryData).slice(0, 3000);
     if (isUrl) {
       await bot.api.sendMessage(chatId, `✅ *${safeTitle}* is ready.`, {
         parse_mode: 'Markdown',
