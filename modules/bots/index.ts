@@ -198,9 +198,6 @@ export async function connectBot(supabase: DbClient, input: ConnectBotInput): Pr
   try {
     await telegramSetWebhook(token, webhookUrl, webhookSecret);
   } catch (error: unknown) {
-    // #region agent log
-    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H1',location:'bots/index.ts:connectBot:catch',message:'webhook registration failed',data:{errorName:error instanceof Error?error.name:'unknown',errorMessage:error instanceof Error?error.message:'unknown',errorCode:error instanceof AppError?error.code:''},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     await supabase
       .from('bot_connections')
       .update({ status: 'error', updated_at: new Date().toISOString() })
@@ -209,23 +206,6 @@ export async function connectBot(supabase: DbClient, input: ConnectBotInput): Pr
       throw error;
     }
     throw new AppError('WEBHOOK_REGISTER_FAILED', 'Unable to register Telegram webhook', 502);
-  }
-
-  try {
-    const info = await telegramGetWebhookInfo(token);
-    let registeredHost = '';
-    try {
-      registeredHost = new URL(info.url).host;
-    } catch {
-      registeredHost = '';
-    }
-    // #region agent log
-    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H1',location:'bots/index.ts:connectBot',message:'webhook registered',data:{expectedHost:(()=>{try{return new URL(webhookUrl).host}catch{return ''}})(),registeredHost,urlMatches:info.url===webhookUrl,pending:info.pending_update_count,lastError:info.last_error_message??''},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  } catch (error: unknown) {
-    // #region agent log
-    fetch('http://127.0.0.1:7919/ingest/7ddaa35c-0c58-42f6-8e24-2b102fb80347',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5914e5'},body:JSON.stringify({sessionId:'5914e5',hypothesisId:'H1',location:'bots/index.ts:connectBot:info',message:'webhook info read failed after register',data:{errorMessage:error instanceof Error?error.message:'unknown'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   }
 
   return mapBotConnectionRow(saved);
