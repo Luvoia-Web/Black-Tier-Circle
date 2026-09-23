@@ -6,7 +6,7 @@
  * @module Payments
  */
 
-export type PaymentMethod = 'binance_pay' | 'usdt_bep20';
+export type PaymentMethod = 'binance_pay' | 'usdt_bep20' | 'wallet' | 'demo';
 
 export type PaymentClaim = {
   readonly id: string;

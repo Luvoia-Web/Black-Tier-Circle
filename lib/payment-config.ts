@@ -8,7 +8,10 @@
  * chain lookups, not a merchant credential.
  */
 
+import { withCache } from '@/lib/cache';
+import type { DbClient } from '@/lib/supabase/query';
 import type { PlatformSettings } from '@/modules/platform/types';
+import { resolveOrderPayments } from '@/modules/payments/resolve';
 
 function isRealCredential(value: string | undefined): boolean {
   return !!value && !value.startsWith('PLACEHOLDER');
@@ -125,6 +128,45 @@ export function bscValueToMinorUnits(rawBscValue: string): bigint {
  * Wallet shown to customers for BEP20 transfers.
  * Falls back to the demo address when no wallet is configured.
  */
+export type PaymentMethodName = 'wallet' | 'binance_pay' | 'usdt_bep20' | 'demo';
+
+export type PaymentConfig = {
+  readonly walletEnabled: boolean;
+  readonly binancePayEnabled: boolean;
+  readonly bep20Enabled: boolean;
+  readonly demoEnabled: boolean;
+  readonly binancePayApiKey: null;
+  readonly binancePayApiSecret: null;
+  readonly binancePayMerchantId: string | null;
+  readonly platformUsdtWallet: string | null;
+  readonly isLiveMode: boolean;
+};
+
+/**
+ * Loads which payment methods a bot may offer.
+ * Credentials stay in the payment module. This result is cached for 60 seconds.
+ */
+export async function loadPaymentConfig(
+  supabase: DbClient,
+  customerBalanceMinor: bigint,
+  tenantId: string | null,
+): Promise<PaymentConfig> {
+  const cacheKey = `payment_config_${tenantId ?? 'owner'}`;
+  const resolved = await withCache(cacheKey, 60_000, () => resolveOrderPayments(supabase, tenantId));
+  const hasRealPaymentMethod = resolved.binance !== null || resolved.bep20Address !== null;
+  return {
+    walletEnabled: customerBalanceMinor > 0n,
+    binancePayEnabled: resolved.binance !== null,
+    bep20Enabled: resolved.bep20Address !== null,
+    demoEnabled: !hasRealPaymentMethod,
+    binancePayApiKey: null,
+    binancePayApiSecret: null,
+    binancePayMerchantId: resolved.binance?.merchantId ?? null,
+    platformUsdtWallet: resolved.bep20Address,
+    isLiveMode: hasRealPaymentMethod,
+  };
+}
+
 export function payoutAddressFor(address: string | null | undefined): string {
   if (address && address.trim().length > 0) {
     return address.trim();

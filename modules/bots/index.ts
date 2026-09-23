@@ -381,6 +381,13 @@ export async function getOrCreateCustomer(
 
   if (existing.data !== null) {
     const current = asCustomerRow(existing.data);
+    if (
+      current.telegram_chat_id === telegramChatId &&
+      current.first_name === firstName &&
+      (current.username ?? null) === username
+    ) {
+      return mapCustomerRow(current);
+    }
     const { data, error } = await supabase
       .from('customers')
       .update({

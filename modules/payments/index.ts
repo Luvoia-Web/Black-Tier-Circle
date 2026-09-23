@@ -573,6 +573,138 @@ export async function manualOverridePayment(
   });
 }
 
+function rpcBool(value: unknown): boolean {
+  return value === true;
+}
+
+function rpcMinor(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    return BigInt(value);
+  }
+  return 0n;
+}
+
+function firstCreditRow(data: unknown): Record<string, unknown> | null {
+  if (Array.isArray(data)) {
+    const row = data[0];
+    return row && typeof row === 'object' ? (row as Record<string, unknown>) : null;
+  }
+  if (data && typeof data === 'object') {
+    return data as Record<string, unknown>;
+  }
+  return null;
+}
+
+async function markPaymentMethod(
+  supabase: DbClient,
+  orderId: string,
+  method: 'wallet' | 'demo' | 'binance_pay' | 'usdt_bep20',
+): Promise<void> {
+  const { error } = await supabase
+    .from('orders')
+    .update({ payment_method: method, updated_at: new Date().toISOString() })
+    .eq('id', orderId);
+  if (error) {
+    throw new AppError('ORDER_UPDATE_FAILED', error.message, 500);
+  }
+}
+
+async function beginPayment(supabase: DbClient, order: Order, note: string): Promise<Order> {
+  if (order.paymentStatus === 'awaiting') {
+    await recordTransition(supabase, order.id, 'payment', 'awaiting', 'pending_verification', {
+      trigger: 'api',
+      note,
+    });
+    return getOrder(supabase, order.id);
+  }
+  return order;
+}
+
+/**
+ * Pays an awaiting order from the customer's credit balance.
+ * The debit is reversed if the order cannot be marked verified.
+ */
+export async function payOrderFromCustomerWallet(
+  supabase: DbClient,
+  orderId: string,
+  customerId: string,
+): Promise<{ readonly newBalance: bigint; readonly amount: bigint }> {
+  const order = await getOrder(supabase, orderId);
+  if (order.customerId !== customerId) {
+    throw new PaymentError('ORDER_NOT_FOUND', 'Order not found');
+  }
+  if (order.paymentStatus === 'verified') {
+    throw new PaymentError('ORDER_ALREADY_PAID', 'This order has already been paid');
+  }
+  if (order.paymentStatus !== 'awaiting' && order.paymentStatus !== 'pending_verification') {
+    throw new PaymentError('ORDER_NOT_PAYABLE', 'This order is not waiting for payment');
+  }
+
+  const price = order.quotedRetailPriceMinor;
+  const pending = await beginPayment(supabase, order, 'wallet payment started');
+  await markPaymentMethod(supabase, pending.id, 'wallet');
+
+  const credited = await supabase.rpc('adjust_customer_credit', {
+    p_customer_id: customerId,
+    p_delta: (-price).toString(),
+  });
+  const row = credited.error ? null : firstCreditRow(credited.data);
+  if (credited.error || row === null || !rpcBool(row.success)) {
+    await recordTransition(supabase, pending.id, 'payment', 'pending_verification', 'failed', {
+      trigger: 'api',
+      note: 'wallet debit failed',
+    });
+    await recordTransition(supabase, pending.id, 'payment', 'failed', 'awaiting', {
+      trigger: 'api',
+      note: 'restored so the customer can retry',
+    });
+    if (credited.error) {
+      throw new AppError('WALLET_DEBIT_FAILED', credited.error.message, 500);
+    }
+    throw new PaymentError('INSUFFICIENT_BALANCE', 'Customer balance is too low');
+  }
+
+  try {
+    await succeedPayment(supabase, pending, 'paid from customer wallet');
+  } catch (error: unknown) {
+    await supabase.rpc('adjust_customer_credit', {
+      p_customer_id: customerId,
+      p_delta: price.toString(),
+    });
+    throw error;
+  }
+
+  enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
+  triggerFulfillment(supabase, pending.id);
+  return { newBalance: rpcMinor(row.new_balance), amount: price };
+}
+
+/**
+ * Marks an order paid in demo mode without calling Binance or BscScan.
+ */
+export async function confirmDemoOrderPayment(supabase: DbClient, orderId: string): Promise<Order> {
+  const order = await getOrder(supabase, orderId);
+  const resolved = await resolveOrderPayments(supabase, order.tenantId);
+  if (!resolved.demo) {
+    throw new PaymentError('DEMO_DISABLED', 'Demo payment is off because a live method is configured');
+  }
+  if (order.paymentStatus === 'verified') {
+    return order;
+  }
+  if (order.paymentStatus !== 'awaiting' && order.paymentStatus !== 'pending_verification') {
+    throw new PaymentError('ORDER_NOT_PAYABLE', 'This order is not waiting for payment');
+  }
+  const pending = await beginPayment(supabase, order, 'demo payment started');
+  await markPaymentMethod(supabase, pending.id, 'demo');
+  await succeedPayment(supabase, pending, 'demo mode payment simulated');
+  enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
+  triggerFulfillment(supabase, pending.id);
+  return getOrder(supabase, order.id);
+}
+
 /**
  * Resolves a Binance merchantTradeNo to an order id when possible.
  *

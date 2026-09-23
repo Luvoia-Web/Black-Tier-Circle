@@ -13,6 +13,7 @@ import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { assertRateLimit } from '@/lib/request-rate-limit';
+import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { BotConnection } from '@/modules/bots/types';
 import { getDecryptedOwnerBotToken, getOwnerBotWebhookSecret, getPlatformSettings } from '@/modules/platform';
@@ -64,13 +65,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     const settings = await getPlatformSettings(db);
-    await processTelegramUpdate(
-      token,
-      db,
-      ownerConnection(secret, settings.ownerBotUsername ?? 'owner_store', settings.ownerBotId),
-      null,
-      update,
-    );
+    const connection = ownerConnection(secret, settings.ownerBotUsername ?? 'owner_store', settings.ownerBotId);
+    const work = (): Promise<void> => processTelegramUpdate(token, db, connection, null, update);
+    const deferred = await scheduleAfterResponse(work);
+    if (!deferred) {
+      await work();
+    }
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false }, { status: 401 });

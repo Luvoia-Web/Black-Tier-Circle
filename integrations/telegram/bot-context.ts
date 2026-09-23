@@ -7,7 +7,6 @@
  * @module Telegram
  */
 
-import { payoutAddressFor } from '@/lib/payment-config';
 import type { DbClient } from '@/lib/supabase/query';
 import { getPlatformSettings } from '@/modules/platform';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
@@ -49,15 +48,14 @@ export async function resolveBotContext(
   const payments = await resolveOrderPayments(supabase, tenantId);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
-  const wallet = payments.bep20Address ?? (payments.demo ? payoutAddressFor(null) : null);
 
   return {
     isOwnerBot: tenantId === null,
     tenantId,
     storeName,
-    usdtWalletAddress: wallet,
-    binancePayEnabled: payments.binance !== null || payments.demo,
-    bep20Enabled: payments.bep20Address !== null || payments.demo,
+    usdtWalletAddress: payments.bep20Address,
+    binancePayEnabled: payments.binance !== null,
+    bep20Enabled: payments.bep20Address !== null,
     hasAnyPaymentMethod: !payments.demo,
     isDemoMode: payments.demo,
     storeStatus: tenant?.storeStatus ?? 'open',

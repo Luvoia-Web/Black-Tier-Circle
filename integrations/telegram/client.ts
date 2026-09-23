@@ -14,7 +14,8 @@ import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTe
 import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
 import { withCache } from '@/lib/cache';
 import { listProductsByIds } from '@/lib/lookups';
-import { PAYMENT_CONFIG } from '@/lib/payment-config';
+import { BOT_ERRORS } from '@/lib/bot-errors';
+import { PAYMENT_CONFIG, loadPaymentConfig } from '@/lib/payment-config';
 import { AppError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
@@ -28,7 +29,13 @@ import { getProduct, listProducts } from '@/modules/catalog';
 import type { Product } from '@/modules/catalog/types';
 import { cancelOrder, createOrder, getOrder, listOrders } from '@/modules/orders';
 import type { Order } from '@/modules/orders/types';
-import { createBinancePayOrder, verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
+import {
+  confirmDemoOrderPayment,
+  createBinancePayOrder,
+  payOrderFromCustomerWallet,
+  verifyBep20Claim,
+  verifyBinancePayClaim,
+} from '@/modules/payments';
 import { listResellerListings } from '@/modules/pricing';
 import { getTenantById } from '@/modules/tenants';
 import { redeemCustomerCreditToken, redeemTopupToken } from '@/modules/wallet';
@@ -419,30 +426,50 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, text, keyboard);
   }
 
-  function paymentKeyboard(current: BotContext, orderId: string): InlineKeyboard {
+  async function paymentKeyboard(order: Order): Promise<InlineKeyboard> {
+    const current = await storeContext();
+    const balance = customer?.creditBalanceMinor ?? 0n;
+    const config = await loadPaymentConfig(context.supabase, balance, context.tenantId);
+    const price = order.quotedRetailPriceMinor;
     const keyboard = new InlineKeyboard();
-    if (current.binancePayEnabled) {
-      keyboard.text('💳 Pay with Binance Pay', `pay_bp:${orderId}`).row();
+    if (balance >= price && price > 0n) {
+      keyboard
+        .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)})`, 64), `pay_wallet:${order.id}`)
+        .row();
+    } else if (balance > 0n) {
+      keyboard.text(clip(`💰 Wallet: ${formatUsdt(balance)} (insufficient)`, 64), `wallet_low:${order.id}`).row();
     }
-    if (current.bep20Enabled && current.usdtWalletAddress) {
-      keyboard.text('📤 Send USDT (BEP20)', `pay_bep:${orderId}`).row();
+    if (config.binancePayEnabled) {
+      keyboard.text('💳 Binance Pay', `pay_bp:${order.id}`).row();
     }
-    if (current.isDemoMode) {
-      keyboard.text('🧪 Demo Payment (Test Mode)', `pay_demo:${orderId}`).row();
+    if (config.bep20Enabled && current.usdtWalletAddress) {
+      keyboard.text('📤 Send USDT (BEP20)', `pay_bep:${order.id}`).row();
     }
-    keyboard.text('❌ Cancel Order', `cancel_order:${orderId}`);
+    if (config.demoEnabled) {
+      keyboard.text('🧪 Test Payment (Demo Mode)', `pay_demo:${order.id}`).row();
+    }
+    keyboard.text('❌ Cancel Order', `cancel_order:${order.id}`);
     return keyboard;
   }
 
   async function showPaymentOptions(screen: Screen, order: Order, productTitle: string): Promise<void> {
+    if (customer !== null) {
+      customer = await getCustomerById(context.supabase, customer.id);
+    }
     const current = await storeContext();
+    const config = await loadPaymentConfig(
+      context.supabase,
+      customer?.creditBalanceMinor ?? 0n,
+      context.tenantId,
+    );
+    const notice = config.demoEnabled ? '\n\n⚠️ <i>Demo mode — no real payment required</i>' : '';
     const text =
-      `✅ *Order Placed\\!*\n\n` +
-      `📦 ${md(productTitle)}\n` +
-      `💵 Amount: *${money(order.quotedRetailPriceMinor)}*\n` +
-      `🔖 Order: \`${orderRef(order.id)}\`\n\n` +
-      `Choose how you'd like to pay:`;
-    await show(bot, screen, text, paymentKeyboard(current, order.id));
+      `✅ <b>Order Created</b>\n\n` +
+      `📦 ${html(productTitle)}\n` +
+      `💵 Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
+      `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+      `Choose how you'd like to pay:${notice}`;
+    await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
 
   async function handleBuy(screen: Screen, productId: string, updateId: number): Promise<void> {
@@ -514,25 +541,57 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function startBinance(screen: Screen, orderId: string): Promise<void> {
+    const current = await storeContext();
     const order = await ownedOrder(orderId);
     if (!order) {
-      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(current), 'HTML');
       return;
     }
-    const checkout = await createBinancePayOrder(context.supabase, order.id);
-    const keyboard = new InlineKeyboard()
-      .url('Open Binance Pay', checkout.checkoutUrl)
-      .row()
-      .text('❌ Cancel Order', `cancel_order:${order.id}`);
-    await show(
-      bot,
-      screen,
-      `💳 *Binance Pay*\n\n` +
-        `Amount: *${money(order.quotedRetailPriceMinor)}*\n` +
-        `Order: \`${orderRef(order.id)}\`\n\n` +
-        `Open Binance Pay, then send your *Binance Pay Order ID* here\\.`,
-      keyboard,
-    );
+    if (current.isDemoMode) {
+      await show(
+        bot,
+        screen,
+        `💳 <b>Binance Pay — Demo Mode</b>\n\n` +
+          `⚠️ No live Binance Pay credentials are saved yet.\n\n` +
+          `When you add them in Settings, this button opens a real checkout.\n\n` +
+          `For testing, confirm a simulated payment below.`,
+        new InlineKeyboard()
+          .text('✅ Simulate Payment', `pay_demo_confirm:${order.id}`)
+          .row()
+          .text('❌ Cancel', `cancel_order:${order.id}`),
+        'HTML',
+      );
+      return;
+    }
+    try {
+      const checkout = await createBinancePayOrder(context.supabase, order.id);
+      const keyboard = new InlineKeyboard()
+        .url('Open Binance Pay', checkout.checkoutUrl)
+        .row()
+        .text('❌ Cancel', `cancel_order:${order.id}`);
+      await show(
+        bot,
+        screen,
+        `💳 <b>Binance Pay</b>\n\n` +
+          `💵 Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
+          `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+          `Open Binance Pay and complete the payment.\n` +
+          `Then send your <b>Binance Pay Order ID</b> in this chat.`,
+        keyboard,
+        'HTML',
+      );
+    } catch (error: unknown) {
+      const timedOut = error instanceof AppError && error.code === 'BINANCE_TIMEOUT';
+      await show(
+        bot,
+        screen,
+        timedOut
+          ? BOT_ERRORS.BINANCE_TIMEOUT
+          : '❌ <b>Could not create payment</b>\n\nTry another method or contact /support.',
+        await paymentKeyboard(order),
+        'HTML',
+      );
+    }
   }
 
   async function startBep20(screen: Screen, orderId: string): Promise<void> {
@@ -564,50 +623,131 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function startDemo(screen: Screen, orderId: string): Promise<void> {
     const order = await ownedOrder(orderId);
     if (!order) {
-      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+      await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     await show(
       bot,
       screen,
-      `🧪 *Demo Mode \\- Test Payment*\n\n` +
-        `⚠️ This is a TEST environment\\.\n` +
-        `No real payment is required\\.\n\n` +
-        `Order: \`${orderRef(order.id)}\``,
+      `🧪 <b>Demo Mode Payment</b>\n\n` +
+        `⚠️ This is a test environment. No real payment is required.\n\n` +
+        `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+        `Tap below to simulate a successful payment:`,
       new InlineKeyboard()
-        .text('✅ Simulate Payment Success', `pay_demo_confirm:${order.id}`)
+        .text('✅ Confirm Test Payment', `pay_demo_confirm:${order.id}`)
         .row()
-        .text('❌ Cancel Order', `cancel_order:${order.id}`),
+        .text('❌ Cancel', `cancel_order:${order.id}`),
+      'HTML',
     );
   }
 
   async function confirmDemo(screen: Screen, orderId: string): Promise<void> {
     const current = await storeContext();
-    if (!current.isDemoMode) {
-      await show(bot, screen, ERROR_TEXT.DEFAULT ?? '', homeKeyboard(current));
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(current), 'HTML');
       return;
+    }
+    if (order.paymentStatus === 'verified') {
+      await show(bot, screen, BOT_ERRORS.ORDER_ALREADY_PAID, homeKeyboard(current), 'HTML');
+      return;
+    }
+    await show(bot, screen, '⏳ <b>Confirming test payment...</b>', undefined, 'HTML');
+    try {
+      await confirmDemoOrderPayment(context.supabase, order.id);
+      const product = await getProduct(context.supabase, order.productId);
+      await show(
+        bot,
+        screen,
+        `✅ <b>Demo Payment Confirmed!</b>\n\n` +
+          `📦 ${html(product.title)}\n` +
+          `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+          `Your order is being prepared. You'll receive it shortly.\n\n` +
+          `<i>⚠️ This was a simulated payment in demo mode.</i>`,
+        new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+        'HTML',
+      );
+    } catch (error: unknown) {
+      logger.error('demo payment failed', {
+        orderId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      await show(bot, screen, BOT_ERRORS.GENERIC_ERROR, await paymentKeyboard(order), 'HTML');
+    }
+  }
+
+  async function payFromWallet(screen: Screen, orderId: string): Promise<void> {
+    const current = await storeContext();
+    if (customer === null) {
+      throw new Error('missing customer');
     }
     const order = await ownedOrder(orderId);
     if (!order) {
-      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current));
+      await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(current), 'HTML');
       return;
     }
-    await show(bot, screen, `⏳ Verifying your payment\\.\\.\\.`);
-    await createBinancePayOrder(context.supabase, order.id);
-    const result = await verifyBinancePayClaim(context.supabase, {
-      orderId: order.id,
-      binanceOrderId: order.id.replaceAll('-', ''),
-    });
-    if (result.verified) {
-      await confirmed(screen, order);
+    if (order.paymentStatus === 'verified') {
+      await show(bot, screen, BOT_ERRORS.ORDER_ALREADY_PAID, homeKeyboard(current), 'HTML');
       return;
     }
-    await show(
-      bot,
-      screen,
-      `❌ *Payment Not Verified*\n\n${md(result.rejectReason ?? 'Verification failed')}`,
-      paymentKeyboard(current, order.id),
-    );
+    const balance = (await getCustomerById(context.supabase, customer.id)).creditBalanceMinor;
+    if (balance < order.quotedRetailPriceMinor) {
+      const shortfall = order.quotedRetailPriceMinor - balance;
+      await show(
+        bot,
+        screen,
+        BOT_ERRORS.INSUFFICIENT_BALANCE(
+          formatUsdt(order.quotedRetailPriceMinor),
+          formatUsdt(balance),
+          formatUsdt(shortfall),
+        ),
+        new InlineKeyboard().text('💳 Add Funds', 'deposit:').text('❌ Cancel', `cancel_order:${order.id}`),
+        'HTML',
+      );
+      return;
+    }
+    try {
+      const paid = await payOrderFromCustomerWallet(context.supabase, order.id, customer.id);
+      customer = { ...customer, creditBalanceMinor: paid.newBalance };
+      await show(
+        bot,
+        screen,
+        `✅ <b>Payment Successful!</b>\n\n` +
+          `💵 Paid: ${html(formatUsdt(paid.amount))} from wallet\n` +
+          `💰 Remaining balance: <b>${html(formatUsdt(paid.newBalance))}</b>\n` +
+          `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+          `Your order is being prepared. You'll receive your product shortly.`,
+        new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+        'HTML',
+      );
+    } catch (error: unknown) {
+      const code = error instanceof AppError ? error.code : '';
+      if (code === 'INSUFFICIENT_BALANCE') {
+        await show(
+          bot,
+          screen,
+          BOT_ERRORS.INSUFFICIENT_BALANCE(
+            formatUsdt(order.quotedRetailPriceMinor),
+            formatUsdt(balance),
+            formatUsdt(order.quotedRetailPriceMinor - balance),
+          ),
+          new InlineKeyboard().text('💳 Add Funds', 'deposit:').text('❌ Cancel', `cancel_order:${order.id}`),
+          'HTML',
+        );
+        return;
+      }
+      logger.error('wallet payment failed', {
+        orderId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      await show(
+        bot,
+        screen,
+        '❌ <b>Payment failed</b>\n\nYour balance was not charged. Please try again or contact /support.',
+        await paymentKeyboard(order),
+        'HTML',
+      );
+    }
   }
 
   async function verifyReference(screen: Screen, text: string): Promise<boolean> {
@@ -639,30 +779,38 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         await confirmed(screen, order);
         return true;
       }
+      const reason = result.rejectReason ?? '';
+      const method = isHash ? 'USDT' : 'Binance Pay';
+      const text =
+        reason === 'AMOUNT_MISMATCH'
+          ? BOT_ERRORS.AMOUNT_MISMATCH(formatUsdt(order.quotedRetailPriceMinor), 'a different amount')
+          : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(method);
+      await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
+    } catch (error: unknown) {
+      const timedOut = error instanceof AppError && error.code === 'BINANCE_TIMEOUT';
       await show(
         bot,
         screen,
-        `❌ *Payment Not Verified*\n\n${md(result.rejectReason ?? 'Verification failed')}\n\nPlease try again\\.`,
-        paymentKeyboard(await storeContext(), order.id),
+        timedOut ? BOT_ERRORS.BINANCE_TIMEOUT : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(isHash ? 'USDT' : 'Binance Pay'),
+        await paymentKeyboard(order),
+        'HTML',
       );
-    } catch (error: unknown) {
-      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
     }
     return true;
   }
 
   function tokenHtml(code: string | undefined): string {
     if (code === 'TOKEN_NOT_FOUND') {
-      return '❌ <b>Invalid token</b>\n\nThis token does not exist. Please check and try again.';
+      return BOT_ERRORS.TOKEN_NOT_FOUND;
     }
     if (code === 'TOKEN_REDEEMED') {
-      return '❌ <b>Token already used</b>\n\nThis token has already been redeemed.';
+      return BOT_ERRORS.TOKEN_ALREADY_USED;
     }
     if (code === 'TOKEN_EXPIRED') {
-      return '❌ <b>Token expired</b>\n\nThis token is no longer valid.';
+      return BOT_ERRORS.TOKEN_EXPIRED;
     }
     if (code === 'TOKEN_REVOKED') {
-      return '❌ <b>Token revoked</b>\n\nThis token is no longer valid.';
+      return BOT_ERRORS.TOKEN_REVOKED;
     }
     if (code === 'TOKEN_IS_STORE_WALLET' || code === 'TOKEN_WRONG_TENANT') {
       return '❌ <b>Store wallet token</b>\n\nThis token funds a reseller store wallet. Ask your store owner for a customer top-up token.';
@@ -954,6 +1102,27 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showPaymentOptions(screen, order, product.title);
       return;
     }
+    if (data.startsWith('pay_wallet:')) {
+      await payFromWallet(screen, data.slice('pay_wallet:'.length));
+      return;
+    }
+    if (data.startsWith('wallet_low:')) {
+      const lowOrder = await ownedOrder(data.slice('wallet_low:'.length));
+      const balance = customer?.creditBalanceMinor ?? 0n;
+      const needed = lowOrder?.quotedRetailPriceMinor ?? 0n;
+      await show(
+        bot,
+        screen,
+        BOT_ERRORS.INSUFFICIENT_BALANCE(
+          formatUsdt(needed),
+          formatUsdt(balance),
+          formatUsdt(needed > balance ? needed - balance : 0n),
+        ),
+        new InlineKeyboard().text('💳 Add Funds', 'deposit:').text('🏠 Home', 'home:'),
+        'HTML',
+      );
+      return;
+    }
     if (data.startsWith('pay_demo_confirm:')) {
       await confirmDemo(screen, data.slice('pay_demo_confirm:'.length));
       return;
@@ -1135,13 +1304,6 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         const [loadedCustomer, loadedStore] = await Promise.all([
           getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
           resolveBotContext(context.supabase, context.botConnection.id, context.tenantId),
-          loadCatalog().catch((error: unknown) => {
-            logger.info('telegram catalog prefetch skipped', {
-              botId: context.botConnection.id,
-              message: error instanceof Error ? error.message : 'unknown',
-            });
-            return [];
-          }),
         ]);
         customer = loadedCustomer;
         store = loadedStore;
@@ -1167,7 +1329,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         }
         await bot.handleUpdate(update);
         if (context.botConnection.id !== OWNER_STORE_BOT_ID) {
-          await updateBotHealth(context.supabase, context.botConnection.id);
+          void updateBotHealth(context.supabase, context.botConnection.id).catch((error: unknown) => {
+            logger.info('telegram health update skipped', {
+              botId: context.botConnection.id,
+              message: error instanceof Error ? error.message : 'unknown',
+            });
+          });
         }
       } catch (error: unknown) {
         logger.error('telegram processUpdate failed', {
@@ -1178,8 +1345,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         const identity = extractFrom(update);
         if (identity !== null) {
           try {
-            await bot.api.sendMessage(identity.chatId, ERROR_TEXT.DEFAULT ?? '⚠️ Something went wrong.', {
-              parse_mode: 'MarkdownV2',
+            await bot.api.sendMessage(identity.chatId, BOT_ERRORS.GENERIC_ERROR, {
+              parse_mode: 'HTML',
             });
           } catch {
             logger.error('telegram error reply failed', { botId: context.botConnection.id });

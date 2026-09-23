@@ -22,6 +22,7 @@ import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
 import { assertRateLimit } from '@/lib/request-rate-limit';
+import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getBotConnectionById } from '@/modules/bots';
 
@@ -67,7 +68,12 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
     });
 
     const token = decryptBotToken(connection.encryptedToken);
-    await processTelegramUpdate(token, db, connection, connection.tenantId, update);
+    const work = (): Promise<void> =>
+      processTelegramUpdate(token, db, connection, connection.tenantId, update);
+    const deferred = await scheduleAfterResponse(work);
+    if (!deferred) {
+      await work();
+    }
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false }, { status: 401 });

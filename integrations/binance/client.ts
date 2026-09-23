@@ -120,7 +120,8 @@ export function createSandboxBinancePayClient(): BinancePayClient {
       };
     },
     async queryOrder(merchantTradeNo: string): Promise<BinancePayOrderResult> {
-      if (merchantTradeNo.startsWith(PAYMENT_CONFIG.demo.failPrefix)) {
+      const upper = merchantTradeNo.toUpperCase();
+      if (merchantTradeNo.startsWith(PAYMENT_CONFIG.demo.failPrefix) || upper.startsWith('DEMO_FAIL')) {
         return { status: 'FAIL', merchantTradeNo };
       }
       const paidAmount = sandboxPaidAmounts.get(merchantTradeNo) ?? '10.000000';
@@ -147,6 +148,30 @@ export function createRealBinancePayClient(
     return buildBinancePayHeaders(apiKey, apiSecret, body);
   }
 
+  async function postBinance(path: string, body: unknown): Promise<BinanceApiResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: buildHeaders(body),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new PaymentError('BINANCE_HTTP_ERROR', `Binance API returned ${res.status}`, res.status);
+      }
+      return (await res.json()) as BinanceApiResponse;
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new PaymentError('BINANCE_TIMEOUT', 'Binance Pay request timed out', 504);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   return {
     async createOrder(params) {
       const body = {
@@ -163,12 +188,7 @@ export function createRealBinancePayClient(
           goodsDetail: params.goods.goodsDetail?.slice(0, 256),
         },
       };
-      const res = await fetch(`${baseUrl}/binancepay/openapi/v2/order`, {
-        method: 'POST',
-        headers: buildHeaders(body),
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as BinanceApiResponse;
+      const data = await postBinance('/binancepay/openapi/v2/order', body);
       if (data.status !== 'SUCCESS' || !data.data?.prepayId || !data.data.checkoutUrl) {
         throw new PaymentError(
           'BINANCE_CREATE_FAILED',
@@ -183,12 +203,7 @@ export function createRealBinancePayClient(
 
     async queryOrder(merchantTradeNo) {
       const body = { merchantTradeNo };
-      const res = await fetch(`${baseUrl}/binancepay/openapi/v2/order/query`, {
-        method: 'POST',
-        headers: buildHeaders(body),
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as BinanceApiResponse;
+      const data = await postBinance('/binancepay/openapi/v2/order/query', body);
       if (data.status !== 'SUCCESS' || !data.data) {
         throw new PaymentError('BINANCE_QUERY_FAILED', data.errorMessage ?? 'Binance Pay query failed');
       }

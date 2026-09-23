@@ -9,6 +9,7 @@
  * @module TenantSettings
  */
 
+import { invalidateCache } from '@/lib/cache';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -212,6 +213,7 @@ export async function updateTenantSettings(
   if (error || data === null) {
     throw new AppError('TENANT_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update settings', 500);
   }
+  invalidateCache('payment_config_');
   return mapRow(asRow(data));
 }
 

@@ -184,6 +184,7 @@ export async function connectOwnerBot(supabase: DbClient, botToken: string): Pro
   }
 
   invalidateCache('platform_settings');
+  invalidateCache('payment_config_');
   return { username: info.username, botId: info.id, webhookUrl };
 }
 
@@ -215,6 +216,7 @@ export async function disconnectOwnerBot(supabase: DbClient): Promise<void> {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error.message, 500);
   }
   invalidateCache('platform_settings');
+  invalidateCache('payment_config_');
 }
 
 /**
@@ -287,6 +289,7 @@ export async function updatePaymentSettings(
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update payments', 500);
   }
   invalidateCache('platform_settings');
+  invalidateCache('payment_config_');
   return mapRow(asRow(data));
 }
 
@@ -318,6 +321,7 @@ export async function updatePlatformInfo(
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error?.message ?? 'Unable to update platform info', 500);
   }
   invalidateCache('platform_settings');
+  invalidateCache('payment_config_');
   return mapRow(asRow(data));
 }
 
