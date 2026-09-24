@@ -16,6 +16,8 @@ export type PlatformSettings = {
   ownerBotStatus: OwnerBotStatus;
   ownerBotLastHealthAt: Date | null;
   platformUsdtWalletBep20: string | null;
+  platformUsdtWalletTrc20: string | null;
+  trc20Enabled: boolean;
   binancePayMerchantId: string | null;
   binancePayEnabled: boolean;
   /** True when both Binance API key and secret are stored. Values are never exposed. */
@@ -35,6 +37,8 @@ export type PlatformSettingsRow = {
   readonly owner_bot_status: string | null;
   readonly owner_bot_last_health_at: string | null;
   readonly platform_usdt_wallet_bep20: string | null;
+  readonly platform_usdt_wallet_trc20?: string | null;
+  readonly trc20_enabled?: boolean | null;
   readonly binance_pay_api_key_encrypted: string | null;
   readonly binance_pay_api_secret_encrypted: string | null;
   readonly binance_pay_merchant_id: string | null;
@@ -55,6 +59,8 @@ export type ConnectOwnerBotResult = {
 
 export type UpdatePaymentSettingsInput = {
   readonly platformUsdtWalletBep20?: string | null;
+  readonly platformUsdtWalletTrc20?: string | null;
+  readonly trc20Enabled?: boolean;
   readonly binancePayApiKey?: string;
   readonly binancePayApiSecret?: string;
   readonly binancePayMerchantId?: string | null;

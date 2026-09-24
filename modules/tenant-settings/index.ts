@@ -54,6 +54,10 @@ function mapRow(row: TenantSettingsRow): TenantSettings {
     binancePayEnabled: row.binance_pay_enabled === true,
     useOwnUsdtWallet: row.use_own_usdt_wallet === true,
     usdtWalletBep20: row.usdt_wallet_bep20,
+    usdtWalletTrc20: row.usdt_wallet_trc20 ?? null,
+    useOwnTrc20Wallet: row.use_own_trc20_wallet === true,
+    trc20Enabled: row.trc20_enabled === true,
+    announcementChannelId: row.announcement_channel_id ?? null,
     usdtMinimumBep20:
       row.usdt_minimum_bep20 === null || row.usdt_minimum_bep20 === undefined
         ? DEFAULT_USDT_MIN
@@ -255,6 +259,8 @@ export type TenantPaymentSource = {
   readonly binance: TenantBinanceCredentials | null;
   readonly usdtWalletBep20: string | null;
   readonly useOwnUsdtWallet: boolean;
+  readonly usdtWalletTrc20: string | null;
+  readonly useOwnTrc20Wallet: boolean;
   readonly binancePayEnabled: boolean;
 };
 
@@ -271,7 +277,14 @@ export async function getTenantPaymentSource(
     throw new AppError('TENANT_SETTINGS_LOOKUP_FAILED', existing.error.message, 500);
   }
   if (existing.data === null) {
-    return { binance: null, usdtWalletBep20: null, useOwnUsdtWallet: false, binancePayEnabled: false };
+    return {
+      binance: null,
+      usdtWalletBep20: null,
+      useOwnUsdtWallet: false,
+      usdtWalletTrc20: null,
+      useOwnTrc20Wallet: false,
+      binancePayEnabled: false,
+    };
   }
   const row = asRow(existing.data);
   const enabled = row.binance_pay_enabled === true;
@@ -288,10 +301,13 @@ export async function getTenantPaymentSource(
     }
   }
   const wallet = row.usdt_wallet_bep20?.trim() ?? '';
+  const trc20 = row.usdt_wallet_trc20?.trim() ?? '';
   return {
     binance,
     usdtWalletBep20: wallet.length > 0 ? wallet : null,
     useOwnUsdtWallet: row.use_own_usdt_wallet === true,
+    usdtWalletTrc20: trc20.length > 0 ? trc20 : null,
+    useOwnTrc20Wallet: row.use_own_trc20_wallet === true && row.trc20_enabled !== false,
     binancePayEnabled: enabled,
   };
 }

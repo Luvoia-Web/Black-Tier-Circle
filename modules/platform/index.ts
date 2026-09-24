@@ -59,6 +59,8 @@ function mapRow(row: PlatformSettingsRow): PlatformSettings {
     ownerBotStatus: asStatus(row.owner_bot_status),
     ownerBotLastHealthAt: row.owner_bot_last_health_at ? new Date(row.owner_bot_last_health_at) : null,
     platformUsdtWalletBep20: row.platform_usdt_wallet_bep20,
+    platformUsdtWalletTrc20: row.platform_usdt_wallet_trc20 ?? null,
+    trc20Enabled: row.trc20_enabled === true,
     binancePayMerchantId: row.binance_pay_merchant_id,
     binancePayEnabled: row.binance_pay_enabled === true,
     binancePayConfigured: Boolean(row.binance_pay_api_key_encrypted && row.binance_pay_api_secret_encrypted),
@@ -277,6 +279,12 @@ export async function updatePaymentSettings(
   }
   if (input.bep20Enabled !== undefined) {
     patch.bep20_enabled = input.bep20Enabled;
+  }
+  if (input.platformUsdtWalletTrc20 !== undefined) {
+    patch.platform_usdt_wallet_trc20 = input.platformUsdtWalletTrc20;
+  }
+  if (input.trc20Enabled !== undefined) {
+    patch.trc20_enabled = input.trc20Enabled;
   }
 
   const { data, error } = await supabase

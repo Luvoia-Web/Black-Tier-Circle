@@ -25,6 +25,10 @@ export type TenantSettings = {
   readonly binancePayEnabled: boolean;
   readonly useOwnUsdtWallet: boolean;
   readonly usdtWalletBep20: string | null;
+  readonly usdtWalletTrc20: string | null;
+  readonly useOwnTrc20Wallet: boolean;
+  readonly trc20Enabled: boolean;
+  readonly announcementChannelId: string | null;
   readonly usdtMinimumBep20: string;
   readonly resellerSignupEnabled: boolean;
   readonly resellerSignupMessage: string | null;
@@ -57,6 +61,10 @@ export type TenantSettingsRow = {
   readonly binance_pay_enabled: boolean | null;
   readonly use_own_usdt_wallet: boolean | null;
   readonly usdt_wallet_bep20: string | null;
+  readonly usdt_wallet_trc20?: string | null;
+  readonly use_own_trc20_wallet?: boolean | null;
+  readonly trc20_enabled?: boolean | null;
+  readonly announcement_channel_id?: string | null;
   readonly usdt_minimum_bep20: string | number | null;
   readonly reseller_signup_enabled: boolean | null;
   readonly reseller_signup_message: string | null;
@@ -87,6 +95,10 @@ export type UpdateTenantSettingsInput = {
   readonly binancePayEnabled?: boolean;
   readonly useOwnUsdtWallet?: boolean;
   readonly usdtWalletBep20?: string | null;
+  readonly usdtWalletTrc20?: string | null;
+  readonly useOwnTrc20Wallet?: boolean;
+  readonly trc20Enabled?: boolean;
+  readonly announcementChannelId?: string | null;
   readonly usdtMinimumBep20?: string;
   readonly resellerSignupEnabled?: boolean;
   readonly resellerSignupMessage?: string | null;

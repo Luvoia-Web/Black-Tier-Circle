@@ -70,6 +70,32 @@ export async function telegramGetMe(token: string): Promise<BotInfo> {
  * @param url - Public webhook URL
  * @param secretToken - X-Telegram-Bot-Api-Secret-Token value
  */
+const BOT_COMMANDS = [
+  { command: 'start', description: 'Start and open the menu' },
+  { command: 'menu', description: 'Open the main menu' },
+  { command: 'shop', description: 'Browse products' },
+  { command: 'wallet', description: 'Open your wallet' },
+  { command: 'deposit', description: 'Add funds to wallet' },
+  { command: 'orders', description: 'View your orders' },
+  { command: 'profile', description: 'Your profile and account' },
+  { command: 'support', description: 'Get help and support' },
+  { command: 'refer', description: 'Refer friends and earn' },
+  { command: 'api', description: 'Access developer API' },
+  { command: 'find', description: 'Find an order by ID' },
+  { command: 'terms', description: 'Terms and policies' },
+];
+
+/**
+ * Registers the slash-command menu and the chat Menu button.
+ * Failures are ignored by callers that must not block checkout.
+ */
+export async function telegramSetMyCommands(token: string): Promise<void> {
+  await callTelegramApi<boolean>(token, 'setMyCommands', { commands: BOT_COMMANDS });
+  await callTelegramApi<boolean>(token, 'setChatMenuButton', {
+    menu_button: { type: 'commands' },
+  });
+}
+
 export async function telegramSetWebhook(token: string, url: string, secretToken: string): Promise<void> {
   await callTelegramApi<boolean>(token, 'setWebhook', {
     url,

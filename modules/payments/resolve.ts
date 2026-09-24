@@ -22,6 +22,7 @@ export type ResolvedPayments = {
   readonly demo: boolean;
   readonly binance: DecryptedBinanceCredentials | null;
   readonly bep20Address: string | null;
+  readonly trc20Address: string | null;
 };
 
 /**
@@ -36,6 +37,7 @@ export async function resolveOrderPayments(
 
   let resellerBinance: DecryptedBinanceCredentials | null = null;
   let resellerWallet: string | null = null;
+  let resellerTrc20: string | null = null;
   if (tenantId) {
     const tenant = await getTenantPaymentSource(supabase, tenantId);
     if (tenant.binancePayEnabled && tenant.binance) {
@@ -44,16 +46,23 @@ export async function resolveOrderPayments(
     if (tenant.useOwnUsdtWallet && tenant.usdtWalletBep20) {
       resellerWallet = tenant.usdtWalletBep20;
     }
+    if (tenant.useOwnTrc20Wallet && tenant.usdtWalletTrc20) {
+      resellerTrc20 = tenant.usdtWalletTrc20;
+    }
   }
 
   const binance = resellerBinance ?? platformBinance;
   const platformWallet =
     platform.bep20Enabled && platform.platformUsdtWalletBep20 ? platform.platformUsdtWalletBep20 : null;
   const bep20Address = resellerWallet ?? platformWallet;
+  const platformTrc20 =
+    platform.trc20Enabled && platform.platformUsdtWalletTrc20 ? platform.platformUsdtWalletTrc20 : null;
+  const trc20Address = resellerTrc20 ?? platformTrc20;
 
   return {
-    demo: binance === null && bep20Address === null,
+    demo: binance === null && bep20Address === null && trc20Address === null,
     binance,
     bep20Address,
+    trc20Address,
   };
 }

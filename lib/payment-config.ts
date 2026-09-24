@@ -89,7 +89,8 @@ export function isPaymentLive(
  */
 export function isPlatformPaymentConfigured(platformSettings: PlatformSettings): boolean {
   const bep20Ready = platformSettings.bep20Enabled && Boolean(platformSettings.platformUsdtWalletBep20);
-  return isPaymentLive(platformSettings) || bep20Ready;
+  const trc20Ready = platformSettings.trc20Enabled && Boolean(platformSettings.platformUsdtWalletTrc20);
+  return isPaymentLive(platformSettings) || bep20Ready || trc20Ready;
 }
 
 /**
@@ -128,18 +129,21 @@ export function bscValueToMinorUnits(rawBscValue: string): bigint {
  * Wallet shown to customers for BEP20 transfers.
  * Falls back to the demo address when no wallet is configured.
  */
-export type PaymentMethodName = 'wallet' | 'binance_pay' | 'usdt_bep20' | 'demo';
+export type PaymentMethodName = 'wallet' | 'binance_pay' | 'usdt_bep20' | 'usdt_trc20' | 'demo';
 
 export type PaymentConfig = {
   readonly walletEnabled: boolean;
   readonly binancePayEnabled: boolean;
   readonly bep20Enabled: boolean;
+  readonly trc20Enabled: boolean;
   readonly demoEnabled: boolean;
   readonly binancePayApiKey: null;
   readonly binancePayApiSecret: null;
   readonly binancePayMerchantId: string | null;
   readonly platformUsdtWallet: string | null;
+  readonly platformUsdtTrc20Wallet: string | null;
   readonly isLiveMode: boolean;
+  readonly isDemoMode: boolean;
 };
 
 /**
@@ -153,17 +157,21 @@ export async function loadPaymentConfig(
 ): Promise<PaymentConfig> {
   const cacheKey = `payment_config_${tenantId ?? 'owner'}`;
   const resolved = await withCache(cacheKey, 60_000, () => resolveOrderPayments(supabase, tenantId));
-  const hasRealPaymentMethod = resolved.binance !== null || resolved.bep20Address !== null;
+  const hasRealPaymentMethod =
+    resolved.binance !== null || resolved.bep20Address !== null || resolved.trc20Address !== null;
   return {
     walletEnabled: customerBalanceMinor > 0n,
     binancePayEnabled: resolved.binance !== null,
     bep20Enabled: resolved.bep20Address !== null,
+    trc20Enabled: resolved.trc20Address !== null,
     demoEnabled: !hasRealPaymentMethod,
     binancePayApiKey: null,
     binancePayApiSecret: null,
     binancePayMerchantId: resolved.binance?.merchantId ?? null,
     platformUsdtWallet: resolved.bep20Address,
+    platformUsdtTrc20Wallet: resolved.trc20Address,
     isLiveMode: hasRealPaymentMethod,
+    isDemoMode: !hasRealPaymentMethod,
   };
 }
 

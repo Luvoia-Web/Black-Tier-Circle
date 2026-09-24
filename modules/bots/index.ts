@@ -197,6 +197,12 @@ export async function connectBot(supabase: DbClient, input: ConnectBotInput): Pr
   const webhookUrl = webhookUrlFor(saved.id);
   try {
     await telegramSetWebhook(token, webhookUrl, webhookSecret);
+    try {
+      const { telegramSetMyCommands } = await import('@/integrations/telegram/api');
+      await telegramSetMyCommands(token);
+    } catch {
+      logger.warn('telegram command menu was not registered', { tenantId: input.tenantId });
+    }
   } catch (error: unknown) {
     await supabase
       .from('bot_connections')
