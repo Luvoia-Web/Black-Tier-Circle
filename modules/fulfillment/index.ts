@@ -28,6 +28,7 @@ import {
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { AppError, FulfillmentError, NotFoundError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
+import { createNotification } from '@/modules/notifications';
 import { getDecryptedOwnerBotToken } from '@/modules/platform';
 import { decrypt } from '@/lib/encryption';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
@@ -673,6 +674,20 @@ export async function processQueuedOrder(supabase: DbClient, orderId: string): P
       };
     }
     const latest = await getOrder(supabase, order.id);
+    if (latest.fulfillmentStatus !== 'failed' && order.tenantId) {
+      const tenant = await supabase.from('tenants').select('owner_user_id').eq('id', order.tenantId).maybeSingle();
+      const resellerId = (tenant.data as { owner_user_id?: string } | null)?.owner_user_id;
+      if (resellerId) {
+        await createNotification(supabase, {
+          userId: resellerId,
+          tenantId: order.tenantId,
+          type: 'order_delivered',
+          title: 'Order Delivered',
+          body: `Order #${order.id.slice(0, 8)} for ${product.title} has been delivered.`,
+          metadata: { orderId: order.id },
+        });
+      }
+    }
     return {
       success: latest.fulfillmentStatus !== 'failed',
       method,
@@ -739,6 +754,20 @@ export async function markManualFulfilled(
 
   const ready = await getOrder(supabase, orderId);
   await deliverManualCompletion(supabase, ready, deliveryContent);
+  if (order.tenantId) {
+    const tenant = await supabase.from('tenants').select('owner_user_id').eq('id', order.tenantId).maybeSingle();
+    const resellerId = (tenant.data as { owner_user_id?: string } | null)?.owner_user_id;
+    if (resellerId) {
+      await createNotification(supabase, {
+        userId: resellerId,
+        tenantId: order.tenantId,
+        type: 'order_delivered',
+        title: 'Order Delivered',
+        body: `Order #${order.id.slice(0, 8)} has been delivered.`,
+        metadata: { orderId: order.id },
+      });
+    }
+  }
   await writeAuditLog(supabase, {
     actorId,
     action: 'fulfillment.manual.complete',

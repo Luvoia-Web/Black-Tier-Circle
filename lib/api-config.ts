@@ -66,6 +66,8 @@ export const API_CONFIG = {
       'order.delivered',
       'order.failed',
       'order.cancelled',
+      'order.paid',
+      'reseller.activated',
     ] as const,
   },
 

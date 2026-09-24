@@ -54,7 +54,12 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   }
 
   return (
-    <DashboardShell displayName={profile.displayName} role={profile.role} demoMode={demoMode}>
+    <DashboardShell
+      displayName={profile.displayName}
+      role={profile.role}
+      avatarUrl={profile.avatarUrl}
+      demoMode={demoMode}
+    >
       {children}
     </DashboardShell>
   );

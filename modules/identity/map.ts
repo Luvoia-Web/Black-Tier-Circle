@@ -23,5 +23,9 @@ export function mapProfileRow(row: ProfileRow): UserProfile {
     mfaEnabled: row.mfa_enabled,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
+    onboardingCompleted: row.onboarding_completed === true,
+    avatarUrl: row.avatar_url ?? null,
+    storeName: row.store_name ?? null,
+    supportContact: row.support_contact ?? null,
   };
 }

@@ -61,6 +61,14 @@ function mapRow(row: TenantSettingsRow): TenantSettings {
     resellerSignupEnabled: row.reseller_signup_enabled === true,
     resellerSignupMessage: row.reseller_signup_message,
     markupPercent: markupFromRow(row.markup_percent),
+    notifyOrderPlaced: row.notify_order_placed !== false,
+    notifyOrderDelivered: row.notify_order_delivered !== false,
+    notifyBalanceLow: row.notify_balance_low !== false,
+    notifyBalanceThreshold:
+      row.notify_balance_threshold === null || row.notify_balance_threshold === undefined
+        ? '10'
+        : String(row.notify_balance_threshold),
+    notifyProductAdded: row.notify_product_added !== false,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -89,6 +97,11 @@ function defaultSettings(tenantId: string): TenantSettings {
     resellerSignupEnabled: false,
     resellerSignupMessage: null,
     markupPercent: 0,
+    notifyOrderPlaced: true,
+    notifyOrderDelivered: true,
+    notifyBalanceLow: true,
+    notifyBalanceThreshold: '10',
+    notifyProductAdded: true,
     createdAt: now,
     updatedAt: now,
   };
@@ -202,6 +215,21 @@ export async function updateTenantSettings(
   }
   if (input.markupPercent !== undefined) {
     patch.markup_percent = input.markupPercent;
+  }
+  if (input.notifyOrderPlaced !== undefined) {
+    patch.notify_order_placed = input.notifyOrderPlaced;
+  }
+  if (input.notifyOrderDelivered !== undefined) {
+    patch.notify_order_delivered = input.notifyOrderDelivered;
+  }
+  if (input.notifyBalanceLow !== undefined) {
+    patch.notify_balance_low = input.notifyBalanceLow;
+  }
+  if (input.notifyBalanceThreshold !== undefined) {
+    patch.notify_balance_threshold = input.notifyBalanceThreshold;
+  }
+  if (input.notifyProductAdded !== undefined) {
+    patch.notify_product_added = input.notifyProductAdded;
   }
 
   const { data, error } = await supabase

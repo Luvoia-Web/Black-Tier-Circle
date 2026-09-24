@@ -7,10 +7,11 @@
  */
 
 import { AuthError, NotFoundError, AppError } from '@/lib/errors';
-import { dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
 import type { DbClient } from '@/lib/supabase/query';
 import { mapProfileRow } from './map';
 import type {
+  OnboardingInput,
   Profile,
   ProfileDefaults,
   ProfileRow,
@@ -24,6 +25,7 @@ export type {
   AccountStatus,
   InvitationRow,
   InvitationValidity,
+  OnboardingInput,
   Profile,
   ProfileDefaults,
   ProfileRow,
@@ -167,6 +169,18 @@ export async function updateProfile(
   if (updates.status !== undefined) {
     patch.status = updates.status;
   }
+  if (updates.onboardingCompleted !== undefined) {
+    patch.onboarding_completed = updates.onboardingCompleted;
+  }
+  if (updates.avatarUrl !== undefined) {
+    patch.avatar_url = updates.avatarUrl;
+  }
+  if (updates.storeName !== undefined) {
+    patch.store_name = updates.storeName;
+  }
+  if (updates.supportContact !== undefined) {
+    patch.support_contact = updates.supportContact;
+  }
 
   const { data, error } = await supabase
     .from('profiles')
@@ -182,6 +196,32 @@ export async function updateProfile(
 }
 
 /**
+ * Saves the first-run profile and marks onboarding finished.
+ *
+ * @param supabase - Database client
+ * @param userId - Authenticated user ID
+ * @param input - Name and optional store fields
+ */
+export async function completeOnboarding(
+  supabase: DbClient,
+  userId: string,
+  input: OnboardingInput,
+): Promise<UserProfile> {
+  const displayName = input.displayName.trim();
+  if (displayName.length < 2 || displayName.length > 80) {
+    throw new AppError('INVALID_DISPLAY_NAME', 'Name must be between 2 and 80 characters', 400);
+  }
+  const storeName = input.storeName?.trim() ?? '';
+  const supportContact = input.supportContact?.trim() ?? '';
+  return updateProfile(supabase, userId, {
+    displayName,
+    storeName: storeName.length > 0 ? storeName : null,
+    supportContact: supportContact.length > 0 ? supportContact : null,
+    onboardingCompleted: true,
+  });
+}
+
+/**
  * Resolves the post-login path for a profile, honoring a safe `next` param.
  *
  * @param profile - Authenticated profile
@@ -191,6 +231,9 @@ export async function updateProfile(
 export function resolvePostLoginPath(profile: UserProfile, nextPath?: string): string {
   if (profile.status === 'suspended') {
     throw new AuthError('ACCOUNT_SUSPENDED', 'This account has been suspended', 403);
+  }
+  if (profile.onboardingCompleted !== true) {
+    return ROUTES.onboarding;
   }
   const home = dashboardHomeForRole(profile.role);
   if (nextPath !== undefined && isSafeNextPath(nextPath, profile.role)) {

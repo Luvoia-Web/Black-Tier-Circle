@@ -75,6 +75,11 @@ export async function PATCH(request: Request): Promise<Response> {
         ? { resellerSignupMessage: cleanText(parsed.resellerSignupMessage) ?? null }
         : {}),
       ...(parsed.markupPercent !== undefined ? { markupPercent: parsed.markupPercent } : {}),
+      ...(parsed.notifyOrderPlaced !== undefined ? { notifyOrderPlaced: parsed.notifyOrderPlaced } : {}),
+      ...(parsed.notifyOrderDelivered !== undefined ? { notifyOrderDelivered: parsed.notifyOrderDelivered } : {}),
+      ...(parsed.notifyBalanceLow !== undefined ? { notifyBalanceLow: parsed.notifyBalanceLow } : {}),
+      ...(parsed.notifyBalanceThreshold !== undefined ? { notifyBalanceThreshold: parsed.notifyBalanceThreshold } : {}),
+      ...(parsed.notifyProductAdded !== undefined ? { notifyProductAdded: parsed.notifyProductAdded } : {}),
     });
     return jsonSuccess({ settings });
   } catch (error: unknown) {

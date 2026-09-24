@@ -163,6 +163,77 @@ export async function registerWebhookEndpoint(
   return { webhook: mapWebhookRow(asWebhookRow(data)), rawSecret };
 }
 
+const PLATFORM_EVENTS = ['order.paid', 'order.delivered', 'reseller.activated'] as const;
+
+/**
+ * Registers a platform-wide webhook. The signing secret is returned once.
+ */
+export async function registerPlatformWebhook(
+  supabase: DbClient,
+  url: string,
+  events: ReadonlyArray<string>,
+): Promise<WebhookCreationResult> {
+  assertHttpsWebhookUrl(url);
+  const allowed = events.filter((event): event is WebhookEvent =>
+    (PLATFORM_EVENTS as readonly string[]).includes(event),
+  );
+  if (allowed.length === 0) {
+    throw new ValidationError('VALIDATION_ERROR', 'Select at least one webhook event');
+  }
+  const rawSecret = randomBytes(32).toString('hex');
+  const { data, error } = await supabase
+    .from('webhook_endpoints')
+    .insert({
+      tenant_id: null,
+      url,
+      events: allowed,
+      secret: encrypt(rawSecret),
+      secret_hash: hashSecret(rawSecret),
+      secret_prefix: rawSecret.slice(0, 8),
+      is_active: true,
+      failure_count: 0,
+    })
+    .select('*')
+    .single();
+  if (error || data === null) {
+    throw new AppError('WEBHOOK_CREATE_FAILED', error?.message ?? 'Unable to register webhook', 500);
+  }
+  return { webhook: mapWebhookRow(asWebhookRow(data)), rawSecret };
+}
+
+/**
+ * Lists platform webhooks (rows with no tenant).
+ */
+export async function listPlatformWebhooks(supabase: DbClient): Promise<WebhookEndpoint[]> {
+  const result = (await supabase
+    .from('webhook_endpoints')
+    .select('*')
+    .is('tenant_id', null)
+    .order('created_at', { ascending: false })) as QueryResult<unknown[] | null>;
+  if (result.error) {
+    throw new AppError('WEBHOOK_LIST_FAILED', result.error.message, 500);
+  }
+  const rows = Array.isArray(result.data) ? result.data : [];
+  return rows.filter((row) => asWebhookRow(row).tenant_id == null).map((row) => mapWebhookRow(asWebhookRow(row)));
+}
+
+/**
+ * Deletes a platform webhook.
+ */
+export async function deletePlatformWebhook(supabase: DbClient, webhookId: string): Promise<void> {
+  const { data, error } = await supabase.from('webhook_endpoints').select('*').eq('id', webhookId).maybeSingle();
+  if (error) {
+    throw new AppError('WEBHOOK_LOOKUP_FAILED', error.message, 500);
+  }
+  if (data === null || asWebhookRow(data).tenant_id != null) {
+    throw new AppError('NOT_FOUND', 'Webhook not found', 404);
+  }
+  const { error: deleteError } = await supabase.from('webhook_endpoints').delete().eq('id', webhookId);
+  if (deleteError) {
+    throw new AppError('WEBHOOK_DELETE_FAILED', deleteError.message, 500);
+  }
+}
+
 /**
  * Lists webhook endpoints for a tenant. Secrets are never returned.
  */

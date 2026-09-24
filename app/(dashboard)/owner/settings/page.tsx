@@ -10,8 +10,10 @@
 'use client';
 
 import Link from 'next/link';
+import { Bot, CreditCard, Rocket, Store } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { OwnerPlatformPanels } from '@/components/settings/owner-platform-panels';
 import { FormField } from '@/components/settings/FormField';
 import { SaveButton } from '@/components/settings/SaveButton';
 import { SettingsCard } from '@/components/settings/SettingsCard';
@@ -253,9 +255,10 @@ export default function OwnerSettingsPage(): JSX.Element {
           <SkeletonCard className="h-48" />
         </div>
       ) : (
+        <>
         <div className="grid items-start gap-6 lg:grid-cols-2">
           <div className="space-y-6">
-            <SettingsCard title="Owner Store Bot" description="This is your store bot that customers use directly.">
+            <SettingsCard icon={<Bot size={18} />} title="Owner Store Bot" description="This is your store bot that customers use directly.">
               {connected ? (
                 <div className="space-y-2 text-sm">
                   <p className="text-[var(--green)]">● Connected</p>
@@ -289,7 +292,7 @@ export default function OwnerSettingsPage(): JSX.Element {
               )}
             </SettingsCard>
 
-            <SettingsCard title="Payment Methods" description="Configure how customers pay for orders.">
+            <SettingsCard icon={<CreditCard size={18} />} title="Payment Methods" description="Configure how customers pay for orders.">
               <Toggle
                 label="USDT BEP20"
                 checked={settings.bep20Enabled}
@@ -337,7 +340,7 @@ export default function OwnerSettingsPage(): JSX.Element {
           </div>
 
           <div className="space-y-6">
-            <SettingsCard title="Platform Info" description="Shown to customers and resellers.">
+            <SettingsCard icon={<Store size={18} />} title="Platform Info" description="Shown to customers and resellers.">
               <FormField
                 label="Platform Name"
                 value={settings.platformName}
@@ -359,7 +362,7 @@ export default function OwnerSettingsPage(): JSX.Element {
               </SaveButton>
             </SettingsCard>
 
-            <SettingsCard title="Launch Readiness" description="A short view of the production checklist.">
+            <SettingsCard icon={<Rocket size={18} />} title="Launch Readiness" description="A short view of the production checklist.">
               <p className="text-sm">
                 {checks.length === 0 ? 'Checklist not loaded yet.' : `${passing}/${checks.length} checks passing`}
               </p>
@@ -380,6 +383,8 @@ export default function OwnerSettingsPage(): JSX.Element {
             </Link>
           </div>
         </div>
+        <OwnerPlatformPanels />
+        </>
       )}
     </>
   );

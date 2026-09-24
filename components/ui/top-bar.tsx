@@ -8,7 +8,8 @@
 
 'use client';
 
-import { Bell, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import type { UserRole } from '@/modules/identity/types';
@@ -40,9 +41,12 @@ function titleForPath(pathname: string, role: UserRole): TitleMeta {
     [ROUTES.owner.wallets, { title: 'Wallets', crumb: 'Wallet' }],
     [ROUTES.owner.bots, { title: 'Bots', crumb: 'Management' }],
     [ROUTES.owner.launch, { title: 'Launch Readiness', crumb: 'Management' }],
+    [ROUTES.owner.assistant, { title: 'AI Assistant', crumb: 'Help' }],
     [ROUTES.owner.settings, { title: 'Settings', crumb: 'Settings' }],
     [ROUTES.reseller.settingsApiKeys, { title: 'Developer API', crumb: 'Settings' }],
     [ROUTES.reseller.settingsWebhooks, { title: 'Webhooks', crumb: 'Settings' }],
+    [ROUTES.reseller.assistant, { title: 'AI Assistant', crumb: 'Help' }],
+    [ROUTES.reseller.account, { title: 'Account', crumb: 'Profile' }],
     [ROUTES.reseller.settings, { title: 'Settings', crumb: 'Settings' }],
     [ROUTES.reseller.orders, { title: 'Orders', crumb: 'Store' }],
     [ROUTES.reseller.deliveries, { title: 'Deliveries', crumb: 'Operations' }],
@@ -93,13 +97,7 @@ export function TopBar({ displayName, role, onMenuClick }: TopBarProps): JSX.Ele
           ⌘K
         </button>
         <ThemeToggle />
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bg-raised)] text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
-        >
-          <Bell size={16} />
-        </button>
+        <NotificationBell role={role} />
       </div>
     </header>
   );

@@ -9,8 +9,10 @@
 'use client';
 
 import Link from 'next/link';
+import { Bell, Bot, CreditCard, LifeBuoy, Store } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { ResellerApiKeysPanel } from '@/components/settings/reseller-api-keys-panel';
 import { FormField } from '@/components/settings/FormField';
 import { SaveButton } from '@/components/settings/SaveButton';
 import { SettingsCard } from '@/components/settings/SettingsCard';
@@ -39,6 +41,11 @@ type Settings = {
   readonly usdtMinimumBep20: string;
   readonly resellerSignupEnabled: boolean;
   readonly resellerSignupMessage: string | null;
+  readonly notifyOrderPlaced: boolean;
+  readonly notifyOrderDelivered: boolean;
+  readonly notifyBalanceLow: boolean;
+  readonly notifyBalanceThreshold: string;
+  readonly notifyProductAdded: boolean;
 };
 
 type BotStatus = {
@@ -183,7 +190,7 @@ export default function ResellerSettingsPage(): JSX.Element {
       <PageHeader title="Settings" description="Store, bot, payments, and policies" />
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <div className="space-y-6">
-          <SettingsCard title="Telegram bot" description="Customers reach your store through this bot.">
+          <SettingsCard icon={<Bot size={18} />} title="Telegram bot" description="Customers reach your store through this bot.">
             <p className={`text-sm ${connected ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
               {connected ? `● Connected as @${bot?.username ?? 'bot'}` : '○ Not connected'}
             </p>
@@ -204,7 +211,7 @@ export default function ResellerSettingsPage(): JSX.Element {
             </form>
           </SettingsCard>
 
-          <SettingsCard title="Store Identity" description="Shown in your bot's welcome message.">
+          <SettingsCard icon={<Store size={18} />} title="Store Identity" description="Shown in your bot's welcome message.">
             <FormField
               label="Store Name"
               value={settings.storeName ?? ''}
@@ -259,7 +266,7 @@ export default function ResellerSettingsPage(): JSX.Element {
             </SaveButton>
           </SettingsCard>
 
-          <SettingsCard title="Payment Methods" description="These settings control how your customers pay on your bot.">
+          <SettingsCard icon={<CreditCard size={18} />} title="Payment Methods" description="These settings control how your customers pay on your bot.">
             <p className="text-sm text-[var(--green)]">Credit (wallet) — purchases deduct from buyer credit</p>
             <div className="my-4 border-t border-[var(--border)]" />
             <Toggle label="Use my own USDT wallet" checked={useOwnWallet} onChange={setUseOwnWallet} />
@@ -327,7 +334,7 @@ export default function ResellerSettingsPage(): JSX.Element {
         </div>
 
         <div className="space-y-6">
-          <SettingsCard title="Customer Support" description="Shown when a customer types /support.">
+          <SettingsCard icon={<LifeBuoy size={18} />} title="Customer Support" description="Shown when a customer types /support.">
             <FormField
               label="Support Contact"
               value={settings.supportContact ?? ''}
@@ -440,6 +447,55 @@ export default function ResellerSettingsPage(): JSX.Element {
             }
           >
             Save
+          </SaveButton>
+        </SettingsCard>
+      </div>
+
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-2">
+        <ResellerApiKeysPanel />
+        <SettingsCard icon={<Bell size={18} />} title="Notifications" description="Choose which account events you want to hear about.">
+          <Toggle
+            label="New order placed"
+            checked={settings.notifyOrderPlaced}
+            onChange={(checked) => setSettings({ ...settings, notifyOrderPlaced: checked })}
+          />
+          <Toggle
+            label="Order delivered"
+            checked={settings.notifyOrderDelivered}
+            onChange={(checked) => setSettings({ ...settings, notifyOrderDelivered: checked })}
+          />
+          <Toggle
+            label="Wallet balance low"
+            checked={settings.notifyBalanceLow}
+            onChange={(checked) => setSettings({ ...settings, notifyBalanceLow: checked })}
+          />
+          <FormField
+            label="Low balance threshold (USDT)"
+            value={settings.notifyBalanceThreshold}
+            onChange={(value) => setSettings({ ...settings, notifyBalanceThreshold: value })}
+          />
+          <Toggle
+            label="New product added by owner"
+            checked={settings.notifyProductAdded}
+            onChange={(checked) => setSettings({ ...settings, notifyProductAdded: checked })}
+          />
+          <SaveButton
+            busy={busy === 'notify'}
+            onClick={() =>
+              void patch(
+                'notify',
+                {
+                  notifyOrderPlaced: settings.notifyOrderPlaced,
+                  notifyOrderDelivered: settings.notifyOrderDelivered,
+                  notifyBalanceLow: settings.notifyBalanceLow,
+                  notifyBalanceThreshold: settings.notifyBalanceThreshold,
+                  notifyProductAdded: settings.notifyProductAdded,
+                },
+                'Notification preferences saved',
+              )
+            }
+          >
+            Save notification preferences
           </SaveButton>
         </SettingsCard>
       </div>

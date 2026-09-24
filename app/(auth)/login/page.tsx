@@ -11,7 +11,7 @@
 
 import { type FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { UserRole } from '@/modules/identity/types';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
@@ -110,18 +110,28 @@ function LoginForm(): JSX.Element {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      const profileQuery = await supabase
         .from('profiles')
-        .select('role, status')
+        .select('role, status, onboarding_completed')
         .eq('id', data.user.id)
         .maybeSingle();
 
-      if (profileError || profile === null) {
+      let profile = profileQuery.data as { role: unknown; status: unknown; onboarding_completed?: boolean } | null;
+      if (profileQuery.error) {
+        const fallback = await supabase.from('profiles').select('role, status').eq('id', data.user.id).maybeSingle();
+        if (fallback.error || fallback.data === null) {
+          setError('Unable to load your profile. Contact support.');
+          return;
+        }
+        profile = { ...(fallback.data as { role: unknown; status: unknown }), onboarding_completed: true };
+      }
+
+      if (profile === null) {
         setError('Unable to load your profile. Contact support.');
         return;
       }
 
-      const row = profile as { role: unknown; status: unknown };
+      const row = profile;
       if (row.status === 'suspended') {
         setError('This account has been suspended. Contact the owner.');
         await supabase.auth.signOut();
@@ -133,7 +143,11 @@ function LoginForm(): JSX.Element {
       }
 
       const destination =
-        next !== null && isSafeNextPath(next, row.role) ? next : dashboardHomeForRole(row.role);
+        row.onboarding_completed === true
+          ? next !== null && isSafeNextPath(next, row.role)
+            ? next
+            : dashboardHomeForRole(row.role)
+          : ROUTES.onboarding;
       router.push(destination);
       router.refresh();
     } catch {

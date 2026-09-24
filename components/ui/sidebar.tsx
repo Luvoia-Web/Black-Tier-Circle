@@ -51,6 +51,7 @@ type NavGroup = {
 type SidebarProps = {
   readonly role: UserRole;
   readonly displayName: string;
+  readonly avatarUrl?: string | null;
   readonly open: boolean;
   readonly collapsed: boolean;
   readonly onClose: () => void;
@@ -141,6 +142,7 @@ function initialsFromName(displayName: string): string {
 export function Sidebar({
   role,
   displayName,
+  avatarUrl = null,
   open,
   collapsed,
   onClose,
@@ -254,8 +256,13 @@ export function Sidebar({
         </nav>
         <div className="border-t border-[var(--border)] p-3">
           <div className={`flex items-center gap-2.5 ${collapsed ? 'justify-center' : ''}`}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
-              {initialsFromName(displayName)}
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                initialsFromName(displayName)
+              )}
             </span>
             {collapsed ? null : (
               <div className="min-w-0">
@@ -264,6 +271,15 @@ export function Sidebar({
               </div>
             )}
           </div>
+          {collapsed || role !== 'reseller' ? null : (
+            <Link
+              href={ROUTES.reseller.account}
+              onClick={onClose}
+              className="mt-2 flex min-h-11 items-center text-sm text-[var(--text-2)] hover:text-[var(--text-1)]"
+            >
+              Account
+            </Link>
+          )}
           {collapsed ? null : (
             <button
               type="button"

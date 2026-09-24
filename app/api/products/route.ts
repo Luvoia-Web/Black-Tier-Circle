@@ -11,6 +11,7 @@ import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { CreateProductSchema } from '@/lib/validations/catalog';
 import { createProduct, listProducts, type ProductStatus } from '@/modules/catalog';
+import { createNotification, notifyResellersOfProduct } from '@/modules/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,17 @@ export async function POST(request: Request): Promise<Response> {
         : {}),
       ...(parsed.supplierSku !== undefined ? { supplierSku: parsed.supplierSku } : {}),
       ...(parsed.supplierMetadata !== undefined ? { supplierMetadata: parsed.supplierMetadata } : {}),
+    });
+    const db = asDbClient(session.admin);
+    await notifyResellersOfProduct(db, 'New product', `${product.title} was added to the catalog.`, {
+      productId: product.id,
+    });
+    await createNotification(db, {
+      userId: session.user.id,
+      type: 'product_added',
+      title: 'Product Added',
+      body: `${product.title} is now in the catalog.`,
+      metadata: { productId: product.id },
     });
     return jsonSuccess(product, 201);
   } catch (error: unknown) {

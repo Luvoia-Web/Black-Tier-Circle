@@ -29,6 +29,11 @@ export type TenantSettings = {
   readonly resellerSignupEnabled: boolean;
   readonly resellerSignupMessage: string | null;
   readonly markupPercent: number;
+  readonly notifyOrderPlaced: boolean;
+  readonly notifyOrderDelivered: boolean;
+  readonly notifyBalanceLow: boolean;
+  readonly notifyBalanceThreshold: string;
+  readonly notifyProductAdded: boolean;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 };
@@ -56,6 +61,11 @@ export type TenantSettingsRow = {
   readonly reseller_signup_enabled: boolean | null;
   readonly reseller_signup_message: string | null;
   readonly markup_percent: string | number | null;
+  readonly notify_order_placed?: boolean | null;
+  readonly notify_order_delivered?: boolean | null;
+  readonly notify_balance_low?: boolean | null;
+  readonly notify_balance_threshold?: string | number | null;
+  readonly notify_product_added?: boolean | null;
   readonly created_at: string;
   readonly updated_at: string;
 };
@@ -81,4 +91,9 @@ export type UpdateTenantSettingsInput = {
   readonly resellerSignupEnabled?: boolean;
   readonly resellerSignupMessage?: string | null;
   readonly markupPercent?: number;
+  readonly notifyOrderPlaced?: boolean;
+  readonly notifyOrderDelivered?: boolean;
+  readonly notifyBalanceLow?: boolean;
+  readonly notifyBalanceThreshold?: string;
+  readonly notifyProductAdded?: boolean;
 };

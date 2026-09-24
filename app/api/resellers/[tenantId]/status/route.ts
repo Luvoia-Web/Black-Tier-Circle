@@ -9,6 +9,7 @@
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { UpdateTenantStatusSchema } from '@/lib/validations/auth';
+import { createNotification } from '@/modules/notifications';
 import { updateTenantStatus } from '@/modules/tenants';
 import { getOrCreateWallet } from '@/modules/wallet';
 
@@ -27,6 +28,21 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     );
     if (body.status === 'active') {
       await getOrCreateWallet(asDbClient(session.admin), tenant.id);
+      await createNotification(asDbClient(session.admin), {
+        userId: tenant.ownerUserId,
+        tenantId: tenant.id,
+        type: 'reseller_activated',
+        title: 'Account Activated',
+        body: 'Your Black Tier Circle reseller account has been activated. Welcome!',
+      });
+      await createNotification(asDbClient(session.admin), {
+        userId: session.user.id,
+        tenantId: tenant.id,
+        type: 'system',
+        title: 'Reseller Activated',
+        body: `${tenant.displayName} is now active.`,
+        metadata: { tenantId: tenant.id },
+      });
     }
     return jsonSuccess({
       id: tenant.id,

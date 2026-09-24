@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { AuthError } from '@/lib/errors';
 import { ROUTES } from '@/lib/navigation';
-import { getOrCreateProfile, resolvePostLoginPath, type UserProfile } from '@/modules/identity';
+import { completeOnboarding, getOrCreateProfile, resolvePostLoginPath, type UserProfile } from '@/modules/identity';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const NOW = '2026-09-21T10:00:00.000Z';
@@ -51,6 +51,21 @@ describe('getOrCreateProfile', () => {
   });
 });
 
+describe('completeOnboarding', () => {
+  it('saves the display name and marks onboarding complete', async () => {
+    const db = createMemoryDb({ profiles: [profileRow({ onboarding_completed: false })] });
+    const profile = await completeOnboarding(db, 'user-1', {
+      displayName: 'Kushal Chaudhari',
+      storeName: 'My Awesome Store',
+      supportContact: '@kush',
+    });
+    expect(profile.displayName).toBe('Kushal Chaudhari');
+    expect(profile.onboardingCompleted).toBe(true);
+    expect(profile.storeName).toBe('My Awesome Store');
+    expect(profile.supportContact).toBe('@kush');
+  });
+});
+
 describe('resolvePostLoginPath', () => {
   it('throws AuthError when the profile is suspended', () => {
     const profile: UserProfile = {
@@ -60,6 +75,10 @@ describe('resolvePostLoginPath', () => {
       status: 'suspended',
       timezone: 'Asia/Kolkata',
       mfaEnabled: false,
+      onboardingCompleted: true,
+      avatarUrl: null,
+      storeName: null,
+      supportContact: null,
       createdAt: new Date(NOW),
       updatedAt: new Date(NOW),
     };
@@ -75,9 +94,31 @@ describe('resolvePostLoginPath', () => {
       status: 'active',
       timezone: 'Asia/Kolkata',
       mfaEnabled: false,
+      onboardingCompleted: true,
+      avatarUrl: null,
+      storeName: null,
+      supportContact: null,
       createdAt: new Date(NOW),
       updatedAt: new Date(NOW),
     };
     expect(resolvePostLoginPath(profile)).toBe(ROUTES.owner.home);
+  });
+
+  it('sends a first-time account to onboarding', () => {
+    const profile: UserProfile = {
+      id: 'user-1',
+      displayName: 'New',
+      role: 'reseller',
+      status: 'active',
+      timezone: 'Asia/Kolkata',
+      mfaEnabled: false,
+      onboardingCompleted: false,
+      avatarUrl: null,
+      storeName: null,
+      supportContact: null,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    };
+    expect(resolvePostLoginPath(profile)).toBe(ROUTES.onboarding);
   });
 });

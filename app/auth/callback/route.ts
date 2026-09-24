@@ -8,8 +8,12 @@
  */
 
 import { NextResponse } from 'next/server';
-import { ROUTES } from '@/lib/navigation';
+import { asDbClient } from '@/lib/auth/session';
+import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
+import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createAuthRouteClient } from '@/lib/supabase/server';
+import { getOrCreateProfile, type UserRole } from '@/modules/identity';
+import { createTenant, updateTenantStatus } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,23 +45,54 @@ export async function GET(request: Request): Promise<NextResponse> {
   const redirectWithSession = (path: string): NextResponse =>
     applyCookies(NextResponse.redirect(`${origin}${path}`));
 
-  const { data: profile } = await supabase
+  const userId = data.session.user.id;
+  const loaded = await supabase
     .from('profiles')
-    .select('role, status')
-    .eq('id', data.session.user.id)
-    .single();
+    .select('role, status, onboarding_completed')
+    .eq('id', userId)
+    .maybeSingle();
 
-  if (!profile) {
-    return redirectWithSession(`${ROUTES.login}?error=no_profile`);
+  let row = loaded.data as { role?: unknown; status?: unknown; onboarding_completed?: boolean } | null;
+  if (loaded.error) {
+    const fallback = await supabase.from('profiles').select('role, status').eq('id', userId).maybeSingle();
+    row = fallback.data as { role?: unknown; status?: unknown } | null;
+    if (row) {
+      row = { ...row, onboarding_completed: true };
+    }
   }
 
-  const row = profile as { role: unknown; status: unknown };
-  if (row.role === 'owner') {
-    return redirectWithSession(ROUTES.owner.home);
-  }
-  if (row.role === 'reseller') {
-    return redirectWithSession(ROUTES.reseller.home);
+  if (!row) {
+    const metadata = data.session.user.user_metadata ?? {};
+    const fromGoogle =
+      (typeof metadata.full_name === 'string' && metadata.full_name) ||
+      (typeof metadata.name === 'string' && metadata.name) ||
+      'New Reseller';
+    try {
+      const admin = createAdminSupabaseClient();
+      const db = asDbClient(admin);
+      const created = await getOrCreateProfile(db, userId, {
+        displayName: fromGoogle.slice(0, 80),
+        role: 'reseller',
+        status: 'active',
+      });
+      const tenant = await createTenant(db, userId, created.displayName);
+      await updateTenantStatus(db, tenant.id, 'active');
+      return redirectWithSession(ROUTES.onboarding);
+    } catch {
+      return redirectWithSession(`${ROUTES.login}?error=no_profile`);
+    }
   }
 
-  return redirectWithSession(`${ROUTES.login}?error=unknown_role`);
+  if (row.status === 'suspended') {
+    return redirectWithSession(`${ROUTES.login}?error=suspended`);
+  }
+
+  const role: UserRole | null = row.role === 'owner' || row.role === 'reseller' || row.role === 'staff' ? row.role : null;
+  if (role === null) {
+    return redirectWithSession(`${ROUTES.login}?error=unknown_role`);
+  }
+  if (row.onboarding_completed !== true) {
+    return redirectWithSession(ROUTES.onboarding);
+  }
+  return redirectWithSession(dashboardHomeForRole(role));
 }

@@ -82,7 +82,9 @@ export type WebhookEvent =
   | 'order.fulfilled'
   | 'order.delivered'
   | 'order.failed'
-  | 'order.cancelled';
+  | 'order.cancelled'
+  | 'order.paid'
+  | 'reseller.activated';
 
 export type CreateWebhookInput = {
   readonly tenantId: string;

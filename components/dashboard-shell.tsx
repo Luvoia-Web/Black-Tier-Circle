@@ -10,6 +10,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { AssistantWidget } from '@/components/assistant/assistant-widget';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Sidebar } from '@/components/ui/sidebar';
 import { TopBar } from '@/components/ui/top-bar';
@@ -18,6 +19,7 @@ import type { UserRole } from '@/modules/identity/types';
 type DashboardShellProps = {
   readonly displayName: string;
   readonly role: UserRole;
+  readonly avatarUrl?: string | null;
   readonly demoMode?: boolean;
   readonly children: ReactNode;
 };
@@ -27,7 +29,13 @@ type DashboardShellProps = {
  *
  * @param props - Profile fields and page content
  */
-export function DashboardShell({ displayName, role, demoMode = false, children }: DashboardShellProps): JSX.Element {
+export function DashboardShell({
+  displayName,
+  role,
+  avatarUrl = null,
+  demoMode = false,
+  children,
+}: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -36,6 +44,7 @@ export function DashboardShell({ displayName, role, demoMode = false, children }
       <Sidebar
         role={role}
         displayName={displayName}
+        avatarUrl={avatarUrl}
         open={open}
         collapsed={collapsed}
         onClose={() => setOpen(false)}
@@ -50,6 +59,7 @@ export function DashboardShell({ displayName, role, demoMode = false, children }
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
         <main className="page-enter flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
         <CommandPalette role={role} />
+        <AssistantWidget role={role} />
       </div>
     </div>
   );

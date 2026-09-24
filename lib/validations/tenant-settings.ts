@@ -31,6 +31,11 @@ export const UpdateTenantSettingsSchema = z.object({
   resellerSignupEnabled: z.boolean().optional(),
   resellerSignupMessage: optionalText(2000),
   markupPercent: z.number().min(0).max(999.99).optional(),
+  notifyOrderPlaced: z.boolean().optional(),
+  notifyOrderDelivered: z.boolean().optional(),
+  notifyBalanceLow: z.boolean().optional(),
+  notifyBalanceThreshold: z.string().regex(/^\d+(\.\d{1,6})?$/).optional(),
+  notifyProductAdded: z.boolean().optional(),
 });
 
 export const ApplyMarkupSchema = z.object({

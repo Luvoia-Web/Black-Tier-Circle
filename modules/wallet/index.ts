@@ -14,7 +14,9 @@
  */
 
 import { AppError, NotFoundError, ValidationError, WalletError } from '@/lib/errors';
+import { formatUsdt } from '@/lib/money';
 import { generateTopupToken } from '@/lib/tokens';
+import { createNotification } from '@/modules/notifications';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { asMinorUnits, mapTopupTokenRow, mapWalletRow, toPublicTopupToken } from './map';
 import type {
@@ -326,10 +328,20 @@ export async function redeemTopupToken(
   if (!rpcBool(row.success)) {
     return { success: false, errorCode: rpcErrorCode(row.error_code) ?? 'TOKEN_REDEEM_FAILED' };
   }
+  const credited = rpcMinor(row.amount_credited);
+  const balance = rpcMinor(row.new_balance);
+  await createNotification(supabase, {
+    userId,
+    tenantId,
+    type: 'wallet_credited',
+    title: 'Wallet Topped Up',
+    body: `+${formatUsdt(credited)} USDT added to your wallet. New balance: ${formatUsdt(balance)} USDT`,
+    metadata: { amount: formatUsdt(credited) },
+  });
   return {
     success: true,
-    amountCredited: rpcMinor(row.amount_credited),
-    newBalance: rpcMinor(row.new_balance),
+    amountCredited: credited,
+    newBalance: balance,
   };
 }
 
@@ -541,6 +553,7 @@ export async function manualCredit(
     afterVal: { amountUsdt: amountMinor.toString(), newBalance: wallet.balanceTotal.toString() },
     reason: trimmedNote,
   });
+  await notifyWalletOwner(supabase, wallet.tenantId, 'wallet_credited', amountMinor);
   return wallet;
 }
 
@@ -592,7 +605,30 @@ export async function manualDebit(
     afterVal: { amountUsdt: amountMinor.toString(), newBalance: wallet.balanceTotal.toString() },
     reason: trimmedNote,
   });
+  await notifyWalletOwner(supabase, wallet.tenantId, 'wallet_debited', amountMinor);
   return wallet;
+}
+
+async function notifyWalletOwner(
+  supabase: DbClient,
+  tenantId: string,
+  type: 'wallet_credited' | 'wallet_debited',
+  amountMinor: bigint,
+): Promise<void> {
+  const tenant = await supabase.from('tenants').select('owner_user_id').eq('id', tenantId).maybeSingle();
+  const resellerId = (tenant.data as { owner_user_id?: string } | null)?.owner_user_id;
+  if (!resellerId) {
+    return;
+  }
+  const sign = type === 'wallet_credited' ? '+' : '-';
+  await createNotification(supabase, {
+    userId: resellerId,
+    tenantId,
+    type,
+    title: 'Wallet Adjusted by Owner',
+    body: `Your wallet was adjusted by ${sign}${formatUsdt(amountMinor)} USDT by the platform owner.`,
+    metadata: { amount: formatUsdt(amountMinor) },
+  });
 }
 
 /**

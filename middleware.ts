@@ -18,6 +18,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   dashboardHomeForRole,
+  isOnboardingRoute,
   isOwnerRoute,
   isPublicRoute,
   isResellerRoute,
@@ -47,16 +48,31 @@ function readRoleFromJwt(session: {
   return null;
 }
 
-async function readRoleFromProfile(
+type ProfileGate = {
+  readonly role: UserRole | null;
+  readonly onboardingCompleted: boolean;
+};
+
+async function readProfileGate(
   supabase: ReturnType<typeof createServerClient>,
   userId: string,
-): Promise<UserRole | null> {
-  const { data } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
-  const role = (data as { role?: string } | null)?.role;
-  if (role === 'owner' || role === 'reseller' || role === 'staff') {
-    return role;
+): Promise<ProfileGate> {
+  const full = await supabase
+    .from('profiles')
+    .select('role, onboarding_completed')
+    .eq('id', userId)
+    .maybeSingle();
+  if (!full.error && full.data) {
+    const row = full.data as { role?: string; onboarding_completed?: boolean };
+    const role = row.role === 'owner' || row.role === 'reseller' || row.role === 'staff' ? row.role : null;
+    return { role, onboardingCompleted: row.onboarding_completed === true };
   }
-  return null;
+  const fallback = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+  const role = (fallback.data as { role?: string } | null)?.role;
+  return {
+    role: role === 'owner' || role === 'reseller' || role === 'staff' ? role : null,
+    onboardingCompleted: true,
+  };
 }
 
 /**
@@ -100,7 +116,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const needsAuth = isOwnerRoute(pathname) || isResellerRoute(pathname);
+  const needsAuth = isOwnerRoute(pathname) || isResellerRoute(pathname) || isOnboardingRoute(pathname);
 
   if (!session) {
     if (needsAuth) {
@@ -112,15 +128,27 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return supabaseResponse;
   }
 
-  let role = readRoleFromJwt(session);
-  if (role === null) {
-    role = await readRoleFromProfile(supabase, session.user.id);
-  }
+  const gate = await readProfileGate(supabase, session.user.id);
+  let role = readRoleFromJwt(session) ?? gate.role;
   if (role === null) {
     role = 'reseller';
   }
 
   const home = dashboardHomeForRole(role);
+
+  if (!gate.onboardingCompleted && !isOnboardingRoute(pathname)) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = ROUTES.onboarding;
+    redirectUrl.search = '';
+    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+  }
+
+  if (gate.onboardingCompleted && isOnboardingRoute(pathname)) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = home;
+    redirectUrl.search = '';
+    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+  }
 
   if (isOwnerRoute(pathname) && role !== 'owner') {
     const redirectUrl = request.nextUrl.clone();

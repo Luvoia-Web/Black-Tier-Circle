@@ -13,6 +13,7 @@ import type { UserRole } from '@/modules/identity/types';
 export const ROUTES = {
   home: '/',
   login: '/login',
+  onboarding: '/onboarding',
   invite: (token: string) => `/invite/${token}`,
   owner: {
     home: '/owner',
@@ -35,6 +36,7 @@ export const ROUTES = {
     paymentDetail: (orderId: string) => `/owner/payments/${orderId}`,
     bots: '/owner/bots',
     settings: '/owner/settings',
+    assistant: '/owner/assistant',
     launch: '/owner/launch',
     tokens: '/owner/tokens',
     wallets: '/owner/wallets',
@@ -49,6 +51,8 @@ export const ROUTES = {
     orders: '/reseller/orders',
     orderDetail: (orderId: string) => `/reseller/orders/${orderId}`,
     settings: '/reseller/settings',
+    account: '/reseller/account',
+    assistant: '/reseller/assistant',
     settingsApiKeys: '/reseller/settings/api-keys',
     settingsWebhooks: '/reseller/settings/webhooks',
     deliveries: '/reseller/deliveries',
@@ -129,6 +133,9 @@ export const API_ROUTES = {
   resellerOrder: (orderId: string) => `${API_PREFIX}/reseller/orders/${orderId}`,
   resellerOverview: `${API_PREFIX}/reseller/overview`,
   resellerSettings: `${API_PREFIX}/reseller/settings`,
+  resellerProfile: `${API_PREFIX}/reseller/profile`,
+  resellerProfileAvatar: `${API_PREFIX}/reseller/profile/avatar`,
+  resellerProfilePassword: `${API_PREFIX}/reseller/profile/password`,
   resellerDeliveries: `${API_PREFIX}/reseller/deliveries`,
   resellerDeliver: (orderId: string) => `${API_PREFIX}/reseller/deliveries/${orderId}`,
   resellerDeposits: `${API_PREFIX}/reseller/deposits`,
@@ -215,6 +222,15 @@ export function isOwnerRoute(pathname: string): boolean {
  */
 export function isResellerRoute(pathname: string): boolean {
   return pathname === ROUTES.reseller.home || pathname.startsWith(`${ROUTES.reseller.home}/`);
+}
+
+/**
+ * Returns whether a pathname is the first-run onboarding flow.
+ *
+ * @param pathname - Request pathname
+ */
+export function isOnboardingRoute(pathname: string): boolean {
+  return pathname === ROUTES.onboarding || pathname.startsWith(`${ROUTES.onboarding}/`);
 }
 
 /**
