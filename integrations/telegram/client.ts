@@ -9,7 +9,8 @@
 
 import { createHash } from 'node:crypto';
 import { Bot, InlineKeyboard } from 'grammy';
-import { resolveBotContext, type BotContext } from './bot-context';
+import { resolveBotContextCached, type BotContext } from './bot-context';
+import { telegramSetMyCommands } from './api';
 import { sendFileDelivery as sendFileDeliveryMessage, sendTextDelivery as sendTextDeliveryMessage } from './delivery';
 import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessageParams, Update } from './types';
 import { withCache } from '@/lib/cache';
@@ -27,7 +28,7 @@ import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import type { Product } from '@/modules/catalog/types';
-import { cancelOrder, createOrder, getOrder, listOrders } from '@/modules/orders';
+import { cancelOrder, createOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
 import type { Order } from '@/modules/orders/types';
 import {
   confirmDemoOrderPayment,
@@ -46,8 +47,12 @@ export type { BotEngine, BotEngineContext };
 const processedUpdateIds = new Set<string>();
 const PROCESSED_UPDATE_LIMIT = 5000;
 const botInfoMemory = new Map<string, ReturnType<typeof buildBotInfo>>();
-const PRODUCT_CACHE_MS = 30_000;
+const PRODUCT_CACHE_MS = 60_000;
+const CUSTOMER_CACHE_MS = 30_000;
+const CUSTOMER_CACHE = new Map<string, { data: CustomerRecord; expiresAt: number }>();
+const COMMANDS_REFRESH = new Map<string, number>();
 const awaitingEmail = new Map<string, { readonly orderId: string; readonly productTitle: string }>();
+const awaitingFind = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
   return `${botId}:${chatId}`;
@@ -56,7 +61,20 @@ function emailKey(botId: string, chatId: string | number): string {
 function isEmailAddress(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
-const KNOWN_COMMANDS = new Set(['/start', '/shop', '/orders', '/wallet', '/deposit', '/support']);
+const KNOWN_COMMANDS = new Set([
+  '/start',
+  '/menu',
+  '/shop',
+  '/orders',
+  '/wallet',
+  '/deposit',
+  '/support',
+  '/profile',
+  '/refer',
+  '/api',
+  '/find',
+  '/terms',
+]);
 
 const ERROR_TEXT: Record<string, string> = {
   INSUFFICIENT_FUNDS: '❌ This store cannot complete that purchase right now\\. Please try again later or contact support\\.',
@@ -170,6 +188,31 @@ function soldOut(product: Product): boolean {
   return !product.stockUnlimited && (product.stockCount ?? 0) <= 0;
 }
 
+function customerFacingStatus(order: Order): string {
+  if (order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification') {
+    return '⏳ Awaiting Payment';
+  }
+  if (order.paymentStatus === 'failed') {
+    return '❌ Payment Failed';
+  }
+  if (order.deliveryStatus === 'sent') {
+    return '✅ Delivered';
+  }
+  if (order.fulfillmentStatus === 'manual_pending') {
+    return '⏳ Processing (few minutes)';
+  }
+  if (order.fulfillmentStatus === 'failed') {
+    return '❌ Failed — Contact Support';
+  }
+  if (order.fulfillmentStatus === 'ready') {
+    return '✅ Completed';
+  }
+  if (order.paymentStatus === 'verified') {
+    return '⏳ Processing';
+  }
+  return '⏳ In Progress';
+}
+
 function statusEmoji(status: string): string {
   if (status === 'verified' || status === 'ready' || status === 'sent' || status === 'debited') {
     return '✅';
@@ -203,7 +246,11 @@ function homeKeyboard(store: BotContext): InlineKeyboard {
   if (store.resellerSignupEnabled) {
     keyboard.text('🤝 Become a Reseller', 'reseller_signup:').row();
   }
-  keyboard.text('🔑 Developer API', 'api_info:').text('📜 Terms', 'terms:');
+  keyboard
+    .text('🎁 Refer & Earn', 'refer:')
+    .text('🔑 My API', 'api_info:')
+    .row()
+    .text('📜 Terms & Policies', 'terms:');
   return keyboard;
 }
 
@@ -244,9 +291,9 @@ async function show(
 function welcomeText(store: BotContext, balanceMinor: bigint): string {
   return (
     `👋 <b>Welcome to ${html(store.storeName)}!</b>\n\n` +
-    `🛒 Browse products, pay, and get delivery in this chat.\n\n` +
-    `💰 Balance: <b>${html(formatUsdt(balanceMinor))}</b>\n\n` +
-    `Choose an option below:`
+    `Tap below to browse products, use /deposit to top up your wallet,\n` +
+    `/profile to see your orders, or /support if you need help.\n\n` +
+    `💰 Balance: <b>${html(formatUsdt(balanceMinor))} USDT</b>`
   );
 }
 
@@ -314,7 +361,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function storeContext(): Promise<BotContext> {
     if (store === null) {
-      store = await resolveBotContext(context.supabase, context.botConnection.id, context.tenantId);
+      store = await resolveBotContextCached(context.supabase, context.botConnection.id, context.tenantId);
     }
     return store;
   }
@@ -392,12 +439,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       const price = formatUsdt(item.priceMinor).replace(' USDT', '');
       const stock = item.product.stockUnlimited ? '∞' : soldOut(item.product) ? 'sold out' : `${item.product.stockCount ?? 0} left`;
       const label = clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${price} USDT (${stock})`, 64);
-      keyboard.text(label, soldOut(item.product) ? 'sold:' : `product:${item.product.id}`).row();
+      keyboard.text(label, soldOut(item.product) ? 'soldout:' : `product:${item.product.id}`).row();
     }
     if (categories.length > 1) {
       keyboard.text('⬅ Categories', 'shop:');
     }
-    keyboard.text('🏠 Home', 'home:');
+    keyboard.text('🏠 Main Menu', 'start:').text('🔄 Refresh', 'shop:');
     await show(
       bot,
       screen,
@@ -441,21 +488,31 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const config = await loadPaymentConfig(context.supabase, balance, context.tenantId);
     const price = order.quotedRetailPriceMinor;
     const keyboard = new InlineKeyboard();
-    if (balance >= price && price > 0n) {
-      keyboard
-        .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)})`, 64), `pay_wallet:${order.id}`)
-        .row();
-    } else if (balance > 0n) {
-      keyboard.text(clip(`💰 Wallet: ${formatUsdt(balance)} (insufficient)`, 64), `wallet_low:${order.id}`).row();
+    if (balance > 0n) {
+      if (balance >= price && price > 0n) {
+        keyboard
+          .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)} USDT)`, 64), `pay_wallet:${order.id}`)
+          .row();
+      } else {
+        keyboard
+          .text(
+            clip(`💰 Wallet: ${formatUsdt(balance)} USDT (need ${formatUsdt(price)})`, 64),
+            `wallet_low:${order.id}`,
+          )
+          .row();
+      }
     }
-    if (config.binancePayEnabled) {
-      keyboard.text('💳 Binance Pay', `pay_bp:${order.id}`).row();
+    if (config.binancePayEnabled || config.isDemoMode) {
+      keyboard.text('💳 Pay with Binance Pay', `pay_bp:${order.id}`).row();
     }
-    if (config.bep20Enabled && current.usdtWalletAddress) {
-      keyboard.text('📤 Send USDT (BEP20)', `pay_bep:${order.id}`).row();
+    if (config.bep20Enabled && (config.platformUsdtWallet || current.usdtWalletAddress)) {
+      keyboard.text('📤 Send USDT (BEP20)', `pay_bep20:${order.id}`).row();
     }
-    if (config.demoEnabled) {
-      keyboard.text('🧪 Test Payment (Demo Mode)', `pay_demo:${order.id}`).row();
+    if (config.trc20Enabled && (config.platformUsdtTrc20Wallet || current.trc20WalletAddress)) {
+      keyboard.text('📤 Send USDT (TRC20)', `pay_trc20:${order.id}`).row();
+    }
+    if (config.demoEnabled && !config.binancePayEnabled && !config.bep20Enabled && !config.trc20Enabled) {
+      keyboard.text('🧪 Test Payment (Demo)', `pay_demo:${order.id}`).row();
     }
     keyboard.text('❌ Cancel Order', `cancel_order:${order.id}`);
     return keyboard;
@@ -473,11 +530,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     );
     const notice = config.demoEnabled ? '\n\n⚠️ <i>Demo mode — no real payment required</i>' : '';
     const text =
-      `✅ <b>Order Created</b>\n\n` +
+      `✅ <b>Order Summary</b>\n\n` +
       `📦 ${html(productTitle)}\n` +
-      `💵 Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
+      `🔢 Quantity: ${order.quantity}\n` +
+      `💵 Total: <b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b>\n` +
       `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
-      `Choose how you'd like to pay:${notice}`;
+      `Choose how to pay:${notice}`;
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
 
@@ -495,12 +553,39 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     try {
+      const maxQty = item.product.stockUnlimited
+        ? Math.min(10, item.product.maxPurchaseQty)
+        : Math.min(item.product.stockCount ?? 1, 10, item.product.maxPurchaseQty);
+      if (maxQty > 1) {
+        const keyboard = new InlineKeyboard();
+        const perRow = maxQty <= 5 ? maxQty : 5;
+        for (let count = 1; count <= maxQty; count += 1) {
+          keyboard.text(String(count), `qp:${productId}:${count}`);
+          if (count % perRow === 0) {
+            keyboard.row();
+          }
+        }
+        keyboard.row().text('❌ Cancel', 'shop:');
+        await show(
+          bot,
+          screen,
+          `📦 <b>${html(item.product.title)}</b>\n\n` +
+            `💵 Unit price: <b>${html(formatUsdt(item.priceMinor))} USDT</b>\n` +
+            `📊 Available: ${item.product.stockUnlimited ? 'Unlimited' : item.product.stockCount} units\n\n` +
+            `How many would you like to buy?\n` +
+            `(Enter 1 to ${maxQty})`,
+          keyboard,
+          'HTML',
+        );
+        return;
+      }
       const order = await createOrder(context.supabase, {
         channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
         ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
         botId: context.botConnection.id,
         customerId: customer.id,
         productId,
+        quantity: 1,
         idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
       });
       if (item.product.requiresEmailActivation) {
@@ -646,6 +731,28 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     );
   }
 
+  async function startTrc20(screen: Screen, orderId: string): Promise<void> {
+    const current = await storeContext();
+    const order = await ownedOrder(orderId);
+    const address = current.trc20WalletAddress;
+    if (!order || !address) {
+      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current), 'HTML');
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      `📤 <b>Send USDT (TRC20)</b>\n\n` +
+        `Send exactly:\n<b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b> on TRC20 network (TRON)\n\n` +
+        `To address:\n<code>${html(address)}</code>\n\n` +
+        `⚠️ Send on TRC20 network ONLY. BEP20/ERC20 will be lost.\n\n` +
+        `After sending, reply with your transaction hash.\n` +
+        `Order: <code>${orderRef(order.id)}</code>`,
+      new InlineKeyboard().text('❌ Cancel Order', `cancel_order:${order.id}`),
+      'HTML',
+    );
+  }
+
   async function startDemo(screen: Screen, orderId: string): Promise<void> {
     const order = await ownedOrder(orderId);
     if (!order) {
@@ -735,15 +842,61 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     try {
       const paid = await payOrderFromCustomerWallet(context.supabase, order.id, customer.id);
       customer = { ...customer, creditBalanceMinor: paid.newBalance };
+      CUSTOMER_CACHE.delete(`${context.botConnection.id}:${customer.telegramUserId}`);
+      const product = (await loadCatalog()).find((entry) => entry.product.id === order.productId)?.product
+        ?? (await getProduct(context.supabase, order.productId));
+      try {
+        const { processQueuedOrder } = await import('@/modules/fulfillment');
+        await processQueuedOrder(context.supabase, order.id);
+      } catch (error: unknown) {
+        logger.info('wallet fulfillment already running', {
+          orderId: order.id,
+          message: error instanceof Error ? error.message : 'unknown',
+        });
+      }
+      const latest = await getOrder(context.supabase, order.id);
+      const manual = product.deliveryType === 'manual' || latest.fulfillmentStatus === 'manual_pending';
+      const activating = product.requiresEmailActivation || latest.fulfillmentStatus === 'supplier_pending';
+      const homeKeys = new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:');
+      if (manual) {
+        await show(
+          bot,
+          screen,
+          `⏳ <b>Processing Your Order</b>\n\n` +
+            `📦 ${html(product.title)}\n` +
+            `Your order requires manual processing (usually within 5-30 minutes).\n` +
+            `We'll message you here when it's ready.\n\n` +
+            `Order: <code>${orderRef(order.id)}</code>`,
+          homeKeys,
+          'HTML',
+        );
+        return;
+      }
+      if (activating) {
+        await show(
+          bot,
+          screen,
+          `⏳ <b>Activation In Progress</b>\n\n` +
+            `📦 ${html(product.title)}\n` +
+            `📧 Being activated on your email.\n` +
+            `⏱ ETA: ASAP — we'll message you when ready.\n\n` +
+            `Order: <code>${orderRef(order.id)}</code>`,
+          homeKeys,
+          'HTML',
+        );
+        return;
+      }
       await show(
         bot,
         screen,
-        `✅ <b>Payment Successful!</b>\n\n` +
+        `✅ <b>Delivered!</b>\n\n` +
+          `📦 ${html(product.title)}\n` +
+          `🔢 Quantity: ${latest.quantity}\n` +
           `💵 Paid: ${html(formatUsdt(paid.amount))} from wallet\n` +
-          `💰 Remaining balance: <b>${html(formatUsdt(paid.newBalance))}</b>\n` +
-          `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
-          `Your order is being prepared. You'll receive your product shortly.`,
-        new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+          `💰 Remaining balance: <b>${html(formatUsdt(paid.newBalance))} USDT</b>\n` +
+          `Order: <code>${orderRef(order.id)}</code>\n\n` +
+          `Your product is in this chat.`,
+        homeKeys,
         'HTML',
       );
     } catch (error: unknown) {
@@ -898,21 +1051,35 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       context.supabase,
       paid.map((order) => order.productId),
     );
-    let text = `💰 <b>My Wallet</b>\n\nBalance: <b>${html(formatUsdt(balance))}</b>\n\n`;
+    const reserved = orders
+      .filter((order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification')
+      .reduce((sum, order) => sum + order.quotedRetailPriceMinor, 0n);
+    const available = balance > reserved ? balance - reserved : 0n;
+    let text =
+      `💰 <b>Your Wallet</b>\n\n` +
+      `Balance: <b>${html(formatUsdt(balance))} USDT</b>\n` +
+      `Reserved: ${html(formatUsdt(reserved))} USDT (pending orders)\n` +
+      `Available: <b>${html(formatUsdt(available))} USDT</b>\n\n`;
     if (paid.length > 0) {
       text += `<b>Recent Activity:</b>\n`;
       for (const order of paid) {
         const title = products.get(order.productId)?.title ?? 'Product';
         text += `• ${html(title)} — ${html(formatUsdt(order.quotedRetailPriceMinor))}\n`;
       }
-    } else {
-      text += `No purchases yet. Browse the shop to get started!`;
     }
-    const keyboard = new InlineKeyboard()
-      .text('💳 Add Funds', 'deposit:')
-      .text('🛍 Shop Now', 'shop:')
-      .row()
-      .text('🏠 Home', 'home:');
+    const current = await storeContext();
+    const keyboard = new InlineKeyboard();
+    if (current.binancePayEnabled || current.isDemoMode) {
+      keyboard.text('🔶 Top up with Binance Pay', 'deposit_bp:').row();
+    }
+    if (current.bep20Enabled && current.usdtWalletAddress) {
+      keyboard.text('📤 Top up USDT (BEP20)', 'deposit_bep20:').row();
+    }
+    if (current.trc20Enabled && current.trc20WalletAddress) {
+      keyboard.text('📤 Top up USDT (TRC20)', 'deposit_trc20:').row();
+    }
+    keyboard.text('🔑 Redeem Top-Up Token', 'dep_token:').row();
+    keyboard.text('🔄 Refresh Balance', 'wallet:').text('⬅ Main Menu', 'start:');
     await show(bot, screen, text, keyboard, 'HTML');
   }
 
@@ -981,21 +1148,19 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const product = await getProduct(context.supabase, order.productId);
     const when = order.createdAt.toISOString().slice(0, 16).replace('T', ' ');
     const text =
-      `📦 *Order Details*\n\n` +
-      `🔖 Order ID: \`${orderRef(order.id)}\`\n` +
-      `📦 Product: ${md(product.title)}\n` +
-      `💵 Amount: ${money(order.quotedRetailPriceMinor)}\n` +
-      `📅 Date: ${md(when)} UTC\n\n` +
-      `💳 Payment: ${statusEmoji(order.paymentStatus)} ${md(order.paymentStatus)}\n` +
-      `💼 Funding: ${statusEmoji(order.fundingStatus)} ${md(order.fundingStatus)}\n` +
-      `📦 Fulfillment: ${statusEmoji(order.fulfillmentStatus)} ${md(order.fulfillmentStatus)}\n` +
-      `🚀 Delivery: ${statusEmoji(order.deliveryStatus)} ${md(order.deliveryStatus)}`;
+      `📦 <b>Order Details</b>\n\n` +
+      `Product: ${html(product.title)}\n` +
+      `Quantity: ${order.quantity}\n` +
+      `Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b>\n` +
+      `Status: ${html(customerFacingStatus(order))}\n` +
+      `Order ID: <code>${orderRef(order.id)}</code>\n` +
+      `Date: ${html(when)} UTC`;
     const keyboard = new InlineKeyboard();
     if (order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification') {
       keyboard.text('💳 Complete Payment', `pay_menu:${order.id}`).row();
     }
     keyboard.text('⬅ Back to Orders', 'orders:').text('🏠 Home', 'home:');
-    await show(bot, screen, text, keyboard);
+    await show(bot, screen, text, keyboard, 'HTML');
   }
 
   async function showProfile(screen: Screen): Promise<void> {
@@ -1089,12 +1254,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function onCallback(screen: Screen, data: string, updateId: number): Promise<void> {
-    if (data === 'home:' || data === 'home') {
+    if (data === 'home:' || data === 'home' || data === 'start:' || data === 'start') {
       await showHome(screen);
       return;
     }
-    if (data === 'shop:' || data === 'shop') {
-      await showShop(screen);
+    if (data === 'shop:' || data === 'shop' || data === 'shop_all:') {
+      await showShop(screen, data === 'shop_all:' ? undefined : undefined);
       return;
     }
     if (data.startsWith('cat:')) {
@@ -1105,7 +1270,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showProduct(screen, data.slice('product:'.length));
       return;
     }
-    if (data === 'sold:') {
+    if (data === 'sold:' || data === 'soldout:') {
       await show(bot, screen, ERROR_TEXT.OUT_OF_STOCK ?? '', homeKeyboard(await storeContext()));
       return;
     }
@@ -1113,14 +1278,57 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await handleBuy(screen, data.slice('buy:'.length), updateId);
       return;
     }
+    if (data.startsWith('qp:')) {
+      const [, productId, rawQty] = data.split(':');
+      const quantity = Number(rawQty);
+      if (!productId || !Number.isInteger(quantity) || quantity < 1) {
+        await showHome(screen);
+        return;
+      }
+      if (customer === null) {
+        throw new Error('missing customer');
+      }
+      const order = await createOrder(context.supabase, {
+        channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
+        ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
+        botId: context.botConnection.id,
+        customerId: customer.id,
+        productId,
+        quantity,
+        idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}:${quantity}`,
+      });
+      const title = (await loadCatalog()).find((entry) => entry.product.id === productId)?.product.title ?? 'Product';
+      await showPaymentOptions(screen, order, title);
+      return;
+    }
+    if (data.startsWith('qty:')) {
+      const [, orderId, rawQty] = data.split(':');
+      const quantity = Number(rawQty);
+      if (!orderId || !Number.isInteger(quantity)) {
+        await showHome(screen);
+        return;
+      }
+      const updated = await updateOrderQuantity(context.supabase, orderId, quantity);
+      const title = (await loadCatalog()).find((entry) => entry.product.id === updated.productId)?.product.title ?? 'Product';
+      await showPaymentOptions(screen, updated, title);
+      return;
+    }
     if (data.startsWith('pay_bp:') || data.startsWith('pay:binance:')) {
       const orderId = data.startsWith('pay_bp:') ? data.slice('pay_bp:'.length) : data.slice('pay:binance:'.length);
       await startBinance(screen, orderId);
       return;
     }
-    if (data.startsWith('pay_bep:') || data.startsWith('pay:bep20:')) {
-      const orderId = data.startsWith('pay_bep:') ? data.slice('pay_bep:'.length) : data.slice('pay:bep20:'.length);
+    if (data.startsWith('pay_bep20:') || data.startsWith('pay_bep:') || data.startsWith('pay:bep20:')) {
+      const orderId = data.startsWith('pay_bep20:')
+        ? data.slice('pay_bep20:'.length)
+        : data.startsWith('pay_bep:')
+          ? data.slice('pay_bep:'.length)
+          : data.slice('pay:bep20:'.length);
       await startBep20(screen, orderId);
+      return;
+    }
+    if (data.startsWith('pay_trc20:')) {
+      await startTrc20(screen, data.slice('pay_trc20:'.length));
       return;
     }
     if (data.startsWith('pay_menu:')) {
@@ -1223,8 +1431,31 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showTerms(screen);
       return;
     }
-    if (data === 'api_info:') {
+    if (data === 'api_info:' || data === 'api:') {
       await showApi(screen);
+      return;
+    }
+    if (data === 'refer:') {
+      const username = context.botConnection.username || 'bot';
+      const referLink = `https://t.me/${username}?start=ref_${(customer?.id ?? 'guest').slice(0, 8)}`;
+      await show(
+        bot,
+        screen,
+        `🎁 <b>Refer & Earn</b>\n\n` +
+          `Share your link and earn when friends buy:\n\n` +
+          `<code>${html(referLink)}</code>\n\n` +
+          `Tap to copy and share with friends!`,
+        new InlineKeyboard().text('📋 Copy Link', 'copy_ref:').text('⬅ Menu', 'start:'),
+        'HTML',
+      );
+      return;
+    }
+    if (data === 'copy_ref:') {
+      await show(bot, screen, 'The referral link is in the message above. Tap and hold it to copy.', new InlineKeyboard().text('⬅ Menu', 'start:'), 'HTML');
+      return;
+    }
+    if (data === 'deposit_bp:' || data === 'deposit_bep20:' || data === 'deposit_trc20:') {
+      await showDeposit(screen);
       return;
     }
     if (data === 'reseller_signup:') {
@@ -1267,6 +1498,21 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         return;
       }
       await saveCheckoutEmail(screen, pendingEmail.orderId, trimmed, pendingEmail.productTitle);
+      return;
+    }
+    const findKey = emailKey(context.botConnection.id, screen.chatId);
+    if (awaitingFind.has(findKey)) {
+      awaitingFind.delete(findKey);
+      const code = trimmed.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toLowerCase();
+      if (customer !== null && code.length >= 6) {
+        const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 30 });
+        const match = orders.find((order) => order.id.toLowerCase().startsWith(code));
+        if (match) {
+          await showOrder(screen, match.id);
+          return;
+        }
+      }
+      await show(bot, screen, '❌ Order not found. Check the 8-character code and try /find again.', homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     if (trimmed === '🛍 Browse Products' || trimmed === '🛍 Browse Shop') {
@@ -1317,6 +1563,31 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   bot.command('support', async (ctx) => {
     await showSupport({ chatId: ctx.chat.id });
   });
+  bot.command('menu', async (ctx) => {
+    await showHome({ chatId: ctx.chat.id });
+  });
+  bot.command('profile', async (ctx) => {
+    await showProfile({ chatId: ctx.chat.id });
+  });
+  bot.command('refer', async (ctx) => {
+    await onCallback({ chatId: ctx.chat.id }, 'refer:', ctx.update.update_id);
+  });
+  bot.command('api', async (ctx) => {
+    await showApi({ chatId: ctx.chat.id });
+  });
+  bot.command('terms', async (ctx) => {
+    await showTerms({ chatId: ctx.chat.id });
+  });
+  bot.command('find', async (ctx) => {
+    awaitingFind.add(emailKey(context.botConnection.id, ctx.chat.id));
+    await show(
+      bot,
+      { chatId: ctx.chat.id },
+      `🔍 <b>Find Order</b>\n\nSend your Order ID (8-character code):`,
+      new InlineKeyboard().text('❌ Cancel', 'start:'),
+      'HTML',
+    );
+  });
 
   bot.on('callback_query:data', async (ctx) => {
     const chatId = ctx.chat?.id ?? ctx.from.id;
@@ -1365,12 +1636,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
             });
           }
         }
+        const customerKey = `${context.botConnection.id}:${identity.user.id}`;
+        const cachedCustomer = CUSTOMER_CACHE.get(customerKey);
         const [loadedCustomer, loadedStore] = await Promise.all([
-          getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
-          resolveBotContext(context.supabase, context.botConnection.id, context.tenantId),
+          cachedCustomer && Date.now() <= cachedCustomer.expiresAt
+            ? Promise.resolve(cachedCustomer.data)
+            : getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
+          resolveBotContextCached(context.supabase, context.botConnection.id, context.tenantId),
+          loadCatalog(),
         ]);
         customer = loadedCustomer;
+        CUSTOMER_CACHE.set(customerKey, { data: loadedCustomer, expiresAt: Date.now() + CUSTOMER_CACHE_MS });
         store = loadedStore;
+        const commandsAt = COMMANDS_REFRESH.get(context.botConnection.id) ?? 0;
+        if (Date.now() > commandsAt) {
+          COMMANDS_REFRESH.set(context.botConnection.id, Date.now() + 3_600_000);
+          void telegramSetMyCommands(botToken).catch(() => undefined);
+        }
         if (customer.isBlocked) {
           await bot.api.sendMessage(identity.chatId, '🚫 Your account has been blocked\\. Contact support for assistance\\.', {
             parse_mode: 'MarkdownV2',

@@ -67,6 +67,12 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.binancePayEnabled !== undefined ? { binancePayEnabled: parsed.binancePayEnabled } : {}),
       ...(parsed.useOwnUsdtWallet !== undefined ? { useOwnUsdtWallet: parsed.useOwnUsdtWallet } : {}),
       ...(parsed.usdtWalletBep20 !== undefined ? { usdtWalletBep20: cleanText(parsed.usdtWalletBep20) ?? null } : {}),
+      ...(parsed.usdtWalletTrc20 !== undefined ? { usdtWalletTrc20: cleanText(parsed.usdtWalletTrc20) ?? null } : {}),
+      ...(parsed.useOwnTrc20Wallet !== undefined ? { useOwnTrc20Wallet: parsed.useOwnTrc20Wallet } : {}),
+      ...(parsed.trc20Enabled !== undefined ? { trc20Enabled: parsed.trc20Enabled } : {}),
+      ...(parsed.announcementChannelId !== undefined
+        ? { announcementChannelId: cleanText(parsed.announcementChannelId) ?? null }
+        : {}),
       ...(parsed.usdtMinimumBep20 !== undefined ? { usdtMinimumBep20: parsed.usdtMinimumBep20 } : {}),
       ...(parsed.resellerSignupEnabled !== undefined
         ? { resellerSignupEnabled: parsed.resellerSignupEnabled }

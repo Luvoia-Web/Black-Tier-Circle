@@ -30,6 +30,7 @@ type Settings = {
   readonly supportChatUrl: string | null;
   readonly supportPhone: string | null;
   readonly supportMessage: string | null;
+  readonly announcementChannelId: string | null;
   readonly termsOfService: string | null;
   readonly refundPolicy: string | null;
   readonly privacyPolicy: string | null;
@@ -352,6 +353,13 @@ export default function ResellerSettingsPage(): JSX.Element {
               onChange={(value) => setSettings({ ...settings, supportPhone: value })}
             />
             <FormField
+              label="Announcement channel"
+              value={settings.announcementChannelId ?? ''}
+              placeholder="-100123456789"
+              onChange={(value) => setSettings({ ...settings, announcementChannelId: value })}
+            />
+            <p className="mb-3 text-xs text-[var(--text-3)]">Add your bot as admin to this channel first. New products are announced there.</p>
+            <FormField
               label="Support Message"
               multiline
               value={settings.supportMessage ?? ''}
@@ -367,6 +375,7 @@ export default function ResellerSettingsPage(): JSX.Element {
                     supportChatUrl: settings.supportChatUrl,
                     supportPhone: settings.supportPhone,
                     supportMessage: settings.supportMessage,
+                    announcementChannelId: settings.announcementChannelId,
                   },
                   'Support saved',
                 )

@@ -169,6 +169,7 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
       fulfillment_status: 'queued',
       delivery_status: 'not_ready',
       idempotency_key: input.idempotencyKey,
+      quantity,
       created_at: now,
       updated_at: now,
     })
@@ -219,6 +220,42 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
  * @param supabase - Database client
  * @param orderId - Order UUID
  */
+/**
+ * Recalculates an unpaid order after the customer picks a quantity.
+ */
+export async function updateOrderQuantity(supabase: DbClient, orderId: string, quantity: number): Promise<Order> {
+  const order = await getOrder(supabase, orderId);
+  if (order.paymentStatus !== 'awaiting' && order.paymentStatus !== 'pending_verification') {
+    throw new ValidationError('ORDER_NOT_PAYABLE', 'This order is not waiting for payment');
+  }
+  const product = await getProduct(supabase, order.productId);
+  if (quantity < 1 || quantity > Math.min(10, product.maxPurchaseQty)) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Requested quantity is not available');
+  }
+  if (!product.stockUnlimited && (product.stockCount ?? 0) < quantity) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
+  }
+  const unitRetail =
+    order.tenantId !== null
+      ? (await getListing(supabase, order.tenantId, order.productId)).retailPriceMinor
+      : product.retailPriceMinor;
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      quantity,
+      quoted_retail_price: (unitRetail * BigInt(quantity)).toString(),
+      quoted_wholesale_price: (product.wholesalePriceMinor * BigInt(quantity)).toString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orderId)
+    .select('*')
+    .single();
+  if (error || data === null) {
+    throw new AppError('ORDER_UPDATE_FAILED', error?.message ?? 'Unable to update quantity', 500);
+  }
+  return mapOrderRow(asOrderRow(data));
+}
+
 export async function getOrder(supabase: DbClient, orderId: string): Promise<Order> {
   const { data, error } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
   if (error) {

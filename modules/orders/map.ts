@@ -71,6 +71,7 @@ export function mapOrderRow(row: OrderRow): Order {
     fulfillmentStatus: row.fulfillment_status as FulfillmentStatus,
     deliveryStatus: row.delivery_status as DeliveryStatus,
     idempotencyKey: row.idempotency_key ?? '',
+    quantity: row.quantity && row.quantity > 0 ? row.quantity : 1,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };

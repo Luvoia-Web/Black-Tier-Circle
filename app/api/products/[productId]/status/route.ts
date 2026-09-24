@@ -9,6 +9,7 @@
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { UpdateProductStatusSchema } from '@/lib/validations/catalog';
+import { announcePublishedProduct } from '@/integrations/telegram/announce';
 import { updateProductStatus } from '@/modules/catalog';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,9 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       context.params.productId,
       body.status,
     );
+    if (body.status === 'published') {
+      void announcePublishedProduct(asDbClient(session.admin), product);
+    }
     return jsonSuccess(product);
   } catch (error: unknown) {
     return handleRouteError(error);

@@ -97,6 +97,10 @@ function defaultSettings(tenantId: string): TenantSettings {
     binancePayEnabled: false,
     useOwnUsdtWallet: false,
     usdtWalletBep20: null,
+    usdtWalletTrc20: null,
+    useOwnTrc20Wallet: false,
+    trc20Enabled: false,
+    announcementChannelId: null,
     usdtMinimumBep20: DEFAULT_USDT_MIN,
     resellerSignupEnabled: false,
     resellerSignupMessage: null,
@@ -207,6 +211,18 @@ export async function updateTenantSettings(
   }
   if (input.usdtWalletBep20 !== undefined) {
     patch.usdt_wallet_bep20 = input.usdtWalletBep20;
+  }
+  if (input.usdtWalletTrc20 !== undefined) {
+    patch.usdt_wallet_trc20 = input.usdtWalletTrc20;
+  }
+  if (input.useOwnTrc20Wallet !== undefined) {
+    patch.use_own_trc20_wallet = input.useOwnTrc20Wallet;
+  }
+  if (input.trc20Enabled !== undefined) {
+    patch.trc20_enabled = input.trc20Enabled;
+  }
+  if (input.announcementChannelId !== undefined) {
+    patch.announcement_channel_id = input.announcementChannelId;
   }
   if (input.usdtMinimumBep20 !== undefined) {
     patch.usdt_minimum_bep20 = input.usdtMinimumBep20;

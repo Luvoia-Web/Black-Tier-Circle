@@ -74,6 +74,7 @@ export type Order = {
   readonly fulfillmentStatus: FulfillmentStatus;
   readonly deliveryStatus: DeliveryStatus;
   readonly idempotencyKey: string;
+  readonly quantity: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 };
@@ -136,6 +137,7 @@ export type OrderRow = {
   readonly fulfillment_status: string;
   readonly delivery_status: string;
   readonly idempotency_key: string | null;
+  readonly quantity?: number | null;
   readonly created_at: string;
   readonly updated_at: string;
 };

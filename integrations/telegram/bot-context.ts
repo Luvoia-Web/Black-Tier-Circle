@@ -17,8 +17,11 @@ export type BotContext = {
   readonly tenantId: string | null;
   readonly storeName: string;
   readonly usdtWalletAddress: string | null;
+  readonly trc20WalletAddress: string | null;
   readonly binancePayEnabled: boolean;
   readonly bep20Enabled: boolean;
+  readonly trc20Enabled: boolean;
+  readonly announcementChannelId: string | null;
   readonly hasAnyPaymentMethod: boolean;
   readonly isDemoMode: boolean;
   readonly storeStatus: 'open' | 'maintenance';
@@ -38,6 +41,26 @@ export type BotContext = {
  * @param botConnectionId - bot_connections id, or the owner-store sentinel
  * @param tenantId - Reseller tenant, or null for the owner store
  */
+const CONTEXT_CACHE = new Map<string, { data: BotContext; expiresAt: number }>();
+
+/**
+ * Returns store settings, reusing a 120 second cache per bot.
+ */
+export async function resolveBotContextCached(
+  supabase: DbClient,
+  botConnectionId: string | null,
+  tenantId: string | null,
+): Promise<BotContext> {
+  const key = `${botConnectionId ?? 'none'}:${tenantId ?? 'owner'}`;
+  const hit = CONTEXT_CACHE.get(key);
+  if (hit && Date.now() <= hit.expiresAt) {
+    return hit.data;
+  }
+  const data = await resolveBotContext(supabase, botConnectionId, tenantId);
+  CONTEXT_CACHE.set(key, { data, expiresAt: Date.now() + 120_000 });
+  return data;
+}
+
 export async function resolveBotContext(
   supabase: DbClient,
   botConnectionId: string | null,
@@ -54,8 +77,11 @@ export async function resolveBotContext(
     tenantId,
     storeName,
     usdtWalletAddress: payments.bep20Address,
+    trc20WalletAddress: payments.trc20Address,
     binancePayEnabled: payments.binance !== null,
     bep20Enabled: payments.bep20Address !== null,
+    trc20Enabled: payments.trc20Address !== null,
+    announcementChannelId: tenant?.announcementChannelId ?? null,
     hasAnyPaymentMethod: !payments.demo,
     isDemoMode: payments.demo,
     storeStatus: tenant?.storeStatus ?? 'open',
