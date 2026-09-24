@@ -219,7 +219,7 @@ export function Sidebar({
           {groups.map((group) => (
             <div key={group.label ?? 'primary'} className={group.label ? 'mt-4' : ''}>
               {group.label && !collapsed ? (
-                <p className="mb-1 px-3 text-[10px] uppercase tracking-widest text-[var(--text-3)]">
+                <p className="mb-1 px-3 text-xs uppercase tracking-widest text-[var(--text-3)]">
                   {group.label}
                 </p>
               ) : null}
@@ -232,7 +232,8 @@ export function Sidebar({
                     href={item.href}
                     onClick={onClose}
                     title={item.label}
-                    className={`flex items-center gap-2.5 rounded-[var(--r-md)] px-3 py-2 text-sm ${
+                    aria-current={active ? 'page' : undefined}
+                    className={`flex min-h-11 items-center gap-2.5 rounded-[var(--r-md)] px-3 py-2 text-sm ${
                       active
                         ? 'bg-[var(--bg-raised)] font-medium text-[var(--text-1)]'
                         : 'text-[var(--text-2)] hover:bg-[var(--bg-raised)] hover:text-[var(--text-1)]'
@@ -241,7 +242,9 @@ export function Sidebar({
                     <Icon size={18} />
                     {collapsed ? null : item.label}
                     {!collapsed && item.badge ? (
-                      <span className="ml-auto rounded-full bg-[var(--accent)] px-2 py-0.5 text-xs text-white">{item.badge}</span>
+                      <span className="ml-auto rounded-full bg-[var(--accent)] px-2 py-0.5 text-xs text-white" aria-label={`${item.badge} pending`}>
+                        {item.badge}
+                      </span>
                     ) : null}
                   </Link>
                 );
@@ -257,7 +260,7 @@ export function Sidebar({
             {collapsed ? null : (
               <div className="min-w-0">
                 <p className="truncate text-sm text-[var(--text-1)]">{displayName}</p>
-                <p className="text-[10px] uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>
+                <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>
               </div>
             )}
           </div>
@@ -268,7 +271,7 @@ export function Sidebar({
                 void handleSignOut();
               }}
               disabled={signingOut}
-              className="mt-2 w-full text-left text-xs text-[var(--text-3)] hover:text-[var(--red)] disabled:opacity-60"
+              className="mt-2 flex min-h-11 w-full items-center text-left text-sm text-[var(--text-3)] hover:text-[var(--red)] disabled:opacity-60"
             >
               {signingOut ? 'Signing out…' : 'Sign out'}
             </button>

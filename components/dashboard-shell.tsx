@@ -48,7 +48,7 @@ export function DashboardShell({ displayName, role, demoMode = false, children }
           </div>
         ) : null}
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
-        <main className="page-enter flex-1 p-6">{children}</main>
+        <main className="page-enter flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
         <CommandPalette role={role} />
       </div>
     </div>

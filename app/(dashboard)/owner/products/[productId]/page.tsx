@@ -41,6 +41,9 @@ type ProductDto = {
   readonly maxPurchaseQty: number;
   readonly estimatedDeliveryMinutes: number | null;
   readonly version: number;
+  readonly supplierId: string | null;
+  readonly supplierSku: string | null;
+  readonly supplierName: string | null;
   readonly assets: AssetDto[];
 };
 
@@ -275,6 +278,18 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
         </div>
       </section>
 
+      {product.supplierId || product.deliveryType === 'supplier_api' ? (
+        <section className="mb-8 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4">
+          <p className="text-sm font-medium text-[var(--text-1)]">Supplier product</p>
+          <p className="mt-1 text-sm text-[var(--text-2)]">
+            This product is fulfilled by <strong>{product.supplierName ?? 'the supplier'}</strong>. Content is delivered
+            automatically when a customer purchases — no file upload needed.
+          </p>
+          <p className="mt-1 text-xs text-[var(--text-3)]">
+            Supplier SKU: <code>{product.supplierSku ?? '—'}</code>
+          </p>
+        </section>
+      ) : (
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-[var(--text-2)]">Files</h2>
@@ -356,6 +371,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
           </div>
         ) : null}
       </section>
+      )}
 
       <section className="rounded-lg border border-red-900/40 bg-red-950/20 p-4">
         <h2 className="text-sm font-medium text-[var(--red)]">Danger zone</h2>

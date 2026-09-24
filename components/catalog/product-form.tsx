@@ -36,6 +36,7 @@ type ProductFormProps = {
   readonly initial?: ProductFormValues;
   readonly error?: string | null;
   readonly submitting?: boolean;
+  readonly supplierLocked?: { readonly name: string; readonly sku: string } | null;
   readonly onSubmit: (values: ProductFormValues) => Promise<void>;
 };
 
@@ -73,6 +74,7 @@ export function ProductForm({
   initial,
   error,
   submitting,
+  supplierLocked,
   onSubmit,
 }: ProductFormProps): JSX.Element {
   const [values, setValues] = useState<ProductFormValues>(initial ?? EMPTY);
@@ -139,23 +141,36 @@ export function ProductForm({
           className={inputClass}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
-        Delivery type
-        <select
-          value={values.deliveryType}
-          onChange={(event) =>
-            setValues({ ...values, deliveryType: event.target.value as DeliveryType })
-          }
-          className={inputClass}
-        >
-          {DELIVERY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {values.deliveryType === 'supplier_api' ? (
+      {supplierLocked ? (
+        <div className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4">
+          <p className="text-sm font-medium text-[var(--text-1)]">Supplier product</p>
+          <p className="mt-1 text-sm text-[var(--text-2)]">
+            This product is fulfilled by <strong>{supplierLocked.name}</strong>. Content is delivered automatically
+            when a customer purchases — no file upload needed.
+          </p>
+          <p className="mt-1 text-xs text-[var(--text-3)]">
+            Supplier SKU: <code>{supplierLocked.sku}</code>
+          </p>
+        </div>
+      ) : (
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
+          Delivery type
+          <select
+            value={values.deliveryType}
+            onChange={(event) =>
+              setValues({ ...values, deliveryType: event.target.value as DeliveryType })
+            }
+            className={inputClass}
+          >
+            {DELIVERY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {!supplierLocked && values.deliveryType === 'supplier_api' ? (
         <>
           <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
             Supplier SKU

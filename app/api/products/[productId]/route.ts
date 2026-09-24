@@ -30,9 +30,16 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     const db = asDbClient(session.admin);
     const product = await getProductWithAssets(db, context.params.productId);
 
+    let supplierName: string | null = null;
+    if (product.supplierId) {
+      const supplier = await db.from('suppliers').select('name').eq('id', product.supplierId).maybeSingle();
+      supplierName = (supplier.data as { name?: string } | null)?.name ?? null;
+    }
+
     if (session.profile.role === 'owner') {
       return jsonSuccess({
         ...product,
+        supplierName,
         assets: product.assets.map(toPublicAsset),
       });
     }

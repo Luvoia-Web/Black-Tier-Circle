@@ -7,6 +7,7 @@
 
 import { decrypt } from '@/lib/encryption';
 import { AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 import { usdtToMinor } from '@/lib/money';
 import type { DbClient } from '@/lib/supabase/query';
 import { SupplierError, createProdSellerClient, type ProdSellerOrder } from '@/integrations/prodseller/client';
@@ -16,6 +17,8 @@ export type SupplierFulfillment = {
   readonly deliveryContent: string | null;
   readonly requiresPolling: boolean;
   readonly status: 'delivered' | 'paid' | 'failed';
+  readonly amountUsdt: number;
+  readonly activationEta: string | null;
 };
 
 type SupplierRow = {
@@ -41,9 +44,14 @@ function deliveryText(order: ProdSellerOrder): string | null {
 
 export function mapSupplierOrder(order: ProdSellerOrder): SupplierFulfillment {
   const content = deliveryText(order);
+  const shared = {
+    supplierOrderId: order.orderId,
+    amountUsdt: order.amount,
+    activationEta: order.activation?.eta ?? null,
+  };
   if (order.status === 'delivered' && content) {
     return {
-      supplierOrderId: order.orderId,
+      ...shared,
       deliveryContent: content,
       requiresPolling: false,
       status: 'delivered',
@@ -51,14 +59,14 @@ export function mapSupplierOrder(order: ProdSellerOrder): SupplierFulfillment {
   }
   if (order.status === 'failed') {
     return {
-      supplierOrderId: order.orderId,
+      ...shared,
       deliveryContent: null,
       requiresPolling: false,
       status: 'failed',
     };
   }
   return {
-    supplierOrderId: order.orderId,
+    ...shared,
     deliveryContent: content,
     requiresPolling: true,
     status: 'paid',
@@ -106,13 +114,57 @@ export async function fulfillViaSupplier(
   if (needsEmail && !customerEmail) {
     throw new SupplierError('EMAIL_REQUIRED', 'This product requires an email address', 400);
   }
+  const priceResult = await supabase
+    .from('products')
+    .select('supplier_price_minor')
+    .eq('id', productId)
+    .maybeSingle();
+  const priceMinor = (priceResult.data as { supplier_price_minor?: string | number | null } | null)?.supplier_price_minor;
   const client = await loadSupplierClient(supabase, product.supplier_id);
+  let observedBalance: number | null = null;
+  try {
+    const balance = await client.getBalance();
+    observedBalance = balance.balance;
+    await supabase
+      .from('suppliers')
+      .update({
+        balance_usdt: balance.balance,
+        balance_checked_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', product.supplier_id);
+    if (priceMinor !== null && priceMinor !== undefined) {
+      const needed = Number(priceMinor) / 1_000_000;
+      if (balance.balance < needed) {
+        throw new SupplierError(
+          'INSUFFICIENT_SUPPLIER_BALANCE',
+          `Low supplier balance (${balance.balance} USDT). Need ${needed} USDT. Top up ProdSeller wallet.`,
+          402,
+        );
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof SupplierError && error.code === 'INSUFFICIENT_SUPPLIER_BALANCE') {
+      throw error;
+    }
+    logger.warn('supplier balance check failed, placing order anyway', {
+      orderId,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+  }
   const placed = await client.createOrder({
     productId: product.supplier_sku,
     quantity: 1,
     idempotencyKey: orderId,
     ...(customerEmail ? { email: customerEmail } : {}),
   });
+  if (observedBalance !== null) {
+    const next = Math.max(0, observedBalance - placed.amount);
+    await supabase
+      .from('suppliers')
+      .update({ balance_usdt: next, updated_at: new Date().toISOString() })
+      .eq('id', product.supplier_id);
+  }
   return mapSupplierOrder(placed);
 }
 

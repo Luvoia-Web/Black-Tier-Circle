@@ -75,27 +75,28 @@ export async function sendTextDelivery(botToken: string, chatId: string, message
  * @param deliveryData - URL, license key, or instructions
  * @param productTitle - Product title for the caption
  */
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export async function sendSupplierDelivery(
   botToken: string,
   chatId: string,
   deliveryData: string,
   productTitle: string,
+  orderId?: string,
 ): Promise<void> {
   const bot = new Bot(botToken);
-  const isUrl = /^https?:\/\//i.test(deliveryData.trim());
   try {
-    const safeTitle = plainTitle(productTitle);
-    const safeContent = sanitizeInput(deliveryData).slice(0, 3000);
-    if (isUrl) {
-      await bot.api.sendMessage(chatId, `✅ *${safeTitle}* is ready.`, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [[{ text: 'Access Your Content', url: deliveryData.trim() }]],
-        },
-      });
-      return;
-    }
-    await bot.api.sendMessage(chatId, `✅ *${safeTitle}* is ready.\n\n${safeContent}`, { parse_mode: 'Markdown' });
+    const safeTitle = escapeHtml(plainTitle(productTitle));
+    const safeContent = escapeHtml(sanitizeInput(deliveryData).slice(0, 3000));
+    const orderShortId = orderId ? orderId.slice(0, 8).toUpperCase() : null;
+    const orderLine = orderShortId ? `🔖 Order: <code>${orderShortId}</code>\n\n` : '';
+    await bot.api.sendMessage(
+      chatId,
+      `🎉 <b>Your Order is Ready!</b>\n\n📦 <b>${safeTitle}</b>\n${orderLine}Here is your delivery:\n\n<code>${safeContent}</code>\n\n✅ Order complete. Thank you for your purchase!\nNeed help? /support`,
+      { parse_mode: 'HTML' },
+    );
   } catch (error: unknown) {
     logger.error('telegram supplier delivery failed', {
       chatId,

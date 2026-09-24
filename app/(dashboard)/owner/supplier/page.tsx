@@ -133,7 +133,7 @@ export default function OwnerSuppliersPage(): JSX.Element {
             <article key={row.supplierId} className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-medium">🏪 {row.supplierName}</h2>
+                  <h2 className="text-lg font-medium">{row.supplierName}</h2>
                   <p className="text-sm text-[var(--text-2)]">{row.baseUrl}</p>
                 </div>
                 <span className={row.status === 'active' ? 'text-[var(--green)]' : 'text-[var(--text-3)]'}>● {row.status}</span>

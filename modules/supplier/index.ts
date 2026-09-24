@@ -352,47 +352,40 @@ export async function publishSupplierProduct(
   assertPublishPrices(cost, prices.wholesalePriceMinor, prices.retailPriceMinor);
   const now = new Date().toISOString();
   let productId = row.product_id;
+  const supplierFields = {
+    delivery_type: 'supplier_api' as const,
+    status: 'published' as const,
+    wholesale_price: prices.wholesalePriceMinor.toString(),
+    retail_price: prices.retailPriceMinor.toString(),
+    stock_unlimited: true,
+    stock_count: null,
+    reseller_eligible: true,
+    supplier_id: row.supplier_id,
+    supplier_sku: row.supplier_sku,
+    supplier_price_minor: cost.toString(),
+    requires_email_activation: row.requires_email_activation,
+    supplier_metadata: { requiresEmailActivation: row.requires_email_activation },
+    updated_at: now,
+  };
   if (!productId) {
     productId = randomUUID();
-    const sku = `sup-${row.supplier_sku}`.slice(0, 80);
+    const sku = `SUPPLIER-${row.supplier_sku}`.slice(0, 80);
     const inserted = await supabase.from('products').insert({
       id: productId,
       sku,
       title: row.name,
       description: row.description,
-      category: row.category,
-      delivery_type: 'supplier_api',
-      status: 'published',
-      wholesale_price: prices.wholesalePriceMinor.toString(),
-      retail_price: prices.retailPriceMinor.toString(),
-      stock_unlimited: row.delivery_type === 'instant',
-      stock_count: row.in_stock ? null : 0,
-      reseller_eligible: true,
+      category: row.category ?? 'Supplier',
       max_purchase_qty: 1,
-      supplier_id: row.supplier_id,
-      supplier_sku: row.supplier_sku,
-      supplier_price_minor: cost.toString(),
-      requires_email_activation: row.requires_email_activation,
-      supplier_metadata: { requiresEmailActivation: row.requires_email_activation },
       version: 1,
       created_at: now,
-      updated_at: now,
+      ...supplierFields,
     });
     if (inserted.error) {
       throw new AppError('PRODUCT_CREATE_FAILED', inserted.error.message, 500);
     }
   } else {
-    const updated = await supabase
-      .from('products')
-      .update({
-        status: 'published',
-        wholesale_price: prices.wholesalePriceMinor.toString(),
-        retail_price: prices.retailPriceMinor.toString(),
-        supplier_price_minor: cost.toString(),
-        requires_email_activation: row.requires_email_activation,
-        updated_at: now,
-      })
-      .eq('id', productId);
+    const updated = await supabase.from('products').update(supplierFields).eq('id', productId);
     if (updated.error) {
       throw new AppError('PRODUCT_UPDATE_FAILED', updated.error.message, 500);
     }

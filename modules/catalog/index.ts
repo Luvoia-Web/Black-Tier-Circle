@@ -331,6 +331,15 @@ export async function updateProduct(
     patch.status = input.status;
   }
 
+  if (existing.supplierId && input.deliveryType !== undefined && input.deliveryType !== 'supplier_api') {
+    throw new ValidationError('SUPPLIER_DELIVERY_LOCKED', 'Supplier products stay on supplier API delivery');
+  }
+  if (existing.supplierId) {
+    patch.delivery_type = 'supplier_api';
+    patch.stock_unlimited = true;
+    patch.stock_count = null;
+  }
+
   const nextDelivery = input.deliveryType ?? existing.deliveryType;
   const nextSupplierSku = input.supplierSku !== undefined ? input.supplierSku : existing.supplierSku;
   if (nextDelivery === 'supplier_api' && (!nextSupplierSku || nextSupplierSku.trim().length === 0)) {
@@ -406,6 +415,12 @@ export async function attachAsset(
   },
 ): Promise<ProductAsset> {
   const product = await getProduct(supabase, productId);
+  if (product.supplierId || product.deliveryType === 'supplier_api') {
+    throw new ValidationError(
+      'SUPPLIER_FILE_BLOCKED',
+      'Supplier products are fulfilled by the supplier. Do not upload a file.',
+    );
+  }
   const { data, error } = await supabase
     .from('product_assets')
     .insert({

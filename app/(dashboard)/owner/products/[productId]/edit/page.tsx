@@ -47,6 +47,8 @@ type ProductDto = {
   readonly maxPurchaseQty: number;
   readonly estimatedDeliveryMinutes: number | null;
   readonly supplierSku: string | null;
+  readonly supplierId: string | null;
+  readonly supplierName: string | null;
   readonly supplierMetadata: Record<string, unknown>;
 };
 
@@ -61,6 +63,7 @@ function trimUsdt(minor: string): string {
 export default function EditProductPage({ params }: EditPageProps): JSX.Element {
   const router = useRouter();
   const [initial, setInitial] = useState<ProductFormValues | null>(null);
+  const [supplierLocked, setSupplierLocked] = useState<{ name: string; sku: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,6 +80,12 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
         return;
       }
       const product = json.data;
+      if (product.supplierId) {
+        setSupplierLocked({
+          name: product.supplierName ?? 'the supplier',
+          sku: product.supplierSku ?? '',
+        });
+      }
       setInitial({
         sku: product.sku,
         title: product.title,
@@ -111,7 +120,7 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
           title: values.title,
           description: values.description || null,
           category: values.category || null,
-          deliveryType: values.deliveryType,
+          deliveryType: supplierLocked ? 'supplier_api' : values.deliveryType,
           wholesalePriceStr: usdtToMinor(values.wholesaleUsdt).toString(),
           retailPriceStr: usdtToMinor(values.retailUsdt).toString(),
           stockUnlimited: values.stockUnlimited,
@@ -146,6 +155,7 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
         <ProductForm
           mode="edit"
           initial={initial}
+          supplierLocked={supplierLocked}
           error={error}
           submitting={submitting}
           onSubmit={onSubmit}

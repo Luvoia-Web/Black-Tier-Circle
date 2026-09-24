@@ -66,6 +66,7 @@ export {
   reconcileUnknownSupplierOrders,
   resubmitSupplierOrder,
   retrySupplierDelivery,
+  settlePolledSupplierOrder,
   supplierRefFromAttempts,
 } from './supplier';
 export type { SupplierReconcileCounts } from './supplier';
@@ -660,8 +661,16 @@ export async function processQueuedOrder(supabase: DbClient, orderId: string): P
     } else if (product.deliveryType === 'manual') {
       await fulfillManual(supabase, order, attempt);
       await completeFulfillmentAttempt(supabase, attempt.id, { status: 'success' });
-    } else {
+    } else if (product.deliveryType === 'supplier_api') {
       await fulfillSupplierOrder(supabase, order, attempt);
+    } else {
+      await markFulfillmentFailed(supabase, order, 'Unknown delivery type');
+      return {
+        success: false,
+        method,
+        fulfillmentAttemptId: attempt.id,
+        error: 'Unknown delivery type',
+      };
     }
     const latest = await getOrder(supabase, order.id);
     return {

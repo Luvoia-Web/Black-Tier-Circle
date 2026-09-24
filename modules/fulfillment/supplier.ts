@@ -23,7 +23,13 @@ import { getBotConnectionById } from '@/modules/bots';
 import { mapCustomerRow } from '@/modules/bots/map';
 import type { CustomerRecord, CustomerRow } from '@/modules/bots/types';
 import { getProduct } from '@/modules/catalog';
-import { fulfillViaSupplier, orderCustomerEmail, supplierArtifact } from '@/modules/supplier/place';
+import {
+  fulfillViaSupplier,
+  loadSupplierClient,
+  orderCustomerEmail,
+  supplierArtifact,
+  supplierOrderIdFromArtifact,
+} from '@/modules/supplier/place';
 import { getOrder, getOrderEvents, recordTransition, type Order } from '@/modules/orders';
 import { consumeReservation, releaseReservation } from '@/modules/wallet';
 import { mapDeliveryAttemptRow, mapFulfillmentAttemptRow } from './map';
@@ -325,7 +331,7 @@ export async function deliverSupplierContent(
     if (!token) {
       throw new Error('bot unavailable');
     }
-    await sendSupplierDelivery(token, customer.telegramChatId, deliveryData, product.title);
+    await sendSupplierDelivery(token, customer.telegramChatId, deliveryData, product.title, order.id);
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'supplier content sent' });
     const latest = await getOrder(supabase, order.id);
     if (latest.deliveryStatus === 'sending') {
@@ -389,6 +395,84 @@ async function markSupplierOrderFailed(
   await releaseIfReserved(supabase, latest, reason);
 }
 
+async function notifyCustomerOutOfStock(supabase: DbClient, order: Order): Promise<void> {
+  if (!order.customerId) {
+    return;
+  }
+  try {
+    const customer = await getCustomerById(supabase, order.customerId);
+    const token = await resolveBotToken(supabase, order);
+    if (!token) {
+      return;
+    }
+    const shortId = order.id.slice(0, 8).toUpperCase();
+    await sendHtmlNotice(
+      token,
+      customer.telegramChatId,
+      `😔 <b>Product Unavailable</b>\n\nOrder <code>${shortId}</code> could not be fulfilled.\nThe product is currently out of stock at our supplier.\n\nYour payment has NOT been deducted.\nPlease contact /support for a refund or alternative.`,
+    );
+  } catch (error: unknown) {
+    logger.error('out of stock notice failed', {
+      orderId: order.id,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+  }
+}
+
+async function notifyOwnerFulfillmentFailed(supabase: DbClient, orderId: string, reason: string): Promise<void> {
+  try {
+    const token = await getDecryptedOwnerBotToken(supabase);
+    if (!token) {
+      return;
+    }
+    const settings = await supabase.from('platform_settings').select('owner_bot_id, support_telegram').limit(1).maybeSingle();
+    const row = settings.data as { owner_bot_id?: string | null; support_telegram?: string | null } | null;
+    const chatId = row?.support_telegram?.match(/^\d+$/) ? row.support_telegram : row?.owner_bot_id;
+    if (!chatId) {
+      return;
+    }
+    const shortId = orderId.slice(0, 8).toUpperCase();
+    await sendHtmlNotice(
+      token,
+      chatId,
+      `⚠️ <b>Fulfillment Issue</b>\n\nOrder: <code>${shortId}</code>\nReason: ${reason}\n\nCheck dashboard: /owner/orders`,
+    );
+  } catch (error: unknown) {
+    logger.error('owner fulfillment notice failed', {
+      orderId,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+  }
+}
+
+/**
+ * Marks a polled supplier order delivered or failed and notifies the customer.
+ */
+export async function settlePolledSupplierOrder(
+  supabase: DbClient,
+  orderId: string,
+  attemptId: string,
+  outcome: { readonly status: 'delivered'; readonly content: string } | { readonly status: 'failed'; readonly reason: string },
+): Promise<void> {
+  const order = await getOrder(supabase, orderId);
+  if (outcome.status === 'delivered') {
+    await patchFulfillmentAttempt(supabase, attemptId, {
+      status: 'success',
+      completedAt: new Date(),
+      error: null,
+    });
+    await markReadyAndDeliver(supabase, order, outcome.content, 'worker', 'supplier activation delivered');
+    return;
+  }
+  await patchFulfillmentAttempt(supabase, attemptId, {
+    status: 'failed',
+    error: outcome.reason,
+    completedAt: new Date(),
+  });
+  await markSupplierOrderFailed(supabase, order, outcome.reason, 'worker');
+  await notifyOwnerFulfillmentFailed(supabase, orderId, outcome.reason);
+}
+
 /**
  * Submits an order to the active supplier connector.
  *
@@ -428,10 +512,12 @@ export async function fulfillSupplier(
         const customer = await getCustomerById(supabase, order.customerId);
         if (token) {
           const shortId = order.id.slice(0, 8).toUpperCase();
+          const eta = placed.activationEta ?? 'ASAP';
+          const emailLine = email ? `📧 Being activated on: <code>${email}</code>\n` : '';
           await sendHtmlNotice(
             token,
             customer.telegramChatId,
-            `⏳ <b>Activation In Progress</b>\n\n📦 ${product.title}\n📧 Email: ${email ?? 'on file'}\n🔖 Order: <code>${shortId}</code>\n\nYour subscription is being activated. We'll message you here when it's ready.\n\nTrack your order: /orders`,
+            `⏳ <b>Activation In Progress</b>\n\n📦 ${product.title}\n${emailLine}🔖 Order: <code>${shortId}</code>\n⏱ ETA: ${eta}\n\nWe'll message you here as soon as it's activated.\nTrack your order: /orders`,
           );
         }
       }
@@ -446,9 +532,28 @@ export async function fulfillSupplier(
   } catch (err) {
     const message = err instanceof Error ? err.message : 'supplier request error';
     const pending = await getOrder(supabase, order.id);
-    const manual =
-      err instanceof SupplierError &&
-      (err.code === 'INSUFFICIENT_SUPPLIER_BALANCE' || err.code === 'EMAIL_REQUIRED');
+    const code = err instanceof SupplierError ? err.code : null;
+    if (code === 'OUT_OF_STOCK') {
+      await patchFulfillmentAttempt(supabase, fulfillmentAttempt.id, {
+        status: 'failed',
+        error: message,
+        completedAt: new Date(),
+      });
+      await markSupplierOrderFailed(supabase, pending, 'Product out of stock at supplier', 'worker');
+      await notifyCustomerOutOfStock(supabase, pending);
+      await notifyOwnerFulfillmentFailed(supabase, order.id, 'Product out of stock at supplier');
+      return;
+    }
+    if (code === 'SUPPLIER_TIMEOUT') {
+      if (pending.fulfillmentStatus === 'supplier_pending') {
+        await recordTransition(supabase, order.id, 'fulfillment', 'supplier_pending', 'outcome_unknown', {
+          trigger: 'worker',
+          note: 'Supplier API timeout. Reconcile cron will check status.',
+        });
+      }
+      return;
+    }
+    const manual = code === 'INSUFFICIENT_SUPPLIER_BALANCE' || code === 'EMAIL_REQUIRED';
     if (pending.fulfillmentStatus === 'supplier_pending') {
       await recordTransition(
         supabase,
@@ -467,6 +572,9 @@ export async function fulfillSupplier(
       error: message,
       completedAt: new Date(),
     });
+    if (manual) {
+      await notifyOwnerFulfillmentFailed(supabase, order.id, message);
+    }
     return;
   }
 
@@ -592,7 +700,47 @@ export async function reconcileSupplierOrder(
   }
   const attempts = await listFulfillmentAttempts(supabase, order.id);
   const supplierOrderId = supplierRefFromAttempts(attempts);
-  if (!supplierOrderId || supplierOrderId.startsWith('supplier_order:')) {
+  const prodSellerOrderId = supplierOrderIdFromArtifact(supplierOrderId);
+  if (prodSellerOrderId) {
+    const product = await getProduct(supabase, order.productId);
+    if (!product.supplierId) {
+      await maybeEscalate(supabase, order);
+      return 'unknown';
+    }
+    try {
+      const client = await loadSupplierClient(supabase, product.supplierId);
+      const remote = await client.getOrder(prodSellerOrderId);
+      const content = remote.deliveredKeys?.join('\n') || remote.deliveredKey || null;
+      if (remote.status === 'delivered' && content) {
+        return applyStatusResult(supabase, order, {
+          supplierOrderId: supplierArtifact(remote.orderId),
+          status: 'completed',
+          deliveryData: content,
+          message: 'supplier delivered',
+          completedAt: new Date(),
+        });
+      }
+      if (remote.status === 'failed') {
+        return applyStatusResult(supabase, order, {
+          supplierOrderId: supplierArtifact(remote.orderId),
+          status: 'failed',
+          deliveryData: null,
+          message: `Supplier order ${prodSellerOrderId} failed`,
+          completedAt: new Date(),
+        });
+      }
+      await maybeEscalate(supabase, order);
+      return 'unknown';
+    } catch (error: unknown) {
+      logger.warn('supplier reconcile status check failed', {
+        orderId: order.id,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      await maybeEscalate(supabase, order);
+      return 'unknown';
+    }
+  }
+  if (!supplierOrderId) {
     await maybeEscalate(supabase, order);
     return 'unknown';
   }
