@@ -11,7 +11,7 @@ import { mapProductRow } from '@/modules/catalog/map';
 import type { Product } from '@/modules/catalog/types';
 
 export const PRODUCT_LIST_COLUMNS =
-  'id, sku, title, description, category, delivery_type, status, wholesale_price, retail_price, stock_unlimited, stock_count, reseller_eligible, max_purchase_qty, estimated_delivery_minutes, supplier_sku, supplier_metadata, version, created_at, updated_at';
+  'id, sku, title, description, category, delivery_type, status, wholesale_price, retail_price, stock_unlimited, stock_count, reseller_eligible, max_purchase_qty, estimated_delivery_minutes, supplier_sku, supplier_id, supplier_price_minor, requires_email_activation, supplier_metadata, version, created_at, updated_at';
 
 export type CustomerLookup = {
   readonly id: string;

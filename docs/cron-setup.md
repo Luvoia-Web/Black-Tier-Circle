@@ -25,6 +25,13 @@ Go to https://cron-job.org and create a free account.
 - Method: GET
 - Header: Authorization: Bearer YOUR_CRON_SECRET
 
+#### Job 4: Supplier Sync (every 30 minutes)
+- Title: BTC Supplier Sync
+- URL: https://blacktiercircle.vercel.app/api/supplier/sync
+- Schedule: Every 30 minutes (*/30 * * * *)
+- Method: GET
+- Header: Authorization: Bearer YOUR_CRON_SECRET
+
 #### Job 3: Bot Health Check (every 30 minutes)
 - Title: BTC Bot Health
 - URL: https://YOUR_VERCEL_URL/api/bots/health

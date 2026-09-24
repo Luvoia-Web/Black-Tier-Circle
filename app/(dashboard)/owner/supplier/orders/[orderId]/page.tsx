@@ -54,7 +54,7 @@ export default async function OwnerSupplierOrderPage({ params }: PageProps): Pro
           title={`Supplier order ${order.id.slice(0, 8).toUpperCase()}`}
           description={product.title}
           actions={
-            <Link href={ROUTES.owner.supplier} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
+            <Link href={ROUTES.owner.supplierOrders} className="text-sm text-[var(--accent-soft)] hover:text-[var(--accent)]">
               Back to supplier
             </Link>
           }

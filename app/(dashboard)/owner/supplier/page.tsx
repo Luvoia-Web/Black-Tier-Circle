@@ -1,153 +1,167 @@
 /**
  * @file app/(dashboard)/owner/supplier/page.tsx
  *
- * Owner supplier monitoring: mode, health, outcome_unknown queue, recent orders.
- *
- * @module Dashboard
+ * Connected supplier accounts and a link back to the fulfillment queue.
  */
 
-import Link from 'next/link';
-import { ForceReconcileButton } from '@/components/supplier/force-reconcile-button';
-import { SupplierHealthBadge } from '@/components/supplier/supplier-health-badge';
-import { TrackBadge } from '@/components/orders/track-badge';
-import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
-import { PageHeader } from '@/components/ui/page-header';
-import { StatCard } from '@/components/ui/stat-card';
-import { asDbClient } from '@/lib/auth/session';
-import { ROUTES } from '@/lib/navigation';
-import { createAdminSupabaseClient } from '@/lib/supabase/admin';
-import { getSupplierModeLabel } from '@/lib/supplier-config';
-import { getProduct } from '@/modules/catalog';
-import { getOrderEvents, listOrders, type Order } from '@/modules/orders';
-import { getOrderFulfillmentStatus, supplierRefFromAttempts } from '@/modules/fulfillment';
+'use client';
 
-type SupplierRow = {
-  readonly order: Order;
-  readonly productTitle: string;
-  readonly supplierOrderId: string;
-  readonly lastCheck: string;
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard } from '@/components/ui/Skeleton';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
+
+type SupplierCard = {
+  readonly supplierId: string;
+  readonly supplierName: string;
+  readonly baseUrl: string;
+  readonly status: string;
+  readonly balance: string;
+  readonly membership: string | null;
+  readonly lastSyncAt: string | null;
+  readonly productCount: number;
+  readonly hasApiKey: boolean;
 };
 
-function startOfToday(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-function formatAge(from: Date): string {
-  const minutes = Math.max(0, Math.round((Date.now() - from.getTime()) / 60000));
-  if (minutes < 60) {
-    return `${minutes}m`;
+function ago(value: string | null): string {
+  if (!value) {
+    return 'Never';
   }
-  const hours = Math.round(minutes / 60);
-  return `${hours}h`;
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) {
+    return 'Just now';
+  }
+  if (minutes < 60) {
+    return `${minutes} minutes ago`;
+  }
+  return `${Math.round(minutes / 60)} hours ago`;
 }
 
-async function toRow(db: ReturnType<typeof asDbClient>, order: Order): Promise<SupplierRow> {
-  const product = await getProduct(db, order.productId);
-  const snapshot = await getOrderFulfillmentStatus(db, order.id);
-  const events = await getOrderEvents(db, order.id);
-  const last = events[0];
-  return {
-    order,
-    productTitle: product.title,
-    supplierOrderId: supplierRefFromAttempts(snapshot.fulfillmentAttempts) ?? '—',
-    lastCheck: last ? last.createdAt.toLocaleString() : '—',
-  };
-}
+export default function OwnerSuppliersPage(): JSX.Element {
+  const [rows, setRows] = useState<SupplierCard[]>([]);
+  const [pending, setPending] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
 
-export default async function OwnerSupplierPage(): Promise<JSX.Element> {
-  const db = asDbClient(createAdminSupabaseClient());
-  const orders = await listOrders(db, { limit: 200 });
-  const today = startOfToday();
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const response = await fetch(API_ROUTES.supplierBalance);
+      const json = (await response.json()) as {
+        success: boolean;
+        data?: { balances: SupplierCard[]; pendingReviewCount: number };
+      };
+      if (json.success && json.data) {
+        setRows(json.data.balances);
+        setPending(json.data.pendingReviewCount);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const pending = orders.filter((order) => order.fulfillmentStatus === 'supplier_pending');
-  const unknown = orders.filter((order) => order.fulfillmentStatus === 'outcome_unknown');
-  const completedToday = orders.filter(
-    (order) => order.fulfillmentStatus === 'ready' && order.updatedAt >= today,
-  ).length;
-  const failedToday = orders.filter(
-    (order) => order.fulfillmentStatus === 'failed' && order.updatedAt >= today,
-  ).length;
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const unknownRows = await Promise.all(unknown.map((order) => toRow(db, order)));
-  const recentSupplier = orders.filter((order) =>
-    ['supplier_pending', 'outcome_unknown', 'ready', 'failed'].includes(order.fulfillmentStatus),
-  );
-  const recentRows = await Promise.all(recentSupplier.slice(0, 40).map((order) => toRow(db, order)));
+  async function sync(supplierId: string): Promise<void> {
+    setBusy(supplierId);
+    try {
+      const response = await fetch(API_ROUTES.supplierSync, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId }),
+      });
+      const json = (await response.json()) as { success: boolean; data?: { results: Array<{ synced: number; newProducts: number }> } };
+      if (!json.success) {
+        toast.error('Sync failed');
+        return;
+      }
+      const summary = json.data?.results[0];
+      toast.success(summary ? `Synced ${summary.synced} products (${summary.newProducts} new)` : 'Sync finished');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
 
-  const unknownColumns: ReadonlyArray<DataTableColumn<SupplierRow>> = [
-    {
-      key: 'ref',
-      header: 'Order ID',
-      render: (row) => (
-        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
-          {row.order.id.slice(0, 8).toUpperCase()}
-        </Link>
-      ),
-    },
-    { key: 'product', header: 'Product', render: (row) => row.productTitle },
-    { key: 'age', header: 'Age', render: (row) => formatAge(row.order.updatedAt) },
-    { key: 'supplier', header: 'Supplier order ID', render: (row) => row.supplierOrderId },
-    { key: 'check', header: 'Last check', render: (row) => row.lastCheck },
-    {
-      key: 'action',
-      header: 'Action',
-      render: (row) => <ForceReconcileButton orderId={row.order.id} />,
-    },
-  ];
-
-  const recentColumns: ReadonlyArray<DataTableColumn<SupplierRow>> = [
-    {
-      key: 'ref',
-      header: 'Order ID',
-      render: (row) => (
-        <Link href={ROUTES.owner.supplierOrder(row.order.id)} className="text-[var(--accent-soft)] hover:text-[var(--accent)]">
-          {row.order.id.slice(0, 8).toUpperCase()}
-        </Link>
-      ),
-    },
-    { key: 'product', header: 'Product', render: (row) => row.productTitle },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) => <TrackBadge status={row.order.fulfillmentStatus} />,
-    },
-    { key: 'supplier', header: 'Supplier ref', render: (row) => row.supplierOrderId },
-    { key: 'updated', header: 'Completed at', render: (row) => row.order.updatedAt.toLocaleString() },
-  ];
+  async function balance(supplierId: string): Promise<void> {
+    setBusy(supplierId);
+    try {
+      await fetch(`${API_ROUTES.supplierBalance}?refresh=${supplierId}`);
+      toast.success('Balance updated');
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <>
       <PageHeader
-        title="Supplier"
-        description="External supplier connector monitoring"
+        title="Suppliers"
+        description={pending > 0 ? `${pending} products waiting for review` : 'Import products from a supplier API'}
         actions={
-          <div className="flex flex-col items-end gap-1">
-            <span className="rounded-full bg-[var(--bg-raised)] px-3 py-1 text-sm text-[var(--text-1)]">{getSupplierModeLabel()}</span>
-            <SupplierHealthBadge />
-          </div>
+          <Link href={ROUTES.owner.supplierConnect} className="btc-btn-primary">
+            + Connect Supplier
+          </Link>
         }
       />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Supplier pending" value={String(pending.length)} />
-        <StatCard label="Outcome unknown" value={String(unknown.length)} />
-        <StatCard label="Completed today" value={String(completedToday)} />
-        <StatCard label="Failed today" value={String(failedToday)} />
-      </div>
-      <h2 className="mb-3 mt-8 text-sm font-medium text-[var(--amber)]">Outcome unknown (needs attention)</h2>
-      <DataTable
-        columns={unknownColumns}
-        rows={unknownRows}
-        emptyMessage="No orders waiting on supplier reconciliation."
-        rowKey={(row) => row.order.id}
-      />
-      <h2 className="mb-3 mt-8 text-sm font-medium text-[var(--text-2)]">Recent supplier orders</h2>
-      <DataTable
-        columns={recentColumns}
-        rows={recentRows}
-        emptyMessage="No supplier orders yet."
-        rowKey={(row) => `recent-${row.order.id}`}
-      />
+      <p className="mb-4 text-sm">
+        <Link href={ROUTES.owner.supplierOrders} className="text-[var(--accent)] hover:underline">
+          Open fulfillment queue
+        </Link>
+      </p>
+      {loading ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SkeletonCard className="h-48" />
+          <SkeletonCard className="h-48" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-8 text-center">
+          <p className="text-lg font-medium">No suppliers connected yet</p>
+          <p className="mt-2 text-sm text-[var(--text-2)]">Connect a supplier API to import products into your catalog.</p>
+          <Link href={ROUTES.owner.supplierConnect} className="btc-btn-primary mt-4 inline-flex">
+            + Connect Supplier
+          </Link>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {rows.map((row) => (
+            <article key={row.supplierId} className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium">🏪 {row.supplierName}</h2>
+                  <p className="text-sm text-[var(--text-2)]">{row.baseUrl}</p>
+                </div>
+                <span className={row.status === 'active' ? 'text-[var(--green)]' : 'text-[var(--text-3)]'}>● {row.status}</span>
+              </div>
+              <p className="mt-4 text-sm">
+                Balance: {row.balance} USDT | Membership: {row.membership ?? '—'}
+              </p>
+              <p className="mt-1 text-sm text-[var(--text-2)]">
+                Products: {row.productCount} synced | Last sync: {ago(row.lastSyncAt)}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link href={ROUTES.owner.supplierDetail(row.supplierId)} className="btc-btn-primary">
+                  View Products
+                </Link>
+                <button type="button" className="btc-btn-secondary" disabled={busy === row.supplierId} onClick={() => void sync(row.supplierId)}>
+                  Sync Now
+                </button>
+                <button type="button" className="btc-btn-secondary" disabled={busy === row.supplierId} onClick={() => void balance(row.supplierId)}>
+                  Check Balance
+                </button>
+                <Link href={ROUTES.owner.supplierSettings(row.supplierId)} className="btc-btn-secondary">
+                  Settings
+                </Link>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </>
   );
 }

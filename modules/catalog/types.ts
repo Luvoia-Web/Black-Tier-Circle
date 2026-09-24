@@ -30,6 +30,8 @@ export type Product = {
   estimatedDeliveryMinutes: number | null;
   /** SKU as known to the external supplier. Null for non-supplier products. */
   supplierSku: string | null;
+  supplierId: string | null;
+  requiresEmailActivation: boolean;
   /** Arbitrary supplier-specific metadata. */
   supplierMetadata: Record<string, unknown>;
   version: number;
@@ -104,6 +106,8 @@ export type ProductRow = {
   readonly max_purchase_qty: number;
   readonly estimated_delivery_minutes: number | null;
   readonly supplier_sku?: string | null;
+  readonly supplier_id?: string | null;
+  readonly requires_email_activation?: boolean | null;
   readonly supplier_metadata?: Record<string, unknown> | null;
   readonly version: number;
   readonly created_at: string;

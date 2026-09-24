@@ -62,6 +62,8 @@ const SANDBOX_PRODUCTS: readonly Product[] = [
     maxPurchaseQty: 1,
     estimatedDeliveryMinutes: null,
     supplierSku: null,
+    supplierId: null,
+    requiresEmailActivation: false,
     supplierMetadata: {},
     version: 1,
     createdAt: SANDBOX_NOW,

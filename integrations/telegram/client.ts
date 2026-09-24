@@ -47,6 +47,15 @@ const processedUpdateIds = new Set<string>();
 const PROCESSED_UPDATE_LIMIT = 5000;
 const botInfoMemory = new Map<string, ReturnType<typeof buildBotInfo>>();
 const PRODUCT_CACHE_MS = 30_000;
+const awaitingEmail = new Map<string, { readonly orderId: string; readonly productTitle: string }>();
+
+function emailKey(botId: string, chatId: string | number): string {
+  return `${botId}:${chatId}`;
+}
+
+function isEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 const KNOWN_COMMANDS = new Set(['/start', '/shop', '/orders', '/wallet', '/deposit', '/support']);
 
 const ERROR_TEXT: Record<string, string> = {
@@ -494,6 +503,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         productId,
         idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
       });
+      if (item.product.requiresEmailActivation) {
+        awaitingEmail.set(emailKey(context.botConnection.id, screen.chatId), {
+          orderId: order.id,
+          productTitle: item.product.title,
+        });
+        await show(
+          bot,
+          screen,
+          `📧 <b>Email Required</b>\n\n` +
+            `<b>${html(item.product.title)}</b> is activated on your account.\n\n` +
+            `Please send your <b>email address</b> to continue:\n` +
+            `(e.g. yourname@gmail.com)`,
+          new InlineKeyboard().text('❌ Cancel', `cancel_order:${order.id}`),
+          'HTML',
+        );
+        return;
+      }
       await showPaymentOptions(screen, order, item.product.title);
     } catch (error: unknown) {
       await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
@@ -1050,6 +1076,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     try {
+      for (const [key, value] of awaitingEmail) {
+        if (value.orderId === order.id) {
+          awaitingEmail.delete(key);
+        }
+      }
       await cancelOrder(context.supabase, order.id, 'customer cancelled in telegram');
       await show(bot, screen, `❌ Order \`${orderRef(order.id)}\` was cancelled\\.`, homeKeyboard(await storeContext()));
     } catch (error: unknown) {
@@ -1203,8 +1234,41 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await showHome(screen);
   }
 
+  async function saveCheckoutEmail(screen: Screen, orderId: string, email: string, productTitle: string): Promise<void> {
+    const { error } = await context.supabase
+      .from('orders')
+      .update({ metadata: { customerEmail: email }, updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+    if (error) {
+      await show(bot, screen, BOT_ERRORS.GENERIC_ERROR, undefined, 'HTML');
+      return;
+    }
+    awaitingEmail.delete(emailKey(context.botConnection.id, screen.chatId));
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
+    await showPaymentOptions(screen, order, productTitle);
+  }
+
   async function onText(screen: Screen, text: string): Promise<void> {
     const trimmed = text.trim();
+    const pendingEmail = awaitingEmail.get(emailKey(context.botConnection.id, screen.chatId));
+    if (pendingEmail) {
+      if (!isEmailAddress(trimmed)) {
+        await show(
+          bot,
+          screen,
+          "❌ That doesn't look like a valid email. Please send a valid email address.",
+          new InlineKeyboard().text('❌ Cancel', `cancel_order:${pendingEmail.orderId}`),
+          'HTML',
+        );
+        return;
+      }
+      await saveCheckoutEmail(screen, pendingEmail.orderId, trimmed, pendingEmail.productTitle);
+      return;
+    }
     if (trimmed === '🛍 Browse Products' || trimmed === '🛍 Browse Shop') {
       await showShop(screen);
       return;

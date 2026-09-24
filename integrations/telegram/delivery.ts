@@ -104,3 +104,11 @@ export async function sendSupplierDelivery(
     throw error;
   }
 }
+
+/**
+ * Sends an HTML notice that is not a product file.
+ */
+export async function sendHtmlNotice(botToken: string, chatId: string, html: string): Promise<void> {
+  const bot = new Bot(botToken);
+  await bot.api.sendMessage(chatId, html, { parse_mode: 'HTML' });
+}

@@ -34,12 +34,13 @@ import {
 import type { UserRole } from '@/modules/identity/types';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export type NavItem = {
   readonly href: string;
   readonly label: string;
   readonly icon: LucideIcon;
+  readonly badge?: number;
 };
 
 type NavGroup = {
@@ -146,9 +147,29 @@ export function Sidebar({
   onToggleCollapsed,
 }: SidebarProps): JSX.Element {
   const pathname = usePathname();
-  const groups = role === 'owner' ? OWNER_GROUPS : RESELLER_GROUPS;
+  const [pendingReview, setPendingReview] = useState(0);
+  const groups = (role === 'owner' ? OWNER_GROUPS : RESELLER_GROUPS).map((group) => ({
+    ...group,
+    items: group.items.map((item) =>
+      item.href === ROUTES.owner.supplier && pendingReview > 0 ? { ...item, badge: pendingReview } : item,
+    ),
+  }));
   const [signingOut, setSigningOut] = useState(false);
   const widthClass = collapsed ? 'w-16' : 'w-[var(--sidebar-w)]';
+
+  useEffect(() => {
+    if (role !== 'owner') {
+      return;
+    }
+    void fetch(API_ROUTES.supplierBalance)
+      .then(async (response) => {
+        const json = (await response.json()) as { success?: boolean; data?: { pendingReviewCount?: number } };
+        if (json.success && json.data?.pendingReviewCount) {
+          setPendingReview(json.data.pendingReviewCount);
+        }
+      })
+      .catch(() => undefined);
+  }, [role]);
 
   async function handleSignOut(): Promise<void> {
     setSigningOut(true);
@@ -219,6 +240,9 @@ export function Sidebar({
                   >
                     <Icon size={18} />
                     {collapsed ? null : item.label}
+                    {!collapsed && item.badge ? (
+                      <span className="ml-auto rounded-full bg-[var(--accent)] px-2 py-0.5 text-xs text-white">{item.badge}</span>
+                    ) : null}
                   </Link>
                 );
               })}

@@ -8,6 +8,8 @@
  */
 
 import { getSupplierConnector } from '@/integrations/supplier/connector';
+import { SupplierError } from '@/integrations/prodseller/client';
+import { sendHtmlNotice } from '@/integrations/telegram/delivery';
 import type { SupplierOrderResult, SupplierStatusResult } from '@/integrations/supplier/types';
 import { sendSupplierDelivery } from '@/integrations/telegram/delivery';
 import { decrypt } from '@/lib/encryption';
@@ -21,6 +23,7 @@ import { getBotConnectionById } from '@/modules/bots';
 import { mapCustomerRow } from '@/modules/bots/map';
 import type { CustomerRecord, CustomerRow } from '@/modules/bots/types';
 import { getProduct } from '@/modules/catalog';
+import { fulfillViaSupplier, orderCustomerEmail, supplierArtifact } from '@/modules/supplier/place';
 import { getOrder, getOrderEvents, recordTransition, type Order } from '@/modules/orders';
 import { consumeReservation, releaseReservation } from '@/modules/wallet';
 import { mapDeliveryAttemptRow, mapFulfillmentAttemptRow } from './map';
@@ -410,20 +413,54 @@ export async function fulfillSupplier(
   let result: SupplierOrderResult;
 
   try {
-    result = await connector.createOrder({
-      internalOrderId: order.id,
-      supplierProductSku: supplierSkuForProduct(product),
-      quantity: 1,
-      ...(order.externalOrderRef ? { customerRef: order.externalOrderRef } : {}),
-    });
+    if (product.supplierId) {
+      const email = await orderCustomerEmail(supabase, order.id);
+      const placed = await fulfillViaSupplier(supabase, order.id, product.id, email);
+      result = {
+        status: placed.status === 'delivered' ? 'completed' : placed.status === 'failed' ? 'failed' : 'unknown',
+        supplierOrderId: supplierArtifact(placed.supplierOrderId),
+        deliveryData: placed.deliveryContent,
+        message: placed.requiresPolling ? 'activation pending' : null,
+        completedAt: placed.status === 'delivered' ? new Date() : null,
+      };
+      if (placed.requiresPolling && order.customerId) {
+        const token = await resolveBotToken(supabase, order);
+        const customer = await getCustomerById(supabase, order.customerId);
+        if (token) {
+          const shortId = order.id.slice(0, 8).toUpperCase();
+          await sendHtmlNotice(
+            token,
+            customer.telegramChatId,
+            `⏳ <b>Activation In Progress</b>\n\n📦 ${product.title}\n📧 Email: ${email ?? 'on file'}\n🔖 Order: <code>${shortId}</code>\n\nYour subscription is being activated. We'll message you here when it's ready.\n\nTrack your order: /orders`,
+          );
+        }
+      }
+    } else {
+      result = await connector.createOrder({
+        internalOrderId: order.id,
+        supplierProductSku: supplierSkuForProduct(product),
+        quantity: 1,
+        ...(order.externalOrderRef ? { customerRef: order.externalOrderRef } : {}),
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'supplier request error';
     const pending = await getOrder(supabase, order.id);
+    const manual =
+      err instanceof SupplierError &&
+      (err.code === 'INSUFFICIENT_SUPPLIER_BALANCE' || err.code === 'EMAIL_REQUIRED');
     if (pending.fulfillmentStatus === 'supplier_pending') {
-      await recordTransition(supabase, order.id, 'fulfillment', 'supplier_pending', 'outcome_unknown', {
-        trigger: 'worker',
-        note: `Supplier request error: ${message}`,
-      });
+      await recordTransition(
+        supabase,
+        order.id,
+        'fulfillment',
+        'supplier_pending',
+        manual ? 'manual_pending' : 'outcome_unknown',
+        {
+          trigger: 'worker',
+          note: manual ? message : `Supplier request error: ${message}`,
+        },
+      );
     }
     await patchFulfillmentAttempt(supabase, fulfillmentAttempt.id, {
       status: 'failed',
@@ -555,7 +592,7 @@ export async function reconcileSupplierOrder(
   }
   const attempts = await listFulfillmentAttempts(supabase, order.id);
   const supplierOrderId = supplierRefFromAttempts(attempts);
-  if (!supplierOrderId) {
+  if (!supplierOrderId || supplierOrderId.startsWith('supplier_order:')) {
     await maybeEscalate(supabase, order);
     return 'unknown';
   }

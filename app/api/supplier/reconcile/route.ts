@@ -17,6 +17,7 @@ import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { reconcileUnknownSupplierOrders } from '@/modules/fulfillment';
+import { pollPendingSupplierOrders } from '@/modules/supplier/poll';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,8 +27,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (authError) {
       return authError;
     }
-    const result = await reconcileUnknownSupplierOrders(asDbClient(createAdminSupabaseClient()));
-    return jsonSuccess(result);
+    const db = asDbClient(createAdminSupabaseClient());
+    const result = await reconcileUnknownSupplierOrders(db);
+    const polled = await pollPendingSupplierOrders(db);
+    return jsonSuccess({ ...result, supplierPoll: polled });
   } catch (error: unknown) {
     return handleRouteError(error);
   }
