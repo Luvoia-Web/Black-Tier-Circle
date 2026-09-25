@@ -26,7 +26,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://*.supabase.co",
       "font-src 'self'",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.telegram.org",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.telegram.org https://prod.spline.design",
       "frame-ancestors 'none'",
     ].join('; '),
   },

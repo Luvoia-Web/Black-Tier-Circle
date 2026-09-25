@@ -8,6 +8,7 @@
 
 'use client';
 
+import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'btc-theme';
@@ -53,7 +54,14 @@ export function ThemeToggle(): JSX.Element {
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bg-raised)] text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
     >
-      {isDark ? <SunIcon /> : <MoonIcon />}
+      <motion.span
+        key={theme}
+        initial={{ rotate: -40, scale: 0.8, opacity: 0 }}
+        animate={{ rotate: 0, scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+      >
+        {isDark ? <SunIcon /> : <MoonIcon />}
+      </motion.span>
     </button>
   );
 }

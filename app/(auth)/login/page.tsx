@@ -14,6 +14,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ROUTES, dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { UserRole } from '@/modules/identity/types';
+import { CSSOrb } from '@/components/3d/CSSOrb';
+import { SplineScene } from '@/components/3d/SplineScene';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
 function isUserRole(value: unknown): value is UserRole {
@@ -434,6 +436,11 @@ function GoogleMark(): JSX.Element {
 export default function LoginPage(): JSX.Element {
   return (
     <main className="login-stage">
+      <SplineScene
+        url="https://prod.spline.design/6Wq1Q7YGyM-iab9i/scene.splinecode"
+        fallback={<CSSOrb />}
+        className="absolute inset-0 opacity-70"
+      />
       <div className="login-grid" aria-hidden="true" />
       <div className="login-orb login-orb-1" aria-hidden="true" />
       <div className="login-orb login-orb-2" aria-hidden="true" />

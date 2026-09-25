@@ -7,7 +7,7 @@
  */
 
 export function SkeletonCard({ className }: { readonly className?: string }): JSX.Element {
-  return <div className={`skeleton h-24 rounded-xl ${className ?? ''}`} />;
+  return <div className={`skeleton shimmer h-24 rounded-xl ${className ?? ''}`} />;
 }
 
 export function SkeletonRow(): JSX.Element {

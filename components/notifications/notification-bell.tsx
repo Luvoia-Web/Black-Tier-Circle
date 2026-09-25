@@ -10,7 +10,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Bell } from 'lucide-react';
+import { LottiePlayer } from '@/components/motion/LottiePlayer';
+import { SCALE_IN } from '@/lib/animations';
 import type { NotificationItem } from '@/modules/notifications';
 import type { UserRole } from '@/modules/identity/types';
 
@@ -107,13 +110,27 @@ export function NotificationBell({ role }: NotificationBellProps): JSX.Element {
       >
         <Bell size={20} aria-hidden="true" />
         {unread > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--red)] px-1 text-[10px] text-white">
+          <motion.span
+            key={badge}
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--red)] px-1 text-[10px] text-white"
+          >
             {badge}
-          </span>
+          </motion.span>
         ) : null}
       </button>
+      <AnimatePresence>
       {open ? (
-        <div className="notification-panel" role="dialog" aria-label="Notifications">
+        <motion.div
+          className="notification-panel"
+          role="dialog"
+          aria-label="Notifications"
+          initial={SCALE_IN.initial}
+          animate={SCALE_IN.animate}
+          exit={SCALE_IN.exit}
+          transition={SCALE_IN.transition}
+        >
           <div className="flex items-center justify-between px-4 py-3">
             <p className="text-sm font-semibold text-[var(--text-1)]">Notifications</p>
             <button type="button" className="min-h-11 text-xs text-[var(--accent-soft)]" onClick={() => void markAll()}>
@@ -137,7 +154,7 @@ export function NotificationBell({ role }: NotificationBellProps): JSX.Element {
           <ul className="max-h-80 overflow-y-auto">
             {items.length === 0 ? (
               <li className="px-4 py-8 text-center">
-                <Bell size={28} className="mx-auto text-[var(--text-3)]" aria-hidden="true" />
+                <LottiePlayer name="empty-box" className="mx-auto h-16 w-16" />
                 <p className="mt-2 text-sm text-[var(--text-1)]">No notifications yet</p>
                 <p className="text-xs text-[var(--text-3)]">You&apos;ll see order updates, wallet changes, and more here</p>
               </li>
@@ -162,8 +179,9 @@ export function NotificationBell({ role }: NotificationBellProps): JSX.Element {
           <a className="block border-t border-[var(--border)] px-4 py-3 text-sm text-[var(--accent-soft)]" href={inbox}>
             View all notifications
           </a>
-        </div>
+        </motion.div>
       ) : null}
+      </AnimatePresence>
     </div>
   );
 }

@@ -8,9 +8,11 @@
 
 'use client';
 
-import { Menu } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Menu, Search } from 'lucide-react';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { usePathname } from 'next/navigation';
+import { FADE_UP } from '@/lib/animations';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import type { UserRole } from '@/modules/identity/types';
 import { ROUTES } from '@/lib/navigation';
@@ -18,6 +20,7 @@ import { ROUTES } from '@/lib/navigation';
 type TopBarProps = {
   readonly displayName: string;
   readonly role: UserRole;
+  readonly avatarUrl?: string | null;
   readonly onMenuClick: () => void;
 };
 
@@ -66,38 +69,55 @@ function titleForPath(pathname: string, role: UserRole): TitleMeta {
  *
  * @param props - User display fields and mobile menu handler
  */
-export function TopBar({ displayName, role, onMenuClick }: TopBarProps): JSX.Element {
+function initialsFromName(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? 'B';
+  const second = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : '';
+  return `${first}${second}`.toUpperCase();
+}
+
+export function TopBar({ displayName, role, avatarUrl = null, onMenuClick }: TopBarProps): JSX.Element {
   const pathname = usePathname();
   const meta = titleForPath(pathname, role);
 
   return (
-    <header className="flex h-[52px] items-center justify-between border-b border-[var(--border)] bg-[var(--bg-page)] px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-page)]/80 px-4 backdrop-blur-xl sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onMenuClick}
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bg-raised)] text-[var(--text-1)] hover:bg-[var(--bg-hover)] md:hidden"
+          className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-[var(--bg-raised)] text-[var(--text-1)] hover:bg-[var(--bg-hover)] md:hidden"
           aria-label="Open navigation"
         >
-          <Menu size={16} />
+          <Menu size={16} aria-hidden="true" />
         </button>
-        <div className="min-w-0">
+        <motion.div key={pathname} className="min-w-0" initial={FADE_UP.initial} animate={FADE_UP.animate} transition={FADE_UP.transition}>
           <p className="truncate text-base font-semibold text-[var(--text-1)]">{meta.title}</p>
           <p className="hidden text-sm text-[var(--text-2)] sm:block">{meta.crumb}</p>
-        </div>
+        </motion.div>
       </div>
       <div className="flex items-center gap-2">
-        <span className="hidden text-xs text-[var(--text-3)] sm:inline">{displayName}</span>
         <button
           type="button"
           aria-label="Search"
           onClick={() => window.dispatchEvent(new Event('btc:command'))}
-          className="hidden h-8 items-center gap-2 rounded-full bg-[var(--bg-raised)] px-3 text-xs text-[var(--text-3)] hover:text-[var(--text-1)] sm:flex"
+          className="hidden h-11 cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-[var(--text-2)] hover:text-[var(--text-1)] sm:flex"
         >
-          ⌘K
+          <Search size={14} aria-hidden="true" />
+          Search
         </button>
         <ThemeToggle />
         <NotificationBell role={role} />
+        <span className="avatar-ring hidden h-9 w-9 items-center justify-center rounded-full p-[2px] sm:flex" title={displayName}>
+          <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-[var(--bg-card)] text-[10px] font-semibold text-[var(--text-1)]">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              initialsFromName(displayName)
+            )}
+          </span>
+        </span>
       </div>
     </header>
   );

@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Package, ShoppingBag, Wallet } from 'lucide-react';
+import { DashboardHero } from '@/components/dashboard/DashboardHero';
 import { DocumentTitle } from '@/components/ui/DocumentTitle';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { Card } from '@/components/ui/Card';
@@ -98,6 +99,7 @@ export default function ResellerDashboardPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <DocumentTitle title="Dashboard — Black Tier Circle" />
+      <DashboardHero subtitle="Your store, orders, and wallet in one place" />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <input

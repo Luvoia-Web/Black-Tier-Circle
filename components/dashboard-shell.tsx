@@ -10,8 +10,12 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
+import { SceneBackground } from '@/components/3d/SceneBackground';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
 import { DashboardIdentityProvider } from '@/components/dashboard-identity';
+import { PageTransition } from '@/components/motion/PageTransition';
+import { ScrollProgress } from '@/components/motion/ScrollProgress';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Sidebar } from '@/components/ui/sidebar';
 import { TopBar } from '@/components/ui/top-bar';
@@ -39,10 +43,12 @@ export function DashboardShell({
 }: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
 
   return (
     <DashboardIdentityProvider displayName={displayName} role={role}>
-    <div className="flex min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
+    <div className="grain relative flex min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
+      <SceneBackground />
       <Sidebar
         role={role}
         displayName={displayName}
@@ -52,14 +58,17 @@ export function DashboardShell({
         onClose={() => setOpen(false)}
         onToggleCollapsed={() => setCollapsed((current) => !current)}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         {demoMode ? (
           <div className="bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
             Demo Mode — Payments are simulated. Add real API keys to go live.
           </div>
         ) : null}
-        <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
-        <main className="page-enter flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
+        <TopBar displayName={displayName} role={role} avatarUrl={avatarUrl} onMenuClick={() => setOpen(true)} />
+        <ScrollProgress />
+        <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">
+          <PageTransition routeKey={pathname}>{children}</PageTransition>
+        </main>
         <CommandPalette role={role} />
         <AssistantWidget role={role} displayName={displayName} />
       </div>

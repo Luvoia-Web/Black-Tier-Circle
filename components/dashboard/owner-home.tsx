@@ -8,6 +8,8 @@
 
 import Link from 'next/link';
 import { AlertTriangle, KeyRound, Package, Settings, ShoppingBag, Users, Wallet } from 'lucide-react';
+import { DashboardHero } from '@/components/dashboard/DashboardHero';
+import { MagneticButton } from '@/components/motion/MagneticButton';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -82,10 +84,9 @@ export function OwnerHome({
 }: OwnerHomeProps): JSX.Element {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-base font-semibold text-[var(--text-1)]">Operations</h1>
-        <p className="mt-1 text-sm text-[var(--text-2)]">Platform overview</p>
-      </div>
+      <DashboardHero
+        subtitle={`Your platform is live · ${activeResellers} resellers · ${productCount} products`}
+      />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Revenue" value={`${revenueUsdt} USDT`} trend={`${paidOrders} paid orders`} icon={<Wallet size={16} />} />
         <StatCard
@@ -163,11 +164,11 @@ export function OwnerHome({
             <ul className="space-y-2 text-sm text-[var(--text-2)]">
               <li className="flex justify-between">
                 <span>Payment mode</span>
-                <span>{paymentLive ? '🟢 Live' : '🟡 Demo'}</span>
+                <span className={paymentLive ? 'text-[var(--green)]' : 'text-[var(--amber)]'}>{paymentLive ? 'Live' : 'Demo'}</span>
               </li>
               <li className="flex justify-between">
                 <span>Supplier mode</span>
-                <span>{supplierLive ? '🟢 Live' : '🟡 Demo'}</span>
+                <span className={supplierLive ? 'text-[var(--green)]' : 'text-[var(--amber)]'}>{supplierLive ? 'Live' : 'Demo'}</span>
               </li>
               <li className="flex justify-between">
                 <span>Bots connected</span>
@@ -186,9 +187,9 @@ export function OwnerHome({
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Quick Actions</h2>
             <div className="grid grid-cols-2 gap-2">
-              <Link href={ROUTES.owner.productNew} className="btc-btn-primary text-center text-xs">
-                <Package size={12} className="mr-1 inline" /> Add Product
-              </Link>
+              <MagneticButton href={ROUTES.owner.productNew} className="btc-btn-primary w-full text-center text-xs">
+                <Package size={12} className="mr-1 inline" aria-hidden="true" /> Add Product
+              </MagneticButton>
               <Link href={ROUTES.owner.resellersInvite} className="btc-btn-secondary text-center text-xs">
                 <Users size={12} className="mr-1 inline" /> Invite
               </Link>

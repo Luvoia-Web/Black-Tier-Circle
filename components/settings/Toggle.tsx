@@ -1,8 +1,6 @@
-/**
- * @file components/settings/Toggle.tsx
- *
- * On/off switch for a settings flag.
- */
+'use client';
+
+import { motion } from 'framer-motion';
 
 type ToggleProps = {
   readonly checked: boolean;
@@ -16,15 +14,15 @@ export function Toggle({ checked, onChange, label }: ToggleProps): JSX.Element {
       type="button"
       role="switch"
       aria-checked={checked}
-      className="flex items-center justify-between gap-3 text-sm"
+      className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-sm"
       onClick={() => onChange(!checked)}
     >
       <span>{label}</span>
-      <span
-        className={`relative h-6 w-11 rounded-full transition-colors ${checked ? 'bg-[var(--green)]' : 'bg-[var(--bg-raised)]'}`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
+      <span className={`relative h-6 w-11 rounded-full transition-colors duration-200 ${checked ? 'bg-[var(--green)]' : 'bg-[var(--bg-raised)]'}`}>
+        <motion.span
+          className="absolute top-0.5 h-5 w-5 rounded-full bg-white"
+          animate={{ x: checked ? 20 : 2 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 28 }}
         />
       </span>
     </button>

@@ -13,6 +13,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { SPRING } from '@/lib/animations';
 import { useRouter } from 'next/navigation';
 import { Check, Copy, RotateCw, X } from 'lucide-react';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -77,26 +79,32 @@ export function OrderDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        aria-label="Close order details"
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={handleClose}
-      />
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="order-detail-title"
-        className={`${DRAWER_CLASS} ${isClosing ? 'drawer-exit' : 'drawer-enter'}`}
-      >
-        <OrderDetailContent
-          orderId={orderId}
-          onClose={handleClose}
-          onActionComplete={onActionComplete}
+    <AnimatePresence>
+      <motion.div className="fixed inset-0 z-50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <button
+          type="button"
+          aria-label="Close order details"
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          onClick={handleClose}
         />
-      </aside>
-    </div>
+        <motion.aside
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="order-detail-title"
+          className={DRAWER_CLASS}
+          initial={{ x: 48, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 48, opacity: 0 }}
+          transition={isClosing ? { duration: 0.15 } : SPRING.gentle}
+        >
+          <OrderDetailContent
+            orderId={orderId}
+            onClose={handleClose}
+            onActionComplete={onActionComplete}
+          />
+        </motion.aside>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

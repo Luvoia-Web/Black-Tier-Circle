@@ -8,12 +8,12 @@
 
 'use client';
 
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Bot,
   ChevronLeft,
-  ChevronRight,
   Code2,
   CreditCard,
   DollarSign,
@@ -198,71 +198,87 @@ export function Sidebar({
         onClick={onClose}
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex ${widthClass} flex-col border-r border-[var(--border)] bg-[var(--sidebar-bg)] transition-all duration-200 md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex ${widthClass} flex-col border-r border-[var(--border)] bg-[var(--sidebar-bg)]/80 backdrop-blur-xl transition-[width] duration-200 md:static md:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-[52px] items-center justify-between border-b border-[var(--border)] px-3">
-          {collapsed ? (
-            <span className="text-sm font-semibold text-[var(--text-1)]">◆</span>
-          ) : (
-            <p className="truncate text-sm font-semibold text-[var(--text-1)]">◆ Black Tier Circle</p>
-          )}
+        <div className="flex h-14 items-center justify-between border-b border-[var(--border)] px-3">
+          <span className="flex min-w-0 items-center gap-2">
+            <DiamondMark />
+            {collapsed ? null : (
+              <p className="truncate text-sm font-semibold text-[var(--text-1)]">Black Tier Circle</p>
+            )}
+          </span>
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="hidden h-7 w-7 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-3)] hover:bg-[var(--bg-raised)] hover:text-[var(--text-1)] md:flex"
+            className="hidden h-11 w-11 cursor-pointer items-center justify-center rounded-[var(--r-sm)] text-[var(--text-3)] hover:bg-[var(--bg-raised)] hover:text-[var(--text-1)] md:flex"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            <motion.span animate={{ rotate: collapsed ? 180 : 0 }} transition={{ type: 'spring', stiffness: 260, damping: 22 }}>
+              <ChevronLeft size={16} aria-hidden="true" />
+            </motion.span>
           </button>
         </div>
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-          {groups.map((group) => (
+          {groups.map((group, groupIndex) => (
             <div key={group.label ?? 'primary'} className={group.label ? 'mt-4' : ''}>
               {group.label && !collapsed ? (
                 <p className="mb-1 px-3 text-xs uppercase tracking-widest text-[var(--text-3)]">
                   {group.label}
                 </p>
               ) : null}
-              {group.items.map((item) => {
+              {group.items.map((item, itemIndex) => {
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
                 return (
-                  <Link
+                  <motion.div
                     key={item.href}
-                    href={item.href}
-                    onClick={onClose}
-                    title={item.label}
-                    aria-current={active ? 'page' : undefined}
-                    className={`flex min-h-11 items-center gap-2.5 rounded-[var(--r-md)] px-3 py-2 text-sm ${
-                      active
-                        ? 'bg-[var(--bg-raised)] font-medium text-[var(--text-1)]'
-                        : 'text-[var(--text-2)] hover:bg-[var(--bg-raised)] hover:text-[var(--text-1)]'
-                    }`}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: (groupIndex * 4 + itemIndex) * 0.04 }}
+                    whileHover={{ x: 4 }}
+                    whileTap={{ scale: 0.98 }}
                   >
-                    <Icon size={18} />
-                    {collapsed ? null : item.label}
-                    {!collapsed && item.badge ? (
-                      <span className="ml-auto rounded-full bg-[var(--accent)] px-2 py-0.5 text-xs text-white" aria-label={`${item.badge} pending`}>
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </Link>
+                    <Link
+                      href={item.href}
+                      onClick={onClose}
+                      title={item.label}
+                      aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[var(--r-md)] border-l-2 px-3 py-2 text-sm ${
+                        active
+                          ? 'border-[var(--accent-soft)] bg-[rgba(139,92,246,0.15)] font-medium text-[var(--text-1)]'
+                          : 'border-transparent text-[var(--text-2)] hover:border-[var(--accent-soft)] hover:bg-[rgba(139,92,246,0.1)] hover:text-[var(--text-1)]'
+                      }`}
+                    >
+                      <Icon size={20} aria-hidden="true" className={active ? 'text-[var(--accent-soft)]' : ''} />
+                      {collapsed ? null : item.label}
+                      {!collapsed && item.badge ? (
+                        <motion.span
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="ml-auto flex h-2.5 w-2.5 rounded-full bg-[var(--red)]"
+                          aria-label={`${item.badge} pending`}
+                        />
+                      ) : null}
+                    </Link>
+                  </motion.div>
                 );
               })}
             </div>
           ))}
         </nav>
-        <div className="border-t border-[var(--border)] p-3">
+        <div className="group/user border-t border-[var(--border)] p-3">
           <div className={`flex items-center gap-2.5 ${collapsed ? 'justify-center' : ''}`}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
-              {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                initialsFromName(displayName)
-              )}
+            <span className="avatar-ring flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]">
+              <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initialsFromName(displayName)
+                )}
+              </span>
             </span>
             {collapsed ? null : (
               <div className="min-w-0">
@@ -295,6 +311,14 @@ export function Sidebar({
         </div>
       </aside>
     </>
+  );
+}
+
+function DiamondMark(): JSX.Element {
+  return (
+    <svg className="css-orb h-4 w-4 shrink-0" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 1.2 14.2 8 8 14.8 1.8 8 8 1.2z" fill="var(--accent-soft)" />
+    </svg>
   );
 }
 
