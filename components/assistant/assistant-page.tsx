@@ -1,7 +1,7 @@
 /**
  * @file components/assistant/assistant-page.tsx
  *
- * Full-page assistant with a session history sidebar.
+ * Full-page assistant with a session sidebar and ambient background.
  *
  * @module Components
  */
@@ -9,39 +9,53 @@
 'use client';
 
 import { useState } from 'react';
-import { PageHeader } from '@/components/ui/page-header';
+import Link from 'next/link';
 import { AssistantChat, type ChatMessage } from '@/components/assistant/assistant-chat';
+import { useDashboardIdentity } from '@/components/dashboard-identity';
+import { ROUTES } from '@/lib/navigation';
 
 /**
  * Dashboard page for a longer assistant conversation.
  */
 export function AssistantPage(): JSX.Element {
+  const { displayName, role } = useDashboardIdentity();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [navOpen, setNavOpen] = useState(false);
+  const home = role === 'owner' ? ROUTES.owner.home : ROUTES.reseller.home;
+  const prompts = messages.filter((message) => message.role === 'user');
 
   return (
-    <div>
-      <PageHeader title="AI Assistant" description="Ask anything about Black Tier Circle" />
-      <div className="grid min-h-[70vh] gap-4 lg:grid-cols-[240px_1fr]">
-        <aside className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-          <p className="text-sm font-medium text-[var(--text-1)]">This session</p>
-          {messages.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--text-3)]">Your questions will show up here.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {messages
-                .filter((message) => message.role === 'user')
-                .map((message) => (
-                  <li key={message.id} className="truncate text-sm text-[var(--text-2)]">
-                    {message.content}
-                  </li>
-                ))}
-            </ul>
-          )}
-        </aside>
-        <section className="flex min-h-[70vh] flex-col overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-card)]">
-          <AssistantChat messages={messages} onMessages={setMessages} />
-        </section>
-      </div>
+    <div className="ai-page">
+      <div className="ai-page-grid" aria-hidden="true" />
+      <span className="ai-page-orb ai-page-orb-a" aria-hidden="true" />
+      <span className="ai-page-orb ai-page-orb-b" aria-hidden="true" />
+      <span className="ai-page-orb ai-page-orb-c" aria-hidden="true" />
+      <button type="button" className="ai-page-menu" aria-expanded={navOpen} onClick={() => setNavOpen((current) => !current)}>
+        Chats
+      </button>
+      <aside className={`ai-side${navOpen ? ' is-open' : ''}`}>
+        <p className="ai-side-title">BTC Assistant</p>
+        <button type="button" className="ai-new-chat" onClick={() => setMessages([])}>
+          + New Chat
+        </button>
+        <div className={`ai-session${prompts.length >= 0 ? ' is-active' : ''}`}>
+          <p>Current Session</p>
+          <ul>
+            {prompts.length === 0 ? <li>No messages yet</li> : prompts.map((message) => <li key={message.id}>{message.content}</li>)}
+          </ul>
+        </div>
+        <div className="ai-side-user">
+          <span className="ai-side-avatar" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</span>
+          <div>
+            <p>{displayName}</p>
+            <p className="ai-side-role">{role === 'owner' ? 'Owner' : 'Reseller'}</p>
+          </div>
+        </div>
+        <Link href={home} className="ai-side-back">Back to dashboard</Link>
+      </aside>
+      <section className="ai-stage">
+        <AssistantChat messages={messages} onMessages={setMessages} displayName={displayName} />
+      </section>
     </div>
   );
 }

@@ -11,6 +11,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
+import { DashboardIdentityProvider } from '@/components/dashboard-identity';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Sidebar } from '@/components/ui/sidebar';
 import { TopBar } from '@/components/ui/top-bar';
@@ -40,6 +41,7 @@ export function DashboardShell({
   const [collapsed, setCollapsed] = useState(false);
 
   return (
+    <DashboardIdentityProvider displayName={displayName} role={role}>
     <div className="flex min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
       <Sidebar
         role={role}
@@ -59,9 +61,10 @@ export function DashboardShell({
         <TopBar displayName={displayName} role={role} onMenuClick={() => setOpen(true)} />
         <main className="page-enter flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
         <CommandPalette role={role} />
-        <AssistantWidget role={role} />
+        <AssistantWidget role={role} displayName={displayName} />
       </div>
     </div>
+    </DashboardIdentityProvider>
   );
 }
 

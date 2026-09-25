@@ -9,7 +9,9 @@
 'use client';
 
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { AIChatMessage } from '@/components/ai/AIChatMessage';
+import { AITypingIndicator } from '@/components/ai/AITypingIndicator';
+import { AIWelcomeScreen } from '@/components/ai/AIWelcomeScreen';
 
 export type ChatMessage = {
   readonly id: string;
@@ -18,22 +20,13 @@ export type ChatMessage = {
   readonly at: string;
 };
 
-const SUGGESTIONS = [
-  'How do I connect my bot?',
-  'How does wallet top-up work?',
-  'How do resellers set prices?',
-  'How does product delivery work?',
-];
-
 type AssistantChatProps = {
   readonly messages: ChatMessage[];
   readonly onMessages: (next: ChatMessage[]) => void;
   readonly compact?: boolean;
+  readonly displayName?: string;
+  readonly onLoadingChange?: (loading: boolean) => void;
 };
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-}
 
 async function readAssistantStream(response: Response, onDelta: (text: string) => void): Promise<void> {
   const reader = response.body?.getReader();
@@ -74,7 +67,15 @@ async function readAssistantStream(response: Response, onDelta: (text: string) =
 /**
  * Message list, suggestions, and composer.
  */
-export function AssistantChat({ messages, onMessages, compact = false }: AssistantChatProps): JSX.Element {
+const QUICK = ['How do I add products?', "What's my wallet balance?", 'Bot not responding?'];
+
+export function AssistantChat({
+  messages,
+  onMessages,
+  compact = false,
+  displayName,
+  onLoadingChange,
+}: AssistantChatProps): JSX.Element {
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +95,7 @@ export function AssistantChat({ messages, onMessages, compact = false }: Assista
     onMessages(next);
     setDraft('');
     setLoading(true);
+    onLoadingChange?.(true);
     setError(null);
     const assistantId = crypto.randomUUID();
     try {
@@ -108,6 +110,7 @@ export function AssistantChat({ messages, onMessages, compact = false }: Assista
         const json = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
         setError(json?.error?.message ?? 'The assistant is unavailable right now.');
         setLoading(false);
+        onLoadingChange?.(false);
         return;
       }
       let assembled = '';
@@ -126,6 +129,7 @@ export function AssistantChat({ messages, onMessages, compact = false }: Assista
       setError('The assistant is unavailable right now.');
     } finally {
       setLoading(false);
+      onLoadingChange?.(false);
     }
   }
 
@@ -134,68 +138,62 @@ export function AssistantChat({ messages, onMessages, compact = false }: Assista
     void send(draft);
   }
 
+  function resize(field: HTMLTextAreaElement): void {
+    field.style.height = 'auto';
+    field.style.height = `${Math.min(field.scrollHeight, compact ? 120 : 160)}px`;
+  }
+
+  const ready = draft.trim().length > 0;
+  const inputId = compact ? 'assistant-input' : 'assistant-page-input';
+
   return (
-    <div className={`flex min-h-0 flex-1 flex-col ${compact ? '' : 'h-full'}`}>
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
+    <div className={`ai-chat${compact ? ' is-compact' : ' is-page'}`}>
+      <div ref={scroller} className="ai-thread" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center px-2 py-6 text-center">
-            <span className="login-orb login-orb-3 assistant-mini-orb" aria-hidden="true" />
-            <p className="text-base font-medium text-[var(--text-1)]">Hi! I&apos;m your Black Tier Circle assistant.</p>
-            <p className="mt-1 text-sm text-[var(--text-2)]">Ask me anything about the platform.</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  className="min-h-11 rounded-full border border-[var(--border)] px-3 text-left text-sm text-[var(--text-1)] hover:bg-[var(--bg-hover)]"
-                  onClick={() => setDraft(suggestion)}
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
+          <AIWelcomeScreen
+            variant={compact ? 'panel' : 'page'}
+            {...(displayName ? { displayName } : {})}
+            onPick={setDraft}
+          />
         ) : null}
-        {messages.map((message) => (
-          <div key={message.id} className={message.role === 'user' ? 'ml-8 text-right' : 'mr-8 text-left'}>
-            <p
-              className={
-                message.role === 'user'
-                  ? 'inline-block rounded-[18px_18px_4px_18px] bg-[var(--accent)] px-3 py-2 text-left text-sm text-white'
-                  : 'inline-block rounded-[18px_18px_18px_4px] bg-[var(--bg-raised)] px-3 py-2 text-left text-sm text-[var(--text-1)]'
-              }
-            >
-              {message.content || '…'}
-            </p>
-            <p className="mt-1 text-[11px] text-[var(--text-3)]">{timeLabel(message.at)}</p>
-          </div>
-        ))}
-        {loading && messages[messages.length - 1]?.role === 'user' ? (
-          <p className="text-sm text-[var(--text-3)]" aria-label="Assistant is typing">
-            <span className="assistant-dot" />
-            <span className="assistant-dot" />
-            <span className="assistant-dot" />
-          </p>
-        ) : null}
+        {messages.map((message, index) => {
+          const previous = messages[index - 1];
+          const next = messages[index + 1];
+          const edge = previous?.role !== message.role || next?.role !== message.role;
+          return <AIChatMessage key={message.id} message={message} showTime={edge} showOrb={!compact && message.role === 'assistant' && previous?.role !== 'assistant'} />;
+        })}
+        {loading && messages[messages.length - 1]?.role === 'user' ? <AITypingIndicator /> : null}
         {error ? (
-          <p className="text-sm text-[var(--red)]" role="alert">
+          <p className="ai-error" role="alert">
             {error}
           </p>
         ) : null}
       </div>
-      <form onSubmit={onSubmit} className="border-t border-[var(--border)] p-3">
-        <div className="flex items-end gap-2">
-          <label className="sr-only" htmlFor="assistant-input">
+      <form onSubmit={onSubmit} className="ai-composer">
+        {!compact && messages.length === 0 ? (
+          <div className="ai-quick">
+            {QUICK.map((item) => (
+              <button key={item} type="button" className="ai-quick-pill" onClick={() => setDraft(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="ai-input-shell">
+          <label className="sr-only" htmlFor={inputId}>
             Message
           </label>
           <textarea
-            id="assistant-input"
-            rows={1}
+            id={inputId}
+            rows={compact ? 1 : 2}
             value={draft}
             maxLength={4000}
-            placeholder="Ask about Black Tier Circle"
-            className="max-h-28 min-h-11 flex-1 resize-none rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-page)] px-3 py-2 text-sm text-[var(--text-1)]"
-            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask me anything..."
+            className="ai-input"
+            onChange={(event) => {
+              setDraft(event.target.value);
+              resize(event.target);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -203,16 +201,20 @@ export function AssistantChat({ messages, onMessages, compact = false }: Assista
               }
             }}
           />
-          <button
-            type="submit"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--accent)] text-white disabled:opacity-50"
-            disabled={loading || draft.trim().length === 0}
-            aria-label="Send"
-          >
-            <Send size={16} aria-hidden="true" />
+          <button type="button" className="ai-clear" aria-label="Clear chat" onClick={() => onMessages([])}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button type="submit" className={`ai-send${ready ? ' is-ready' : ''}`} disabled={loading || !ready} aria-label="Send">
+            {loading ? <span className="ai-spinner" /> : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 13V3M8 3 4 7M8 3l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
         </div>
-        <p className="mt-2 text-center text-[11px] text-[var(--text-3)]">Black Tier Circle AI · Powered by Claude</p>
+        <p className="ai-footnote">BTC Assistant · Powered by Claude · Responses may be inaccurate</p>
       </form>
     </div>
   );

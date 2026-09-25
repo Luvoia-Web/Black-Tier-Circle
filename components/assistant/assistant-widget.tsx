@@ -10,7 +10,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Maximize2, MessageSquare, X } from 'lucide-react';
+import { AIChatPanel } from '@/components/ai/AIChatPanel';
+import { FloatingAIButton } from '@/components/ai/FloatingAIButton';
 import { AssistantChat, type ChatMessage } from '@/components/assistant/assistant-chat';
 import { ROUTES } from '@/lib/navigation';
 import type { UserRole } from '@/modules/identity/types';
@@ -19,20 +20,23 @@ const SEEN_KEY = 'btc-assistant-seen';
 
 type AssistantWidgetProps = {
   readonly role: UserRole;
+  readonly displayName?: string;
 };
 
 /**
- * Bottom-right launcher. First visit pulses until the panel is opened.
+ * Bottom-right launcher and glass panel. The Claude request stays in AssistantChat.
  */
-export function AssistantWidget({ role }: AssistantWidgetProps): JSX.Element {
+export function AssistantWidget({ role, displayName }: AssistantWidgetProps): JSX.Element {
   const router = useRouter();
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [pulse, setPulse] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
-    setPulse(window.sessionStorage.getItem(SEEN_KEY) !== '1');
+    const frame = window.requestAnimationFrame(() => setEntered(true));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -54,7 +58,6 @@ export function AssistantWidget({ role }: AssistantWidgetProps): JSX.Element {
 
   function toggle(): void {
     setOpen((current) => !current);
-    setPulse(false);
     window.sessionStorage.setItem(SEEN_KEY, '1');
   }
 
@@ -63,39 +66,22 @@ export function AssistantWidget({ role }: AssistantWidgetProps): JSX.Element {
   return (
     <>
       {open ? (
-        <div ref={panelRef} className="assistant-panel" role="dialog" aria-label="BTC Assistant">
-          <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
-            <span className="text-[var(--accent-soft)]" aria-hidden="true">
-              ◆
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[var(--text-1)]">BTC Assistant</p>
-              <p className="text-xs text-[var(--text-3)]">Powered by Claude</p>
-            </div>
-            <button type="button" className="flex h-11 w-11 items-center justify-center" aria-label="Expand assistant" onClick={() => router.push(home)}>
-              <Maximize2 size={16} />
-            </button>
-            <button type="button" className="flex h-11 w-11 items-center justify-center" aria-label="Close assistant" onClick={() => setOpen(false)}>
-              <X size={16} />
-            </button>
-          </header>
-          <AssistantChat messages={messages} onMessages={setMessages} compact />
-        </div>
-      ) : null}
-      <div className="assistant-launcher">
-        <span className="assistant-label">Ask AI</span>
-        <button
-          type="button"
-          data-assistant-launcher
-          className={`assistant-button${pulse ? ' is-pulsing' : ''}`}
-          aria-expanded={open}
-          aria-label="Ask AI"
-          onClick={toggle}
+        <AIChatPanel
+          panelRef={panelRef}
+          thinking={thinking}
+          onExpand={() => router.push(home)}
+          onClose={() => setOpen(false)}
         >
-          <MessageSquare size={22} aria-hidden="true" />
-          {messages.length === 0 ? <span className="assistant-unread" aria-hidden="true" /> : null}
-        </button>
-      </div>
+          <AssistantChat
+            messages={messages}
+            onMessages={setMessages}
+            compact
+            {...(displayName ? { displayName } : {})}
+            onLoadingChange={setThinking}
+          />
+        </AIChatPanel>
+      ) : null}
+      <FloatingAIButton open={open} unread={messages.length === 0 ? 1 : 0} entered={entered} onClick={toggle} />
     </>
   );
 }
