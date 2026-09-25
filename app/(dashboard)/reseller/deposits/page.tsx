@@ -8,14 +8,20 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { LottiePlayer } from '@/components/motion/LottiePlayer';
+import { StaggerList } from '@/components/motion/StaggerList';
+import { AnimatedCounter } from '@/components/motion/AnimatedCounter';
+import { BalanceChart } from '@/components/wallet/BalanceChart';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { ErrorState, EmptyState, TableSkeleton } from '@/components/ui/fetch-states';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
 import { formatUsdt } from '@/lib/money';
-import { API_ROUTES } from '@/lib/navigation';
+import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
 type Payload = {
   readonly wallet?: {
@@ -92,6 +98,9 @@ export default function ResellerDepositsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [redeemed, setRedeemed] = useState(false);
+  const [ledger, setLedger] = useState<ReadonlyArray<{ id: string; entryType: string; amount: string; note: string | null; createdAt: string; balanceAfter: string }>>([]);
+  const [payments, setPayments] = useState<{ binance: boolean; address: string }>({ binance: false, address: '' });
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [source, setSource] = useState('all');
@@ -119,6 +128,29 @@ export default function ResellerDepositsPage(): JSX.Element {
 
   useEffect(() => {
     void load();
+    void fetch(`${API_ROUTES.walletLedger}?limit=12`)
+      .then(async (response) => {
+        const json = (await response.json()) as { success?: boolean; data?: { entries?: typeof ledger } };
+        if (json.success && json.data?.entries) {
+          setLedger(json.data.entries);
+        }
+      })
+      .catch(() => undefined);
+    void fetch(API_ROUTES.resellerSettings)
+      .then(async (response) => {
+        const json = (await response.json()) as {
+          success?: boolean;
+          data?: { settings?: { binancePayEnabled?: boolean; usdtWalletBep20?: string | null } };
+        };
+        const settings = json.data?.settings;
+        if (json.success && settings) {
+          setPayments({
+            binance: settings.binancePayEnabled === true,
+            address: settings.usdtWalletBep20 ?? '',
+          });
+        }
+      })
+      .catch(() => undefined);
   }, [load]);
 
   async function redeem(): Promise<void> {
@@ -142,6 +174,7 @@ export default function ResellerDepositsPage(): JSX.Element {
     const notice =
       added && next ? `+${added} added. New balance: ${next}` : 'Token redeemed';
     setMessage(notice);
+    setRedeemed(true);
     toast.success(notice);
     setToken('');
     await load();
@@ -178,21 +211,66 @@ export default function ResellerDepositsPage(): JSX.Element {
       ) : (
         <>
           {data.wallet ? (
-            <section className="mb-6 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-              <p className="text-xs text-[var(--text-3)]">Total Balance</p>
-              <p className="text-2xl font-semibold">
-                {formatUsdtDisplay(data.wallet.totalMinor)}
+            <motion.section
+              className="mb-6 rounded-[var(--r-xl)] border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-glow)]"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <p className="text-xs uppercase tracking-[0.16em] text-[var(--text-3)]">Total balance</p>
+              <p className="mt-2 text-4xl font-semibold text-[var(--text-1)]">
+                <AnimatedCounter value={Number(data.wallet.totalMinor) / 1_000_000} decimals={2} suffix=" USDT" />
               </p>
-              <div className="mt-3 flex flex-wrap gap-6 text-sm">
-                <span className="text-[var(--green)]">
-                  Available {formatUsdtDisplay(data.wallet.availableMinor)}
-                </span>
-                <span className="text-[var(--text-3)]">
-                  Reserved {formatUsdtDisplay(data.wallet.reservedMinor ?? '0')}
-                </span>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <p className="text-sm text-[var(--green)]">Available {formatUsdtDisplay(data.wallet.availableMinor)}</p>
+                <p className="text-sm text-[var(--text-2)]">Reserved {formatUsdtDisplay(data.wallet.reservedMinor ?? '0')}</p>
+                <p className="text-sm text-[var(--amber)]">Pending deposits {data.deposits.pending}</p>
               </div>
-            </section>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link href={payments.binance ? ROUTES.reseller.settings : ROUTES.reseller.settings} className="btc-btn-primary">
+                  {payments.binance ? 'Binance Pay ready' : 'Set up Binance Pay'}
+                </Link>
+                <button
+                  type="button"
+                  className="btc-btn-secondary"
+                  onClick={() => {
+                    if (payments.address) {
+                      void navigator.clipboard.writeText(payments.address);
+                      toast.success('BEP20 address copied');
+                      return;
+                    }
+                    toast.message('Add a BEP20 address in settings');
+                  }}
+                >
+                  {payments.address ? 'Copy BEP20 address' : 'Add BEP20 address'}
+                </button>
+                <Link href={ROUTES.reseller.walletHistory} className="btc-btn-secondary">
+                  View full history
+                </Link>
+              </div>
+              {payments.address ? <p className="mt-3 break-all font-mono text-xs text-[var(--text-2)]">{payments.address}</p> : null}
+              <div className="mt-4">
+                <BalanceChart points={[...ledger].reverse().map((row) => Number(row.balanceAfter) / 1_000_000)} />
+              </div>
+            </motion.section>
           ) : null}
+          <section className="mb-6">
+            <h2 className="mb-3 text-sm font-medium text-[var(--text-2)]">Recent ledger</h2>
+            {ledger.length === 0 ? (
+              <p className="text-sm text-[var(--text-3)]">No ledger entries yet.</p>
+            ) : (
+              <StaggerList className="space-y-2" staggerDelay={0.04}>
+                {ledger.slice(0, 10).map((row) => (
+                  <div key={row.id} className="flex items-center justify-between rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+                    <div>
+                      <p className="text-sm text-[var(--text-1)]">{row.entryType.replaceAll('_', ' ')}</p>
+                      <p className="text-xs text-[var(--text-3)]">{row.note || new Date(row.createdAt).toLocaleString()}</p>
+                    </div>
+                    <p className="text-sm text-[var(--text-1)]">{formatUsdtDisplay(row.amount)}</p>
+                  </div>
+                ))}
+              </StaggerList>
+            )}
+          </section>
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total credited" value={data.deposits.totalCredited} />
             <StatCard label="Approved" value={String(data.deposits.approved)} />
@@ -217,6 +295,7 @@ export default function ResellerDepositsPage(): JSX.Element {
                 Redeem
               </button>
             </div>
+            {redeemed ? <LottiePlayer name="success-checkmark" loop={false} className="mt-3 h-12 w-12" /> : null}
             {message ? <p className="mt-2 text-sm text-[var(--green)]">{message}</p> : null}
             <div className="mt-5">
               <DataTable

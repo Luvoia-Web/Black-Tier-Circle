@@ -10,6 +10,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { DocumentTitle } from '@/components/ui/DocumentTitle';
@@ -149,7 +150,11 @@ export default function OwnerWalletsPage(): JSX.Element {
       <DocumentTitle title="Wallets — Black Tier Circle" />
       <PageHeader title="Wallets" description="Your store revenue, then reseller prepaid balances" />
       {owner ? (
-        <section className="mb-8 rounded-2xl border border-[var(--accent)]/30 bg-[var(--bg-card)] p-6">
+        <motion.section
+          className="mb-8 rounded-[var(--r-xl)] border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-glow)]"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
           <h2 className="text-sm font-semibold tracking-wide text-[var(--accent-soft)]">MY WALLET</h2>
           <p className="mt-1 text-sm text-[var(--text-2)]">Revenue from your own store bot</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -190,7 +195,7 @@ export default function OwnerWalletsPage(): JSX.Element {
               Generate top-up token
             </Link>
           </div>
-        </section>
+        </motion.section>
       ) : null}
       <h2 className="mb-3 text-sm font-semibold tracking-wide text-[var(--text-2)]">RESELLER WALLETS ({rows.length})</h2>
       <input

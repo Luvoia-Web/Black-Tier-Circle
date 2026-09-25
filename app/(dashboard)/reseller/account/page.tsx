@@ -11,6 +11,8 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { AccountStudio } from '@/components/account/AccountStudio';
+import { LottiePlayer } from '@/components/motion/LottiePlayer';
 import { PageHeader } from '@/components/ui/page-header';
 import { copyToClipboard } from '@/lib/clipboard';
 import { API_ROUTES } from '@/lib/navigation';
@@ -66,6 +68,8 @@ export default function ResellerAccountPage(): JSX.Element {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -118,6 +122,7 @@ export default function ResellerAccountPage(): JSX.Element {
         toast.error(json.error?.message ?? 'Unable to save your name');
         return;
       }
+      setNameSaved(true);
       toast.success('Name saved');
       router.refresh();
     } catch {
@@ -174,6 +179,7 @@ export default function ResellerAccountPage(): JSX.Element {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setPasswordSaved(true);
       toast.success('Password updated');
     } catch {
       toast.error('Unable to update password');
@@ -208,6 +214,11 @@ export default function ResellerAccountPage(): JSX.Element {
               className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xl font-semibold text-white"
               aria-label="Change photo"
               onClick={() => fileRef.current?.click()}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                onPickFile(event.dataTransfer.files[0] ?? null);
+              }}
             >
               {shownAvatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -251,6 +262,7 @@ export default function ResellerAccountPage(): JSX.Element {
                 {savingName ? 'Saving…' : 'Save'}
               </button>
             </div>
+            {nameSaved ? <LottiePlayer name="success-checkmark" loop={false} className="h-10 w-10" /> : null}
             <p className="text-sm text-[var(--text-2)]">
               Email: <span className="text-[var(--text-1)]">{profile?.email || '—'}</span>
             </p>
@@ -270,6 +282,12 @@ export default function ResellerAccountPage(): JSX.Element {
               <label className="block text-sm text-[var(--text-2)]" htmlFor="new-password">
                 New password
                 <input id="new-password" type="password" autoComplete="new-password" className={`${fieldClass} mt-1`} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+                <span className="mt-2 block h-1 overflow-hidden rounded-full bg-[var(--bg-raised)]">
+                  <span
+                    className="block h-full bg-[var(--accent)]"
+                    style={{ width: `${Math.min(100, newPassword.length * 12)}%` }}
+                  />
+                </span>
               </label>
               <label className="block text-sm text-[var(--text-2)]" htmlFor="confirm-password">
                 Confirm new
@@ -282,6 +300,7 @@ export default function ResellerAccountPage(): JSX.Element {
               >
                 {savingPassword ? 'Updating…' : 'Update password'}
               </button>
+              {passwordSaved ? <LottiePlayer name="success-checkmark" loop={false} className="h-10 w-10" /> : null}
             </form>
           </section>
 
@@ -305,15 +324,30 @@ export default function ResellerAccountPage(): JSX.Element {
           <section className="rounded-[var(--r-lg)] border border-[var(--red)] bg-[var(--bg-card)] p-5">
             <h2 className="text-sm font-semibold text-[var(--red)]">Request account deletion</h2>
             <p className="mt-2 text-sm text-[var(--text-2)]">Contact support to delete your account. All data will be removed.</p>
-            <a
-              className="mt-3 inline-flex min-h-11 items-center text-sm text-[var(--text-1)] underline"
-              href="mailto:support@blacktiercircle.com?subject=Account%20deletion%20request"
+            <button
+              type="button"
+              className="btc-btn-secondary mt-3"
+              onClick={() => {
+                const ok = window.confirm('Send a deletion request to the store owner? Your account stays active until they review it.');
+                if (!ok) {
+                  return;
+                }
+                void fetch(API_ROUTES.resellerProfileDeletion, { method: 'POST' }).then(async (response) => {
+                  const json = (await response.json()) as { success?: boolean };
+                  if (json.success) {
+                    toast.success('Deletion request sent to the owner');
+                  } else {
+                    toast.error('Unable to send the request');
+                  }
+                });
+              }}
             >
-              Contact support
-            </a>
+              Request deletion
+            </button>
           </section>
         </div>
       </div>
+      <AccountStudio />
     </div>
   );
 }

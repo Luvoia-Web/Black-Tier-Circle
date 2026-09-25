@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { AlertTriangle, KeyRound, Package, Settings, ShoppingBag, Users, Wallet } from 'lucide-react';
 import { DashboardHero } from '@/components/dashboard/DashboardHero';
+import { LivePulse } from '@/components/dashboard/LivePulse';
 import { MagneticButton } from '@/components/motion/MagneticButton';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -110,6 +111,7 @@ export function OwnerHome({
         />
       </div>
 
+      <LivePulse href="/api/owner/orders?tab=all&limit=50" title="Revenue this week" />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2" padding="p-0">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">

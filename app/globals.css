@@ -73,6 +73,12 @@
 
 html {
   color-scheme: dark;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+body,
+[data-theme] {
+  transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease;
 }
 
 [data-theme="light"] {
@@ -1342,6 +1348,7 @@ a, button {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  html, body, [data-theme] { transition: none; }
   .donut-ring, .page-enter, .drawer-enter, .drawer-exit, .skeleton,
   .shimmer, .particle-dot, .css-orb, .avatar-ring, .input-shake,
   .login-orb-1, .login-orb-2, .login-orb-3, .login-card, .login-pane, .login-banner,

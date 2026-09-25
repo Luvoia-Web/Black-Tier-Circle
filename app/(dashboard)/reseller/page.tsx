@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Package, ShoppingBag, Wallet } from 'lucide-react';
 import { DashboardHero } from '@/components/dashboard/DashboardHero';
+import { LivePulse } from '@/components/dashboard/LivePulse';
 import { DocumentTitle } from '@/components/ui/DocumentTitle';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { Card } from '@/components/ui/Card';
@@ -139,6 +140,7 @@ function ResellerDashboardBody({ data }: { readonly data: Overview }): JSX.Eleme
   const available = formatUsdt(BigInt(data.stats.walletAvailableMinor));
   return (
     <>
+      <LivePulse href="/api/reseller/orders?period=month&pageSize=50" title="Your store this month" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Revenue (paid)"

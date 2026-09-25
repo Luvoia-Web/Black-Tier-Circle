@@ -289,7 +289,12 @@ export function Sidebar({
         </nav>
         <div className="group/user border-t border-[var(--border)] p-3">
           <div className={`flex items-center gap-2.5 ${collapsed ? 'justify-center' : ''}`}>
-            <span className="avatar-ring flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]">
+            <Link
+              href={role === 'reseller' ? ROUTES.reseller.account : ROUTES.owner.settings}
+              onClick={onClose}
+              className="avatar-ring flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-[2px]"
+              aria-label="Open account"
+            >
               <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -298,8 +303,13 @@ export function Sidebar({
                   initialsFromName(displayName)
                 )}
               </span>
-            </span>
-            {collapsed ? null : (
+            </Link>
+            {collapsed ? null : role === 'reseller' ? (
+              <Link href={ROUTES.reseller.account} onClick={onClose} className="min-w-0">
+                <p className="truncate text-sm text-[var(--text-1)]">{displayName}</p>
+                <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>
+              </Link>
+            ) : (
               <div className="min-w-0">
                 <p className="truncate text-sm text-[var(--text-1)]">{displayName}</p>
                 <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>

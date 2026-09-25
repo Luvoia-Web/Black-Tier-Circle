@@ -138,6 +138,7 @@ export const API_ROUTES = {
   resellerProfile: `${API_PREFIX}/reseller/profile`,
   resellerProfileAvatar: `${API_PREFIX}/reseller/profile/avatar`,
   resellerProfilePassword: `${API_PREFIX}/reseller/profile/password`,
+  resellerProfileDeletion: `${API_PREFIX}/reseller/profile/deletion`,
   resellerDeliveries: `${API_PREFIX}/reseller/deliveries`,
   resellerDeliver: (orderId: string) => `${API_PREFIX}/reseller/deliveries/${orderId}`,
   resellerDeposits: `${API_PREFIX}/reseller/deposits`,
