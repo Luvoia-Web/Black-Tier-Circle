@@ -89,7 +89,7 @@ export default function OwnerResellersPage(): JSX.Element {
         toast.error(json.error?.message ?? 'Unable to update status');
         return;
       }
-      toast.success(next === 'active' ? 'Reseller activated' : 'Reseller suspended');
+      toast.success(next === 'active' ? 'Reseller activated' : previous === 'pending' ? 'Reseller rejected' : 'Reseller suspended');
     } catch {
       setRows((current) => current.map((row) => (row.tenantId === tenantId ? { ...row, status: previous } : row)));
       toast.error('Unable to update status');
@@ -136,9 +136,31 @@ export default function OwnerResellersPage(): JSX.Element {
           </Link>
         }
       />
-      <p className="mb-4 text-sm text-[var(--text-2)]">
-        Total: {counts.total} · Active: {counts.active} · Pending: {counts.pending} · Suspended: {counts.suspended}
-      </p>
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Reseller status">
+        {(
+          [
+            ['all', `All (${counts.total})`],
+            ['pending', `Pending (${counts.pending})`],
+            ['active', `Active (${counts.active})`],
+            ['suspended', `Suspended (${counts.suspended})`],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={status === value}
+            onClick={() => setStatus(value)}
+            className={`min-h-11 cursor-pointer rounded-full px-4 text-sm ${
+              status === value
+                ? 'bg-[var(--accent)] text-white'
+                : 'bg-[var(--bg-raised)] text-[var(--text-2)] hover:text-[var(--text-1)]'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="mb-4 flex flex-wrap gap-2">
         <input
           value={search}
@@ -209,14 +231,24 @@ export default function OwnerResellersPage(): JSX.Element {
                     <td className="px-4 py-3 text-sm text-[var(--text-2)]">{formatRelativeTime(row.joinedAt)}</td>
                     <td className="px-4 py-3">
                       {row.status === 'pending' ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void setStatusFor(row.tenantId, 'active', row.status)}
-                          className="text-xs font-medium text-[var(--accent-soft)] hover:text-[var(--accent)] disabled:opacity-60"
-                        >
-                          Activate
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void setStatusFor(row.tenantId, 'active', row.status)}
+                            className="min-h-11 cursor-pointer text-xs font-medium text-[var(--accent-soft)] hover:text-[var(--accent)] disabled:opacity-60"
+                          >
+                            Activate
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void setStatusFor(row.tenantId, 'suspended', row.status)}
+                            className="min-h-11 cursor-pointer text-xs font-medium text-[var(--red)] disabled:opacity-60"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"

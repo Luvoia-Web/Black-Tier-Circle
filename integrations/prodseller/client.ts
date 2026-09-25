@@ -75,8 +75,10 @@ export class ProdSellerClient {
 
   constructor(apiKey: string, baseUrl = 'https://prodseller.com/v1', authHeaderName = 'X-API-Key') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    const bearer = authHeaderName.endsWith('|Bearer');
+    const header = bearer ? authHeaderName.slice(0, -'|Bearer'.length) : authHeaderName;
     this.headers = {
-      [authHeaderName]: apiKey,
+      [header]: bearer ? `Bearer ${apiKey}` : apiKey,
       'Content-Type': 'application/json',
     };
   }

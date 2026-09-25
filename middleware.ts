@@ -50,6 +50,7 @@ function readRoleFromJwt(session: {
 
 type ProfileGate = {
   readonly role: UserRole | null;
+  readonly status: string | null;
   readonly onboardingCompleted: boolean;
 };
 
@@ -59,18 +60,24 @@ async function readProfileGate(
 ): Promise<ProfileGate> {
   const full = await supabase
     .from('profiles')
-    .select('role, onboarding_completed')
+    .select('role, status, onboarding_completed')
     .eq('id', userId)
     .maybeSingle();
   if (!full.error && full.data) {
-    const row = full.data as { role?: string; onboarding_completed?: boolean };
+    const row = full.data as { role?: string; status?: string; onboarding_completed?: boolean };
     const role = row.role === 'owner' || row.role === 'reseller' || row.role === 'staff' ? row.role : null;
-    return { role, onboardingCompleted: row.onboarding_completed === true };
+    return {
+      role,
+      status: typeof row.status === 'string' ? row.status : null,
+      onboardingCompleted: row.onboarding_completed === true,
+    };
   }
-  const fallback = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
-  const role = (fallback.data as { role?: string } | null)?.role;
+  const fallback = await supabase.from('profiles').select('role, status').eq('id', userId).maybeSingle();
+  const fallbackRow = fallback.data as { role?: string; status?: string } | null;
+  const role = fallbackRow?.role;
   return {
     role: role === 'owner' || role === 'reseller' || role === 'staff' ? role : null,
+    status: typeof fallbackRow?.status === 'string' ? fallbackRow.status : 'active',
     onboardingCompleted: true,
   };
 }
@@ -135,6 +142,37 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   const home = dashboardHomeForRole(role);
+  const holdForApproval = role === 'reseller' && gate.status === 'pending';
+
+  if (role !== 'owner' && gate.status === 'suspended' && pathname !== ROUTES.suspended) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = ROUTES.suspended;
+    redirectUrl.search = '';
+    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+  }
+
+  if (holdForApproval) {
+    if (!gate.onboardingCompleted && !isOnboardingRoute(pathname)) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = ROUTES.onboarding;
+      redirectUrl.search = '';
+      return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+    }
+    if (gate.onboardingCompleted && pathname !== ROUTES.pending) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = ROUTES.pending;
+      redirectUrl.search = '';
+      return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+    }
+    return supabaseResponse;
+  }
+
+  if (pathname === ROUTES.pending || pathname === ROUTES.suspended) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = home;
+    redirectUrl.search = '';
+    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+  }
 
   if (!gate.onboardingCompleted && !isOnboardingRoute(pathname)) {
     const redirectUrl = request.nextUrl.clone();

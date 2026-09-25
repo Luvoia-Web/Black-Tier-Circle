@@ -150,10 +150,15 @@ export function Sidebar({
 }: SidebarProps): JSX.Element {
   const pathname = usePathname();
   const [pendingReview, setPendingReview] = useState(0);
+  const [pendingResellers, setPendingResellers] = useState(0);
   const groups = (role === 'owner' ? OWNER_GROUPS : RESELLER_GROUPS).map((group) => ({
     ...group,
     items: group.items.map((item) =>
-      item.href === ROUTES.owner.supplier && pendingReview > 0 ? { ...item, badge: pendingReview } : item,
+      item.href === ROUTES.owner.supplier && pendingReview > 0
+        ? { ...item, badge: pendingReview }
+        : item.href === ROUTES.owner.resellers && pendingResellers > 0
+          ? { ...item, badge: pendingResellers }
+          : item,
     ),
   }));
   const [signingOut, setSigningOut] = useState(false);
@@ -168,6 +173,18 @@ export function Sidebar({
         const json = (await response.json()) as { success?: boolean; data?: { pendingReviewCount?: number } };
         if (json.success && json.data?.pendingReviewCount) {
           setPendingReview(json.data.pendingReviewCount);
+        }
+      })
+      .catch(() => undefined);
+    void fetch(`${API_ROUTES.resellers}?limit=100`)
+      .then(async (response) => {
+        const json = (await response.json()) as {
+          success?: boolean;
+          data?: Array<{ status?: string }> | { rows?: Array<{ status?: string }> };
+        };
+        const list = Array.isArray(json.data) ? json.data : json.data?.rows ?? [];
+        if (json.success) {
+          setPendingResellers(list.filter((row) => row.status === 'pending').length);
         }
       })
       .catch(() => undefined);
@@ -198,8 +215,8 @@ export function Sidebar({
         onClick={onClose}
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex ${widthClass} flex-col border-r border-[var(--border)] bg-[var(--sidebar-bg)]/80 backdrop-blur-xl transition-[width] duration-200 md:static md:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen ${widthClass} flex-col overflow-x-hidden overflow-y-auto border-r border-[var(--border)] bg-[var(--sidebar-bg)]/80 backdrop-blur-xl transition-[width] duration-200 ${
+          open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
         <div className="flex h-14 items-center justify-between border-b border-[var(--border)] px-3">
@@ -257,9 +274,11 @@ export function Sidebar({
                         <motion.span
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
-                          className="ml-auto flex h-2.5 w-2.5 rounded-full bg-[var(--red)]"
+                          className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--amber)] px-1 text-[10px] font-semibold text-black"
                           aria-label={`${item.badge} pending`}
-                        />
+                        >
+                          {item.badge}
+                        </motion.span>
                       ) : null}
                     </Link>
                   </motion.div>

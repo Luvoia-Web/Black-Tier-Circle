@@ -10,11 +10,11 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AppError, NotFoundError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
-import { dashboardHomeForRole } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
 import { sanitizeInput } from '@/lib/sanitize';
 import { completeOnboarding } from '@/modules/identity';
 import { getTenantSettings, updateTenantSettings } from '@/modules/tenant-settings';
-import { createTenant, getTenantByUserId, updateTenantDisplayName, updateTenantStatus } from '@/modules/tenants';
+import { createTenant, getTenantByUserId, updateTenantDisplayName } from '@/modules/tenants';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,6 @@ export async function POST(request: Request): Promise<Response> {
           throw error;
         }
         const created = await createTenant(db, session.user.id, storeName || session.profile.displayName);
-        await updateTenantStatus(db, created.id, 'active');
         tenantId = created.id;
       }
       if (storeName.length >= 2) {
@@ -63,7 +62,9 @@ export async function POST(request: Request): Promise<Response> {
       supportContact: supportContact.length > 0 ? supportContact : null,
     });
 
-    return jsonSuccess({ destination: dashboardHomeForRole(profile.role) });
+    const destination =
+      profile.role === 'reseller' && profile.status === 'pending' ? ROUTES.pending : dashboardHomeForRole(profile.role);
+    return jsonSuccess({ destination });
   } catch (error: unknown) {
     if (error instanceof AppError) {
       return handleRouteError(error);

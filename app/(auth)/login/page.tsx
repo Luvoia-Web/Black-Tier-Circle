@@ -135,8 +135,8 @@ function LoginForm(): JSX.Element {
 
       const row = profile;
       if (row.status === 'suspended') {
-        setError('This account has been suspended. Contact the owner.');
-        await supabase.auth.signOut();
+        router.push(ROUTES.suspended);
+        router.refresh();
         return;
       }
       if (!isUserRole(row.role)) {
@@ -145,11 +145,15 @@ function LoginForm(): JSX.Element {
       }
 
       const destination =
-        row.onboarding_completed === true
-          ? next !== null && isSafeNextPath(next, row.role)
-            ? next
-            : dashboardHomeForRole(row.role)
-          : ROUTES.onboarding;
+        row.role === 'reseller' && row.status === 'pending'
+          ? row.onboarding_completed === true
+            ? ROUTES.pending
+            : ROUTES.onboarding
+          : row.onboarding_completed === true
+            ? next !== null && isSafeNextPath(next, row.role)
+              ? next
+              : dashboardHomeForRole(row.role)
+            : ROUTES.onboarding;
       router.push(destination);
       router.refresh();
     } catch {

@@ -29,12 +29,14 @@ export type OrderDetailOrder = {
   readonly idempotencyKey: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly channelLabel: string;
 };
 
 export type OrderDetailProduct = {
   readonly title: string;
   readonly sku: string;
   readonly deliveryType: DeliveryType;
+  readonly sourceLabel: string;
 };
 
 export type OrderDetailCustomer = {

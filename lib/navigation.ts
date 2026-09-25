@@ -14,6 +14,8 @@ export const ROUTES = {
   home: '/',
   login: '/login',
   onboarding: '/onboarding',
+  pending: '/pending',
+  suspended: '/suspended',
   invite: (token: string) => `/invite/${token}`,
   owner: {
     home: '/owner',

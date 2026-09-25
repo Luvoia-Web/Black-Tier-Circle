@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProductStatusBadge } from '@/components/catalog/product-status-badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { formatUsdt } from '@/lib/money';
+import { productTypeLabel, productTypeTone } from '@/lib/product-labels';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { ProductStatus } from '@/modules/catalog/types';
 
@@ -235,7 +236,7 @@ export default function ProductDetailPage({ params }: DetailPageProps): JSX.Elem
         </div>
         <div>
           <dt className="text-xs uppercase text-[var(--text-3)]">Delivery</dt>
-          <dd className="mt-1 text-sm text-[var(--text-1)]">{product.deliveryType.replace('_', ' ')}</dd>
+          <dd className={`mt-1 text-sm ${productTypeTone(productTypeLabel(product))}`}>{productTypeLabel(product)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase text-[var(--text-3)]">Stock</dt>

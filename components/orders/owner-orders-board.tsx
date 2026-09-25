@@ -9,6 +9,7 @@
  */
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Eye } from 'lucide-react';
 import { MarkFulfilledButton } from '@/components/orders/mark-fulfilled-button';
@@ -25,6 +26,7 @@ import type { OwnerOrderTab } from '@/modules/fulfillment';
 type OrderRow = {
   readonly orderId: string;
   readonly channel: string;
+  readonly source: string;
   readonly productTitle: string;
   readonly amount: string;
   readonly paymentStatus: string;
@@ -62,6 +64,17 @@ type OwnerOrdersBoardProps = {
  */
 export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element {
   const [tab, setTab] = useState<OwnerOrderTab>('all');
+  const searchParams = useSearchParams();
+  const initialStore = searchParams.get('store');
+  const [store, setStore] = useState<'all' | 'mine' | 'resellers'>(
+    initialStore === 'mine' || initialStore === 'resellers' ? initialStore : 'all',
+  );
+  const [tenant, setTenant] = useState('all');
+  const [supplier, setSupplier] = useState('all');
+  const [facets, setFacets] = useState<{ tenants: Array<{ id: string; name: string }>; suppliers: string[] }>({
+    tenants: [],
+    suppliers: [],
+  });
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +85,14 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ tab, limit: '20', q: query });
+      const params = new URLSearchParams({ tab, limit: '50', q: query, store, tenant, supplier });
       const response = await fetch(`${API_ROUTES.ownerOrders}?${params.toString()}`);
       const json = (await response.json()) as {
         success: boolean;
-        data?: { rows: OrderRow[] };
+        data?: {
+          rows: OrderRow[];
+          facets?: { tenants: Array<{ id: string; name: string }>; suppliers: string[] };
+        };
         error?: { message: string };
       };
       if (!json.success || !json.data) {
@@ -85,12 +101,15 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
         return;
       }
       setRows(json.data.rows);
+      if (json.data.facets) {
+        setFacets(json.data.facets);
+      }
     } catch {
       setError('Unable to load orders');
     } finally {
       setLoading(false);
     }
-  }, [tab, query]);
+  }, [tab, query, store, tenant, supplier]);
 
   useEffect(() => {
     void load();
@@ -107,6 +126,13 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
       ),
     },
     { key: 'product', header: 'Product', render: (row) => row.productTitle },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (row) => (
+        <span className={row.source === 'Own Product' ? 'text-[var(--green)]' : 'text-[var(--accent-soft)]'}>{row.source}</span>
+      ),
+    },
     { key: 'channel', header: 'Channel', render: (row) => row.channel },
     { key: 'amount', header: 'Amount', render: (row) => row.amount },
     { key: 'payment', header: 'Payment', render: (row) => <TrackBadge status={row.paymentStatus} /> },
@@ -164,6 +190,47 @@ export function OwnerOrdersBoard({ stats }: OwnerOrdersBoardProps): JSX.Element 
           <p className="text-xs text-[var(--text-2)]">Completed today</p>
           <p className="text-xl font-semibold">{stats.completedToday}</p>
         </div>
+      </div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            ['all', 'All'],
+            ['mine', 'My Store'],
+            ['resellers', 'All Resellers'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setStore(value)}
+            className={`min-h-11 cursor-pointer rounded-full px-3 text-xs ${
+              store === value ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-2)] hover:bg-[var(--bg-raised)]'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <select value={tenant} onChange={(event) => setTenant(event.target.value)} className="btc-select" aria-label="Reseller">
+          <option value="all">Reseller: All</option>
+          {facets.tenants.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select value={supplier} onChange={(event) => setSupplier(event.target.value)} className="btc-select" aria-label="Supplier">
+          <option value="all">Supplier: All</option>
+          <option value="own">Own Products</option>
+          {facets.suppliers
+            .filter((name) => name !== 'Own Products')
+            .map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+        </select>
       </div>
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((item) => (

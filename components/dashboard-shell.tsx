@@ -9,7 +9,8 @@
 
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { motion } from 'framer-motion';
 import { usePathname } from 'next/navigation';
 import { SceneBackground } from '@/components/3d/SceneBackground';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
@@ -43,11 +44,21 @@ export function DashboardShell({
 }: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [desktop, setDesktop] = useState(false);
   const pathname = usePathname();
+  const sidebarOffset = desktop ? (collapsed ? 64 : 220) : 0;
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    const sync = (): void => setDesktop(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   return (
     <DashboardIdentityProvider displayName={displayName} role={role}>
-    <div className="grain relative flex min-h-screen bg-[var(--bg-page)] text-[var(--text-1)]">
+    <div className="grain relative flex h-screen overflow-hidden bg-[var(--bg-page)] text-[var(--text-1)]">
       <SceneBackground />
       <Sidebar
         role={role}
@@ -58,7 +69,12 @@ export function DashboardShell({
         onClose={() => setOpen(false)}
         onToggleCollapsed={() => setCollapsed((current) => !current)}
       />
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+      <motion.div
+        data-scroll-root
+        className="relative z-10 flex h-screen min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto"
+        animate={{ marginLeft: sidebarOffset }}
+        transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+      >
         {demoMode ? (
           <div className="bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
             Demo Mode — Payments are simulated. Add real API keys to go live.
@@ -71,7 +87,7 @@ export function DashboardShell({
         </main>
         <CommandPalette role={role} />
         <AssistantWidget role={role} displayName={displayName} />
-      </div>
+      </motion.div>
     </div>
     </DashboardIdentityProvider>
   );

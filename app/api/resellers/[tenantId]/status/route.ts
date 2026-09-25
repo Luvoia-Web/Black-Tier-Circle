@@ -10,7 +10,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { UpdateTenantStatusSchema } from '@/lib/validations/auth';
 import { createNotification } from '@/modules/notifications';
-import { updateTenantStatus } from '@/modules/tenants';
+import { getTenantById, updateTenantStatus } from '@/modules/tenants';
 import { getOrCreateWallet } from '@/modules/wallet';
 
 type RouteContext = {
@@ -21,6 +21,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   try {
     const session = await requireOwner();
     const body = UpdateTenantStatusSchema.parse(await readJsonBody(request));
+    const before = await getTenantById(asDbClient(session.admin), context.params.tenantId);
     const tenant = await updateTenantStatus(
       asDbClient(session.admin),
       context.params.tenantId,
@@ -42,6 +43,15 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
         title: 'Reseller Activated',
         body: `${tenant.displayName} is now active.`,
         metadata: { tenantId: tenant.id },
+      });
+    }
+    if (body.status === 'suspended' && before.status === 'pending') {
+      await createNotification(asDbClient(session.admin), {
+        userId: tenant.ownerUserId,
+        tenantId: tenant.id,
+        type: 'reseller_suspended',
+        title: 'Application not approved',
+        body: 'Your reseller application was not approved.',
       });
     }
     return jsonSuccess({

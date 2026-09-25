@@ -6,6 +6,7 @@
  * @module Dashboard
  */
 
+import { Suspense } from 'react';
 import { OwnerOrdersBoard } from '@/components/orders/owner-orders-board';
 import { asDbClient } from '@/lib/auth/session';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -41,5 +42,9 @@ export default async function OwnerOrdersPage(): Promise<JSX.Element> {
     ).length,
   };
 
-  return <OwnerOrdersBoard stats={stats} />;
+  return (
+    <Suspense fallback={null}>
+      <OwnerOrdersBoard stats={stats} />
+    </Suspense>
+  );
 }

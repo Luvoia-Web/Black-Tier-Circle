@@ -16,9 +16,12 @@ export function ScrollProgress(): JSX.Element {
       return;
     }
     let frame = 0;
+    const scroller = bar.closest('main, [data-scroll-root]') ?? document.documentElement;
     const update = (): void => {
-      const scrollable = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = scrollable <= 0 ? 0 : window.scrollY / scrollable;
+      const node = scroller === document.documentElement ? document.documentElement : (scroller as HTMLElement);
+      const scrollable = node.scrollHeight - (node === document.documentElement ? window.innerHeight : node.clientHeight);
+      const top = node === document.documentElement ? window.scrollY : node.scrollTop;
+      const progress = scrollable <= 0 ? 0 : top / scrollable;
       bar.style.transform = `scaleX(${Math.min(1, Math.max(0, progress))})`;
     };
     const onScroll = (): void => {
@@ -26,11 +29,12 @@ export function ScrollProgress(): JSX.Element {
       frame = requestAnimationFrame(update);
     };
     update();
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const target = scroller === document.documentElement ? window : scroller;
+    target.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', onScroll);
+      target.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
     };
   }, [reduced]);

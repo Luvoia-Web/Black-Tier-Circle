@@ -207,6 +207,8 @@ function buildDrawerRows(detail: OrderDetailPayload): ReadonlyArray<DrawerRow> {
     { label: 'PAYMENT REF', value: ref ? truncatePaymentRef(ref) : '—', copyText: ref, isTotal: false },
     { label: 'TYPE', value: 'purchase', copyText: null, isTotal: false },
     { label: 'PRODUCT', value: detail.product.title, copyText: null, isTotal: false },
+    { label: 'SOURCE', value: detail.product.sourceLabel, copyText: null, isTotal: false },
+    { label: 'CHANNEL', value: detail.order.channelLabel, copyText: null, isTotal: false },
     { label: 'QUANTITY', value: '1', copyText: null, isTotal: false },
     { label: 'TOTAL', value: formatOrderTotal(detail.order.quotedRetailPrice), copyText: null, isTotal: true },
     { label: 'METHOD', value: paymentMethodLabel(detail.order.paymentMethod), copyText: null, isTotal: false },

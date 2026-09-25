@@ -13,37 +13,53 @@ import { FormField } from '@/components/settings/FormField';
 import { PageHeader } from '@/components/ui/page-header';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
+type Probe = {
+  readonly username: string;
+  readonly balance: number;
+  readonly membership: string;
+  readonly productCount: number;
+  readonly warning: string | null;
+};
+
 export default function ConnectSupplierPage(): JSX.Element {
   const router = useRouter();
-  const [name, setName] = useState('ProdSeller');
-  const [slug, setSlug] = useState('prodseller');
-  const [baseUrl, setBaseUrl] = useState('https://prodseller.com/v1');
+  const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [authHeaderName, setAuthHeaderName] = useState('X-API-Key');
+  const [endpoint, setEndpoint] = useState('');
   const [busy, setBusy] = useState(false);
-  const [tested, setTested] = useState<string | null>(null);
+  const [probe, setProbe] = useState<Probe | null>(null);
 
-  async function save(): Promise<void> {
+  async function submit(save: boolean): Promise<void> {
     setBusy(true);
-    setTested(null);
     try {
       const response = await fetch(API_ROUTES.supplierConnect, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, slug, baseUrl, apiKey, authHeaderName }),
+        body: JSON.stringify({
+          name: name.trim() || 'Supplier',
+          apiKey,
+          ...(endpoint.trim().length > 0 ? { endpoint: endpoint.trim() } : {}),
+          save,
+        }),
       });
       const json = (await response.json()) as {
         success: boolean;
-        data?: { username: string; balance: number; membership: string };
+        data?: Probe;
         error?: { message: string };
       };
       if (!json.success || !json.data) {
-        toast.error(json.error?.message ?? 'Connection failed');
+        setProbe(null);
+        toast.error(json.error?.message ?? 'Could not connect to supplier. Please check your API key and try again.');
         return;
       }
-      setTested(`Connected as @${json.data.username} | Balance: ${json.data.balance} USDT | Membership: ${json.data.membership}`);
-      toast.success('Supplier saved');
-      router.push(ROUTES.owner.supplier);
+      setProbe(json.data);
+      if (json.data.warning) {
+        toast.message(json.data.warning);
+      }
+      if (save) {
+        toast.success('Supplier saved');
+        router.push(ROUTES.owner.supplier);
+      }
     } finally {
       setBusy(false);
     }
@@ -51,17 +67,57 @@ export default function ConnectSupplierPage(): JSX.Element {
 
   return (
     <>
-      <PageHeader title="Connect Supplier" description="The key is tested against the supplier before it is stored." />
+      <PageHeader title="Connect Supplier" description="Test the key first. It is stored only after the connection succeeds." />
       <div className="max-w-xl rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5">
-        <FormField label="Supplier Name" value={name} onChange={setName} />
-        <FormField label="Slug" value={slug} onChange={setSlug} helper="Lowercase, used as a unique id" />
-        <FormField label="Base URL" value={baseUrl} onChange={setBaseUrl} />
-        <FormField label="API Key" type="password" value={apiKey} onChange={setApiKey} />
-        <FormField label="Auth Header" value={authHeaderName} onChange={setAuthHeaderName} />
-        <button type="button" className="btc-btn-primary mt-4" disabled={busy || apiKey.length < 8} onClick={() => void save()}>
-          {busy ? 'Testing…' : 'Test Connection & Save'}
+        <FormField
+          label="Supplier Name"
+          value={name}
+          onChange={(value) => {
+            setName(value);
+            setProbe(null);
+          }}
+          placeholder="ProdSeller, MySupplier"
+          helper="Give this supplier a name"
+        />
+        <FormField
+          label="API Key"
+          type="password"
+          value={apiKey}
+          onChange={(value) => {
+            setApiKey(value);
+            setProbe(null);
+          }}
+          helper="Your supplier API key"
+        />
+        <FormField
+          label="API Endpoint"
+          value={endpoint}
+          onChange={(value) => {
+            setEndpoint(value);
+            setProbe(null);
+          }}
+          placeholder="https://supplier.com/api/v1"
+          helper="Optional. Leave blank to auto-detect ProdSeller."
+        />
+        <button
+          type="button"
+          className="btc-btn-primary mt-4"
+          disabled={busy || apiKey.trim().length < 8}
+          onClick={() => void submit(false)}
+        >
+          {busy ? 'Testing…' : 'Test Connection'}
         </button>
-        {tested ? <p className="mt-3 text-sm text-[var(--green)]">{tested}</p> : null}
+        {probe ? (
+          <div className="mt-4 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4 text-sm">
+            <p className="text-[var(--text-1)]">Connected as @{probe.username}</p>
+            <p className="mt-1 text-[var(--text-2)]">Balance: {probe.balance} USDT</p>
+            <p className="mt-1 text-[var(--text-2)]">Products: {probe.productCount}</p>
+            {probe.warning ? <p className="mt-2 text-[var(--amber)]">{probe.warning}</p> : null}
+            <button type="button" className="btc-btn-primary mt-4" disabled={busy} onClick={() => void submit(true)}>
+              {busy ? 'Saving…' : 'Save Supplier'}
+            </button>
+          </div>
+        ) : null}
       </div>
     </>
   );

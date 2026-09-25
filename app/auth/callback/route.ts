@@ -13,7 +13,7 @@ import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createAuthRouteClient } from '@/lib/supabase/server';
 import { getOrCreateProfile, type UserRole } from '@/modules/identity';
-import { createTenant, updateTenantStatus } from '@/modules/tenants';
+import { createTenant } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,10 +73,9 @@ export async function GET(request: Request): Promise<NextResponse> {
       const created = await getOrCreateProfile(db, userId, {
         displayName: fromGoogle.slice(0, 80),
         role: 'reseller',
-        status: 'active',
+        status: 'pending',
       });
-      const tenant = await createTenant(db, userId, created.displayName);
-      await updateTenantStatus(db, tenant.id, 'active');
+      await createTenant(db, userId, created.displayName);
       return redirectWithSession(ROUTES.onboarding);
     } catch {
       return redirectWithSession(`${ROUTES.login}?error=no_profile`);

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient } from '@/lib/supabase/query';
+import { probeSupplierConnection } from '@/integrations/supplier/generic-client';
 import { createProdSellerClient, type ProdSellerProduct } from '@/integrations/prodseller/client';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
@@ -156,24 +157,30 @@ export async function connectSupplier(
   input: {
     readonly name: string;
     readonly slug: string;
-    readonly baseUrl: string;
     readonly apiKey: string;
-    readonly authHeaderName: string;
+    readonly endpoint?: string;
   },
-): Promise<{ supplier: SupplierRecord; balance: number; membership: string; username: string }> {
-  const client = createProdSellerClient(input.apiKey, input.baseUrl, input.authHeaderName);
-  const balance = await client.getBalance();
+): Promise<{
+  supplier: SupplierRecord;
+  balance: number;
+  membership: string;
+  username: string;
+  productCount: number;
+  warning: string | null;
+}> {
+  const probed = await probeSupplierConnection(input.apiKey, input.endpoint);
   const now = new Date().toISOString();
   const payload = {
     name: input.name,
     slug: input.slug,
-    base_url: input.baseUrl,
+    base_url: probed.baseUrl,
     api_key_encrypted: encrypt(input.apiKey),
-    auth_header_name: input.authHeaderName,
+    auth_header_name: probed.authHeaderName,
     status: 'active',
-    balance_usdt: balance.balance,
+    balance_usdt: probed.balance,
     balance_checked_at: now,
-    membership_tier: balance.membership,
+    membership_tier: probed.membership,
+    product_count: probed.productCount,
     updated_at: now,
   };
   const existing = await supabase.from('suppliers').select('id').eq('slug', input.slug).maybeSingle();
@@ -185,9 +192,11 @@ export async function connectSupplier(
   }
   return {
     supplier: mapSupplier(saved.data as SupplierDbRow),
-    balance: balance.balance,
-    membership: balance.membership,
-    username: balance.username,
+    balance: probed.balance,
+    membership: probed.membership,
+    username: probed.username,
+    productCount: probed.productCount,
+    warning: probed.warning,
   };
 }
 

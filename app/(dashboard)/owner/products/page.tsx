@@ -19,6 +19,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonTable } from '@/components/ui/Skeleton';
 import { formatUsdt } from '@/lib/money';
+import { productTypeLabel, productTypeTone } from '@/lib/product-labels';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { ProductStatus } from '@/modules/catalog/types';
 
@@ -33,6 +34,10 @@ type ProductRow = {
   readonly status: ProductStatus;
   readonly stockUnlimited: boolean;
   readonly stockCount: number | null;
+  readonly supplierId?: string | null;
+  readonly supplierName?: string | null;
+  readonly typeLabel?: string;
+  readonly salesCount?: number;
 };
 
 const TABS: ReadonlyArray<{ id: 'all' | ProductStatus; label: string }> = [
@@ -52,6 +57,7 @@ export default function OwnerProductsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [salesSort, setSalesSort] = useState<'none' | 'desc' | 'asc'>('none');
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -116,7 +122,22 @@ export default function OwnerProductsPage(): JSX.Element {
       { key: 'sku', header: 'SKU', render: (row) => row.sku },
       { key: 'title', header: 'Title', render: (row) => row.title },
       { key: 'category', header: 'Category', render: (row) => row.category ?? '—' },
-      { key: 'delivery', header: 'Delivery type', render: (row) => row.deliveryType.replace('_', ' ') },
+      {
+        key: 'delivery',
+        header: 'Type',
+        render: (row) => {
+          const label = row.typeLabel ?? productTypeLabel(row);
+          return <span className={productTypeTone(label)}>{label}</span>;
+        },
+      },
+      {
+        key: 'sales',
+        header: 'Sales',
+        render: (row) => {
+          const count = row.salesCount ?? 0;
+          return count === 0 ? <span className="text-[var(--text-3)]">No sales yet</span> : `${count} sales`;
+        },
+      },
       {
         key: 'wholesale',
         header: 'Wholesale',
@@ -174,6 +195,16 @@ export default function OwnerProductsPage(): JSX.Element {
     [pendingId, setStatus],
   );
 
+  const visible = useMemo(() => {
+    if (salesSort === 'none') {
+      return rows;
+    }
+    return [...rows].sort((left, right) => {
+      const delta = (left.salesCount ?? 0) - (right.salesCount ?? 0);
+      return salesSort === 'asc' ? delta : -delta;
+    });
+  }, [rows, salesSort]);
+
   return (
     <>
       <DocumentTitle title="Products — Black Tier Circle" />
@@ -189,7 +220,7 @@ export default function OwnerProductsPage(): JSX.Element {
           </Link>
         }
       />
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -204,6 +235,13 @@ export default function OwnerProductsPage(): JSX.Element {
             {item.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="min-h-11 cursor-pointer rounded-md border border-[var(--border)] px-3 text-sm text-[var(--text-2)]"
+          onClick={() => setSalesSort((current) => (current === 'desc' ? 'asc' : 'desc'))}
+        >
+          Sort by sales {salesSort === 'asc' ? '↑' : '↓'}
+        </button>
       </div>
       {error ? <PageError message={error} onRetry={() => void load()} /> : null}
       {loading ? (
@@ -218,7 +256,7 @@ export default function OwnerProductsPage(): JSX.Element {
       ) : (
         <DataTable
           columns={columns}
-          rows={rows}
+          rows={visible}
           rowKey={(row) => row.id}
           emptyMessage="No products in this tab."
         />

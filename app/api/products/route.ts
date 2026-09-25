@@ -10,6 +10,7 @@
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { CreateProductSchema } from '@/lib/validations/catalog';
+import { productTypeLabel } from '@/lib/product-labels';
 import { createProduct, listProducts, type ProductStatus } from '@/modules/catalog';
 import { createNotification, notifyResellersOfProduct } from '@/modules/notifications';
 
@@ -37,8 +38,44 @@ export async function GET(request: Request): Promise<Response> {
             ...(status !== undefined ? { status } : {}),
             ...(category !== null && category !== '' ? { category } : {}),
           };
-    const products = await listProducts(asDbClient(session.admin), filters);
-    return jsonSuccess(products, 200, { cache: 'short' });
+    const db = asDbClient(session.admin);
+    const products = await listProducts(db, filters);
+    const supplierIds = [...new Set(products.map((product) => product.supplierId).filter((id): id is string => Boolean(id)))];
+    const supplierNames = new Map<string, string>();
+    if (supplierIds.length > 0) {
+      const supplierRows = await db.from('suppliers').select('id, name').in('id', supplierIds);
+      for (const raw of Array.isArray(supplierRows.data) ? supplierRows.data : []) {
+        const row = raw as { id?: string; name?: string };
+        if (row.id && row.name) {
+          supplierNames.set(row.id, row.name);
+        }
+      }
+    }
+    const sales = new Map<string, number>();
+    const paid = await db.from('orders').select('product_id').eq('payment_status', 'verified');
+    for (const raw of Array.isArray(paid.data) ? paid.data : []) {
+      const id = (raw as { product_id?: string }).product_id;
+      if (id) {
+        sales.set(id, (sales.get(id) ?? 0) + 1);
+      }
+    }
+    return jsonSuccess(
+      products.map((product) => {
+        const supplierName = product.supplierId ? supplierNames.get(product.supplierId) ?? null : null;
+        return {
+          ...product,
+          supplierName,
+          typeLabel: productTypeLabel({
+            deliveryType: product.deliveryType,
+            supplierId: product.supplierId,
+            supplierName,
+          }),
+          salesCount: sales.get(product.id) ?? 0,
+        };
+      }),
+      200,
+      { cache: 'short' },
+    );
   } catch (error: unknown) {
     return handleRouteError(error);
   }

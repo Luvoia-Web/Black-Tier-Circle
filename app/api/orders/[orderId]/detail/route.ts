@@ -86,9 +86,10 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
   const customer = await loadCustomer(db, order.customerId);
   const attempt = fulfillment.fulfillmentAttempts[0] ?? null;
   const claim = payment.claim;
+  const labels = await sourceAndChannel(db, order.tenantId, order.channel, product.supplierId);
   return {
-    order: serializeOrder(order),
-    product: { title: product.title, sku: product.sku, deliveryType: product.deliveryType },
+    order: { ...serializeOrder(order), channelLabel: labels.channelLabel },
+    product: { title: product.title, sku: product.sku, deliveryType: product.deliveryType, sourceLabel: labels.sourceLabel },
     customer,
     paymentClaim: claim
       ? {
@@ -142,7 +143,27 @@ async function loadCustomer(
  *
  * @param order - Domain order
  */
-function serializeOrder(order: Order): OrderDetailPayload['order'] {
+async function sourceAndChannel(
+  db: DbClient,
+  tenantId: string | null,
+  channel: Order['channel'],
+  supplierId: string | null,
+): Promise<{ sourceLabel: string; channelLabel: string }> {
+  let sourceLabel = 'Own Product';
+  if (supplierId) {
+    const supplier = await db.from('suppliers').select('name').eq('id', supplierId).maybeSingle();
+    const name = (supplier.data as { name?: string } | null)?.name;
+    sourceLabel = name && name.length > 0 ? name : 'Supplier API';
+  }
+  if (channel === 'owner_store' || tenantId === null) {
+    return { sourceLabel, channelLabel: 'Owner Store' };
+  }
+  const tenant = await db.from('tenants').select('display_name').eq('id', tenantId).maybeSingle();
+  const store = (tenant.data as { display_name?: string } | null)?.display_name;
+  return { sourceLabel, channelLabel: store && store.length > 0 ? store : 'Reseller' };
+}
+
+function serializeOrder(order: Order): Omit<OrderDetailPayload['order'], 'channelLabel'> {
   return {
     id: order.id,
     channel: order.channel,
