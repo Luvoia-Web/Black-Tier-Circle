@@ -8,6 +8,8 @@ import { logger } from '@/lib/logger';
 import type { DbClient } from '@/lib/supabase/query';
 import { getOrder } from '@/modules/orders';
 import { settlePolledSupplierOrder } from '@/modules/fulfillment';
+import { adapterByName } from '@/integrations/supplier/supplier-client';
+import { decrypt } from '@/lib/encryption';
 import { loadSupplierClient, supplierOrderIdFromArtifact } from './place';
 
 export async function pollPendingSupplierOrders(
@@ -55,8 +57,15 @@ export async function pollPendingSupplierOrders(
         stillPending += 1;
         continue;
       }
-      const client = await loadSupplierClient(supabase, supplierId);
-      const remote = await client.getOrder(supplierOrderId);
+      const supplierRow = await supabase.from('suppliers').select('adapter_name, api_key_encrypted, base_url').eq('id', supplierId).maybeSingle();
+      const saved = supplierRow.data as { adapter_name?: string; api_key_encrypted?: string | null; base_url?: string } | null;
+      const remote = saved?.adapter_name === 'canboso' && saved.api_key_encrypted
+        ? await adapterByName('canboso').getOrderStatus(decrypt(saved.api_key_encrypted), supplierOrderId, saved.base_url).then((result) => ({
+            status: result.status,
+            deliveredKeys: result.deliveredContent ? [result.deliveredContent] : undefined,
+            deliveredKey: result.deliveredContent,
+          }))
+        : await (await loadSupplierClient(supabase, supplierId)).getOrder(supplierOrderId);
       if (remote.status === 'delivered') {
         const content = remote.deliveredKeys?.join('\n') || remote.deliveredKey || `Subscription activated for ${title}`;
         await settlePolledSupplierOrder(supabase, order.id, row.id, { status: 'delivered', content });

@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 import { usdtToMinor } from '@/lib/money';
 import type { DbClient } from '@/lib/supabase/query';
 import { SupplierError, createProdSellerClient, type ProdSellerOrder } from '@/integrations/prodseller/client';
+import { adapterByName } from '@/integrations/supplier/supplier-client';
 
 export type SupplierFulfillment = {
   readonly supplierOrderId: string;
@@ -27,6 +28,7 @@ type SupplierRow = {
   readonly api_key_encrypted: string | null;
   readonly auth_header_name: string;
   readonly status: string;
+  readonly adapter_name?: string | null;
 };
 
 function deliveryText(order: ProdSellerOrder): string | null {
@@ -120,6 +122,26 @@ export async function fulfillViaSupplier(
     .eq('id', productId)
     .maybeSingle();
   const priceMinor = (priceResult.data as { supplier_price_minor?: string | number | null } | null)?.supplier_price_minor;
+  const supplierRow = await supabase.from('suppliers').select('*').eq('id', product.supplier_id).maybeSingle();
+  const saved = supplierRow.data as SupplierRow | null;
+  if (saved?.adapter_name === 'canboso' && saved.api_key_encrypted) {
+    const placed = await adapterByName('canboso').createOrder(
+      decrypt(saved.api_key_encrypted),
+      product.supplier_sku,
+      1,
+      customerEmail,
+      orderId,
+      saved.base_url,
+    );
+    return {
+      supplierOrderId: placed.externalOrderId,
+      deliveryContent: placed.deliveredContent ?? null,
+      requiresPolling: placed.status === 'pending',
+      status: placed.status === 'delivered' ? 'delivered' : placed.status === 'failed' ? 'failed' : 'paid',
+      amountUsdt: 0,
+      activationEta: placed.estimatedDelivery ?? null,
+    };
+  }
   const client = await loadSupplierClient(supabase, product.supplier_id);
   let observedBalance: number | null = null;
   try {
@@ -138,7 +160,7 @@ export async function fulfillViaSupplier(
       if (balance.balance < needed) {
         throw new SupplierError(
           'INSUFFICIENT_SUPPLIER_BALANCE',
-          `Low supplier balance (${balance.balance} USDT). Need ${needed} USDT. Top up ProdSeller wallet.`,
+          `Low supplier balance (${balance.balance}). Need ${needed}. Top up the supplier wallet.`,
           402,
         );
       }

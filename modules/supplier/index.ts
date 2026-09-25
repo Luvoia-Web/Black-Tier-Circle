@@ -8,8 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient } from '@/lib/supabase/query';
-import { probeSupplierConnection } from '@/integrations/supplier/generic-client';
-import { createProdSellerClient, type ProdSellerProduct } from '@/integrations/prodseller/client';
+import { adapterByName, testSupplierConnection } from '@/integrations/supplier/supplier-client';
+import { createProdSellerClient } from '@/integrations/prodseller/client';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
 export { fulfillViaSupplier, mapSupplierOrder, supplierArtifact, supplierCostMinor, supplierOrderIdFromArtifact } from './place';
@@ -168,7 +168,10 @@ export async function connectSupplier(
   productCount: number;
   warning: string | null;
 }> {
-  const probed = await probeSupplierConnection(input.apiKey, input.endpoint);
+  const probed = await testSupplierConnection(input.apiKey, input.endpoint);
+  if (!probed.success) {
+    throw new AppError('SUPPLIER_CONNECT_FAILED', probed.error ?? 'Could not connect. Check your API key and try again.', 400);
+  }
   const now = new Date().toISOString();
   const payload = {
     name: input.name,
@@ -176,27 +179,51 @@ export async function connectSupplier(
     base_url: probed.baseUrl,
     api_key_encrypted: encrypt(input.apiKey),
     auth_header_name: probed.authHeaderName,
+    auth_header_format: probed.authHeaderFormat,
+    adapter_name: probed.adapterName,
+    products_endpoint: probed.productsEndpoint,
+    orders_endpoint: probed.ordersEndpoint,
+    balance_endpoint: probed.balanceEndpoint,
+    api_version: probed.apiVersion,
     status: 'active',
-    balance_usdt: probed.balance,
+    balance_usdt: probed.balance?.available ?? 0,
     balance_checked_at: now,
-    membership_tier: probed.membership,
-    product_count: probed.productCount,
+    membership_tier: probed.balance?.currency ?? 'USDT',
+    product_count: probed.productCount ?? 0,
     updated_at: now,
   };
   const existing = await supabase.from('suppliers').select('id').eq('slug', input.slug).maybeSingle();
-  const saved = existing.data
+  const legacyPayload = {
+    name: payload.name,
+    slug: payload.slug,
+    base_url: payload.base_url,
+    api_key_encrypted: payload.api_key_encrypted,
+    auth_header_name: payload.auth_header_name,
+    status: payload.status,
+    balance_usdt: payload.balance_usdt,
+    balance_checked_at: payload.balance_checked_at,
+    membership_tier: payload.membership_tier,
+    product_count: payload.product_count,
+    updated_at: payload.updated_at,
+  };
+  let saved = existing.data
     ? await supabase.from('suppliers').update(payload).eq('slug', input.slug).select('*').single()
     : await supabase.from('suppliers').insert(payload).select('*').single();
+  if (saved.error && /adapter_name|auth_header_format|products_endpoint/.test(saved.error.message)) {
+    saved = existing.data
+      ? await supabase.from('suppliers').update(legacyPayload).eq('slug', input.slug).select('*').single()
+      : await supabase.from('suppliers').insert(legacyPayload).select('*').single();
+  }
   if (saved.error || !saved.data) {
     throw new AppError('SUPPLIER_SAVE_FAILED', saved.error?.message ?? 'Unable to save supplier', 500);
   }
   return {
     supplier: mapSupplier(saved.data as SupplierDbRow),
-    balance: probed.balance,
-    membership: probed.membership,
-    username: probed.username,
-    productCount: probed.productCount,
-    warning: probed.warning,
+    balance: probed.balance?.available ?? 0,
+    membership: probed.balance?.currency ?? 'USDT',
+    username: probed.supplierName ?? 'Supplier',
+    productCount: probed.productCount ?? 0,
+    warning: probed.warning ?? null,
   };
 }
 
@@ -221,7 +248,7 @@ export async function refreshSupplierBalance(
   return { balance: balance.balance, membership: balance.membership };
 }
 
-function catalogDelivery(product: ProdSellerProduct): 'instant' | 'email_activation' {
+function catalogDelivery(product: { readonly requiresEmailActivation: boolean }): 'instant' | 'email_activation' {
   return product.requiresEmailActivation ? 'email_activation' : 'instant';
 }
 
@@ -239,12 +266,31 @@ export async function syncSupplierProducts(
   if (!supplier.api_key_encrypted) {
     throw new AppError('SUPPLIER_NOT_CONFIGURED', 'Save an API key before syncing', 400);
   }
-  const client = createProdSellerClient(
-    decrypt(supplier.api_key_encrypted),
-    supplier.base_url,
-    supplier.auth_header_name,
-  );
-  const remote = await client.listProducts();
+  const adapterName = (supplier as { adapter_name?: string }).adapter_name;
+  const useLegacy = !adapterName || adapterName === 'prodseller' || adapterName === 'generic' && supplier.base_url.includes('prodseller');
+  const remote = useLegacy
+    ? (await createProdSellerClient(decrypt(supplier.api_key_encrypted), supplier.base_url, supplier.auth_header_name).listProducts()).map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        imageUrl: item.imageUrl,
+        price: item.price,
+        publicPrice: item.publicPrice,
+        requiresEmailActivation: item.requiresEmailActivation,
+        inStock: item.inStock,
+        sold: item.sold,
+      }))
+    : (await adapterByName(adapterName).getProducts(decrypt(supplier.api_key_encrypted), supplier.base_url)).map((item) => ({
+        id: item.externalId,
+        name: item.title,
+        description: item.description ?? '',
+        imageUrl: item.imageUrl ?? null,
+        price: item.price,
+        publicPrice: item.price,
+        requiresEmailActivation: item.deliveryType === 'email_activation',
+        inStock: item.stock === 'unlimited' || item.stock > 0,
+        sold: 0,
+      }));
   const seen = new Set<string>();
   let newProducts = 0;
   let updatedProducts = 0;

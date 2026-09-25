@@ -76,8 +76,8 @@ export default function ConnectSupplierPage(): JSX.Element {
             setName(value);
             setProbe(null);
           }}
-          placeholder="ProdSeller, MySupplier"
-          helper="Give this supplier a name"
+          placeholder="My Supplier"
+          helper="A name for this supplier in your dashboard"
         />
         <FormField
           label="API Key"
@@ -87,7 +87,8 @@ export default function ConnectSupplierPage(): JSX.Element {
             setApiKey(value);
             setProbe(null);
           }}
-          helper="Your supplier API key"
+          placeholder="Your API key"
+          helper="The API key from your supplier's dashboard or bot"
         />
         <FormField
           label="API Endpoint"
@@ -96,8 +97,8 @@ export default function ConnectSupplierPage(): JSX.Element {
             setEndpoint(value);
             setProbe(null);
           }}
-          placeholder="https://supplier.com/api/v1"
-          helper="Optional. Leave blank to auto-detect ProdSeller."
+          placeholder="https://supplier.com/api"
+          helper="Leave blank to auto-detect"
         />
         <button
           type="button"
@@ -105,13 +106,11 @@ export default function ConnectSupplierPage(): JSX.Element {
           disabled={busy || apiKey.trim().length < 8}
           onClick={() => void submit(false)}
         >
-          {busy ? 'Testing…' : 'Test Connection'}
+          {busy ? (apiKey.startsWith('psk_') || apiKey.startsWith('tgb_') ? 'Testing…' : 'Detecting…') : 'Test Connection'}
         </button>
         {probe ? (
           <div className="mt-4 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4 text-sm">
-            <p className="text-[var(--text-1)]">Connected as @{probe.username}</p>
-            <p className="mt-1 text-[var(--text-2)]">Balance: {probe.balance} USDT</p>
-            <p className="mt-1 text-[var(--text-2)]">Products: {probe.productCount}</p>
+            <p className="text-[var(--text-1)]">Connected to {probe.username} · {probe.productCount} products · Balance: {probe.balance} {probe.membership}</p>
             {probe.warning ? <p className="mt-2 text-[var(--amber)]">{probe.warning}</p> : null}
             <button type="button" className="btc-btn-primary mt-4" disabled={busy} onClick={() => void submit(true)}>
               {busy ? 'Saving…' : 'Save Supplier'}

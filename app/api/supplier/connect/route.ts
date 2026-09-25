@@ -6,10 +6,9 @@
 
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { SupplierError } from '@/integrations/prodseller/client';
-import { probeSupplierConnection } from '@/integrations/supplier/generic-client';
+import { testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { handleRouteError, jsonError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { AppError } from '@/lib/errors';
-import { translateSupplierError } from '@/lib/supplier-errors';
 import { connectSupplier } from '@/modules/supplier';
 import { z } from 'zod';
 
@@ -19,6 +18,32 @@ const Body = z.object({
   endpoint: z.union([z.string().url(), z.literal('')]).optional(),
   save: z.boolean().optional(),
 });
+
+function toUserError(err: unknown, statusCode?: number): string | null {
+  const msg = String(err instanceof Error ? err.message : '').toLowerCase();
+  if (msg.includes('solde insuffisant') || msg.includes('not enough') || msg.includes('insufficient')) {
+    return null;
+  }
+  if (msg.includes('clé') || msg.includes('invalid key') || msg.includes('invalid api key') || statusCode === 401) {
+    return 'Invalid API key. Double-check and try again.';
+  }
+  if (statusCode === 403) {
+    return 'This API key does not have permission. Check your supplier account settings.';
+  }
+  if (statusCode === 404) {
+    return 'Supplier API not found at that endpoint. Check the URL.';
+  }
+  if (statusCode === 429) {
+    return 'Too many requests. Wait a moment and try again.';
+  }
+  if (msg.includes('enotfound') || msg.includes('network')) {
+    return 'Cannot reach the supplier. Check the endpoint URL.';
+  }
+  if (msg.includes('timeout') || msg.includes('etimedout') || msg.includes('timed out')) {
+    return 'Connection timed out. The supplier is not responding.';
+  }
+  return 'Could not connect. Check your API key and try again.';
+}
 
 function slugFromName(name: string): string {
   const slug = name
@@ -35,13 +60,16 @@ export async function POST(request: Request): Promise<Response> {
     const session = await requireOwner();
     const body = Body.parse(await readJsonBody(request));
     if (body.save !== true) {
-      const probed = await probeSupplierConnection(body.apiKey, body.endpoint);
+      const probed = await testSupplierConnection(body.apiKey, body.endpoint);
+      if (!probed.success) {
+        return jsonError(new AppError('SUPPLIER_CONNECT_FAILED', probed.error ?? 'Could not connect. Check your API key and try again.', 400));
+      }
       return jsonSuccess({
-        username: probed.username,
-        balance: probed.balance,
-        membership: probed.membership,
-        productCount: probed.productCount,
-        warning: probed.warning ? translateSupplierError(new Error(probed.warning), 402) : null,
+        username: probed.supplierName ?? 'Supplier',
+        balance: probed.balance?.available ?? 0,
+        membership: probed.balance?.currency ?? 'USDT',
+        productCount: probed.productCount ?? 0,
+        warning: probed.warning ?? null,
       });
     }
     const saved = await connectSupplier(asDbClient(session.admin), {
@@ -56,15 +84,16 @@ export async function POST(request: Request): Promise<Response> {
       membership: saved.membership,
       username: saved.username,
       productCount: saved.productCount,
-      warning: saved.warning ? translateSupplierError(new Error(saved.warning), 402) : null,
+      warning: saved.warning,
     });
   } catch (error: unknown) {
     if (error instanceof SupplierError) {
-      return jsonError(new AppError(error.code, translateSupplierError(error, error.status), error.status >= 400 ? error.status : 400));
+      const message = toUserError(error, error.status) ?? 'Connected, but the supplier balance is low. Top up before ordering.';
+      return jsonError(new AppError(error.code, message, error.status >= 400 ? error.status : 400));
     }
     if (error instanceof z.ZodError) {
       return handleRouteError(error);
     }
-    return jsonError(new AppError('SUPPLIER_CONNECT_FAILED', translateSupplierError(error), 400));
+    return jsonError(new AppError('SUPPLIER_CONNECT_FAILED', toUserError(error) ?? 'Could not connect. Check your API key and try again.', 400));
   }
 }
