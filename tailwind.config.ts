@@ -7,6 +7,7 @@
  */
 
 import type { Config } from 'tailwindcss';
+import tailwindAnimate from 'tailwindcss-animate';
 
 const config: Config = {
   content: [
@@ -17,7 +18,7 @@ const config: Config = {
   theme: {
     extend: {},
   },
-  plugins: [],
+  plugins: [tailwindAnimate],
 };
 
 export default config;

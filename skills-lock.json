@@ -1,11 +1,179 @@
 {
   "version": 1,
   "skills": {
+    "3d-website-architect": {
+      "source": "deveshpunjabi/3d-website-skill",
+      "sourceType": "github",
+      "skillPath": "skills/3d-website-architect/SKILL.md",
+      "computedHash": "061eca688790764e15022cdc0eed852a4d4797420f3959f49581f977815de9ca"
+    },
+    "awwwards-animations": {
+      "source": "devmartinese/awwwards-animations-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "03ea7b6b4daf3de348c530ec0670cd63c21bc060591f5ca7f193234008a941b6"
+    },
     "code-review": {
       "source": "coderabbitai/skills",
       "sourceType": "github",
       "skillPath": "skills/code-review/SKILL.md",
       "computedHash": "1cc49f29b6762f2cb3a20e3e111fb87aeaa418669d9cc00b81c2cb504baf9dbe"
+    },
+    "gsap-react": {
+      "source": "bbeierle12/skill-mcp-claude",
+      "sourceType": "github",
+      "skillPath": "skills/gsap-react/SKILL.md",
+      "computedHash": "baa515f0e6e67e7207ed3e1f217a50d46a2ab8df4bfb73c36e31f9a881ae7681"
+    },
+    "react-three-fiber": {
+      "source": "freshtechbro/claudedesignskills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/react-three-fiber/SKILL.md",
+      "computedHash": "d672dfba48620140185d451bc9b6841833eed4306277776efab2e2a82c7b8fbf"
+    },
+    "threejs-agents-model-optimizer": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-agents/threejs-agents-model-optimizer/SKILL.md",
+      "computedHash": "58afb17be57515dc0da9bba2a2ba2952a136bb17d05ca946cb98e872a0b939ef"
+    },
+    "threejs-agents-scene-builder": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-agents/threejs-agents-scene-builder/SKILL.md",
+      "computedHash": "469ad4112c676c53afca857e4cca93dde5ba2e1a1124875548c394900cd96cd1"
+    },
+    "threejs-core-math": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-core/threejs-core-math/SKILL.md",
+      "computedHash": "f7f75b1597f146806343d79368c833f173787acd8ed0faad1b25b471a073b8ce"
+    },
+    "threejs-core-raycaster": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-core/threejs-core-raycaster/SKILL.md",
+      "computedHash": "c2401f4f1afb663b8f9fe7af41cf2b0be7d31713d9751a69eafdee0d836ce5d7"
+    },
+    "threejs-core-renderer": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-core/threejs-core-renderer/SKILL.md",
+      "computedHash": "e20b722fc12746ccba793462ede00a7cc7d9df6aa092c2e7582b46f555552aa7"
+    },
+    "threejs-core-scene-graph": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-core/threejs-core-scene-graph/SKILL.md",
+      "computedHash": "1402ff3a85bc121ace02fd5a3b8b1428741aa05fa1f8039c27040bc0f45feb85"
+    },
+    "threejs-errors-performance": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-errors/threejs-errors-performance/SKILL.md",
+      "computedHash": "4998c336a748d50f954e817ed3f109048ffc1ce495807b75939314a4a0ad13f1"
+    },
+    "threejs-errors-rendering": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-errors/threejs-errors-rendering/SKILL.md",
+      "computedHash": "2fe5b3fe55a9765edeb1a5ad88dac74ae412b15672a3e53a02b70123b6557023"
+    },
+    "threejs-impl-animation": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-animation/SKILL.md",
+      "computedHash": "891367fced09d8d191e5786f3741cae492215f8d04c0d60b2ad711f6b0aa0047"
+    },
+    "threejs-impl-audio": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-audio/SKILL.md",
+      "computedHash": "c0da9903212b0bd82e03b2fa85029bcc6cfefa6c3769c689caed5cc0eafffcd4"
+    },
+    "threejs-impl-drei": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-drei/SKILL.md",
+      "computedHash": "ace67c6b5a5164e094e25197c9405d07c996b90021f2489102063c45ae398d96"
+    },
+    "threejs-impl-ifc-viewer": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-ifc-viewer/SKILL.md",
+      "computedHash": "acc9a04ea38f1f03a10868312835667125a0f9b33b8262899342b1d0329ce521"
+    },
+    "threejs-impl-lighting": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-lighting/SKILL.md",
+      "computedHash": "3fe36f3275fc918359a59430842fa2f01dd0552aa444bd116363417099d3fd27"
+    },
+    "threejs-impl-physics": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-physics/SKILL.md",
+      "computedHash": "55790fc6b03557068f13e0e9818a5fec2505da051e0a854208732b6029065e6a"
+    },
+    "threejs-impl-post-processing": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-post-processing/SKILL.md",
+      "computedHash": "7a97504b7da2dda386987f1e22d1f7b2205783d4f90185434cf38481c2d9d27e"
+    },
+    "threejs-impl-react-three-fiber": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-react-three-fiber/SKILL.md",
+      "computedHash": "a699e29c3f9979ffe3a20935f94ac35be00515e15c4272f1d2039a2d2198cef3"
+    },
+    "threejs-impl-shadows": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-shadows/SKILL.md",
+      "computedHash": "1ae2118bd8397c4aa0b05059665c2b7b6893aae57a1deba54d836a923880f4cf"
+    },
+    "threejs-impl-webgpu": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-webgpu/SKILL.md",
+      "computedHash": "cb8cd9ec3bebda0f63dcc89dba36aa73fc3deb21c6cad742ad90601827696123"
+    },
+    "threejs-impl-xr": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-impl/threejs-impl-xr/SKILL.md",
+      "computedHash": "b6cb0165ec0e2a906bd1c01bdf7f4491062b8d98c371755ecea7bdb29babf215"
+    },
+    "threejs-syntax-controls": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-syntax/threejs-syntax-controls/SKILL.md",
+      "computedHash": "cdeba2917ff2dfd5b1270265f59915163e1edf5ef9d2adb98c41bc8f320b3987"
+    },
+    "threejs-syntax-geometries": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-syntax/threejs-syntax-geometries/SKILL.md",
+      "computedHash": "883f11fbf87a29e546baa85aa92c7cf2ad19f19996740afc04cb927b5c63724a"
+    },
+    "threejs-syntax-loaders": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-syntax/threejs-syntax-loaders/SKILL.md",
+      "computedHash": "5a5414523a3a69eb9dc887381804bb6bf8f9d401d3743485e1e31c05dc31d666"
+    },
+    "threejs-syntax-materials": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-syntax/threejs-syntax-materials/SKILL.md",
+      "computedHash": "474b28085512f83b927def79740f68fe4102c29f13d2acf148b3a52fa204cc7d"
+    },
+    "threejs-syntax-shaders": {
+      "source": "OpenAEC-Foundation/Three.js-Claude-Skill-Package",
+      "sourceType": "github",
+      "skillPath": "skills/source/threejs-syntax/threejs-syntax-shaders/SKILL.md",
+      "computedHash": "e0ef334ffdfe3a56e1db662fa3bceb7b8ed4e5f85e58428e2802d1724064c79a"
     }
   }
 }
