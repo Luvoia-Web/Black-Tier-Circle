@@ -36,7 +36,7 @@ export async function sendFileDelivery(
   try {
     await bot.api.sendDocument(chatId, signedUrl, {
       caption: FULFILLMENT_CONFIG.delivery.fileDeliveryCaption(plainTitle(productTitle), orderRef),
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
     });
   } catch (error: unknown) {
     logger.error('telegram file delivery failed', {
@@ -52,12 +52,12 @@ export async function sendFileDelivery(
  *
  * @param botToken - Plaintext bot token (never log)
  * @param chatId - Telegram chat id
- * @param message - Markdown message body
+ * @param message - HTML message body
  */
 export async function sendTextDelivery(botToken: string, chatId: string, message: string): Promise<void> {
   const bot = new Bot(botToken);
   try {
-    await bot.api.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    await bot.api.sendMessage(chatId, message, { parse_mode: 'HTML' });
   } catch (error: unknown) {
     logger.error('telegram text delivery failed', {
       chatId,

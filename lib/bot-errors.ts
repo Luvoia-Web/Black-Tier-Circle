@@ -6,7 +6,7 @@
 
 export const BOT_ERRORS = {
   INSUFFICIENT_BALANCE: (needed: string, have: string, shortfall: string): string =>
-    `❌ <b>Insufficient Balance</b>\n\nYour balance: ${have} USDT\nRequired: ${needed} USDT\nShortfall: ${shortfall} USDT\n\nTop up your wallet and try again.`,
+    `❌ <b>Insufficient Balance</b>\n\nYour balance: ${have}\nRequired: ${needed}\nShortfall: ${shortfall}\n\nTop up your wallet and try again.`,
 
   ORDER_NOT_FOUND: `❌ <b>Order Not Found</b>\n\nUse /orders to see your active orders.`,
 

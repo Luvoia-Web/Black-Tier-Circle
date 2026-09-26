@@ -22,7 +22,6 @@ import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
@@ -77,20 +76,21 @@ const KNOWN_COMMANDS = new Set([
 ]);
 
 const ERROR_TEXT: Record<string, string> = {
-  INSUFFICIENT_FUNDS: '❌ This store cannot complete that purchase right now\\. Please try again later or contact support\\.',
+  INSUFFICIENT_FUNDS:
+    '❌ <b>Store Unavailable</b>\n\nThis store cannot complete that purchase right now. Please try again later or contact /support.',
   INSUFFICIENT_AVAILABLE_FUNDS:
-    '❌ This store cannot complete that purchase right now\\. Please try again later or contact support\\.',
-  OUT_OF_STOCK: '❌ Sorry, this product is out of stock\\.',
-  PRODUCT_NOT_AVAILABLE: '❌ This product is not available right now\\.',
-  TOKEN_NOT_FOUND: '❌ Invalid token\\. Please check and try again\\.',
-  TOKEN_REDEEMED: '❌ This token has already been used\\.',
-  TOKEN_EXPIRED: '❌ This token has expired\\.',
-  TOKEN_REVOKED: '❌ This token is no longer valid\\.',
-  WALLET_NOT_FOUND: '❌ Wallet not found\\. Contact support\\.',
-  PAYMENT_VERIFICATION_FAILED: '❌ Payment not verified\\. Please check your transaction and try again\\.',
-  ORDER_NOT_FOUND: '❌ Order not found\\. Use /orders to see your orders\\.',
-  ORDER_NOT_PAYABLE: '❌ This order is not waiting for payment\\.',
-  DEFAULT: '⚠️ Something went wrong\\. Please try again or contact /support',
+    '❌ <b>Store Unavailable</b>\n\nThis store cannot complete that purchase right now. Please try again later or contact /support.',
+  OUT_OF_STOCK: '❌ <b>Out of Stock</b>\n\nThis product is currently unavailable.',
+  PRODUCT_NOT_AVAILABLE: '❌ <b>Product Unavailable</b>\n\nThis product is not available right now.',
+  TOKEN_NOT_FOUND: '❌ <b>Invalid Token</b>\n\nPlease check it and try again.',
+  TOKEN_REDEEMED: '❌ <b>Token Already Used</b>\n\nThis token has already been used.',
+  TOKEN_EXPIRED: '❌ <b>Token Expired</b>\n\nThis token has expired.',
+  TOKEN_REVOKED: '❌ <b>Token Cancelled</b>\n\nThis token is no longer valid.',
+  WALLET_NOT_FOUND: '❌ <b>Wallet Not Found</b>\n\nContact /support.',
+  PAYMENT_VERIFICATION_FAILED: '❌ <b>Payment Not Verified</b>\n\nPlease check your transaction and try again.',
+  ORDER_NOT_FOUND: '❌ <b>Order Not Found</b>\n\nUse /orders to see your orders.',
+  ORDER_NOT_PAYABLE: '❌ <b>Order Not Payable</b>\n\nThis order is not waiting for payment.',
+  DEFAULT: '⚠️ <b>Something went wrong</b>\n\nPlease try again or contact /support.',
 };
 
 type CatalogItem = {
@@ -103,11 +103,7 @@ type Screen = {
   readonly messageId?: number;
 };
 
-function md(text: string): string {
-  return sanitizeForTelegram(text, 3500);
-}
-
-function html(text: string): string {
+function escHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
@@ -139,7 +135,7 @@ function rememberedBotInfo(botConnectionId: string, telegramBotId: string, usern
 }
 
 function money(minor: bigint): string {
-  return md(formatUsdt(minor));
+  return formatUsdt(minor);
 }
 
 function orderRef(orderId: string): string {
@@ -152,15 +148,6 @@ function categoryKey(name: string): string {
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
-function botError(code: string): string {
-  return ERROR_TEXT[code] ?? '⚠️ Something went wrong\\. Please try again or contact /support';
-}
-
-function friendly(error: unknown): string {
-  const code = error instanceof AppError ? error.code : 'DEFAULT';
-  return botError(code);
 }
 
 function deliveryLabel(product: Product): string {
@@ -268,7 +255,7 @@ async function show(
   screen: Screen,
   text: string,
   keyboard?: InlineKeyboard,
-  parseMode: 'MarkdownV2' | 'HTML' = 'MarkdownV2',
+  parseMode: 'HTML' = 'HTML',
 ): Promise<void> {
   const extra = {
     parse_mode: parseMode,
@@ -290,10 +277,10 @@ async function show(
 
 function welcomeText(store: BotContext, balanceMinor: bigint): string {
   return (
-    `👋 <b>Welcome to ${html(store.storeName)}!</b>\n\n` +
+    `👋 <b>Welcome to ${escHtml(store.storeName)}!</b>\n\n` +
     `Tap below to browse products, use /deposit to top up your wallet,\n` +
     `/profile to see your orders, or /support if you need help.\n\n` +
-    `💰 Balance: <b>${html(formatUsdt(balanceMinor))} USDT</b>`
+    `💰 Balance: <b>${escHtml(formatUsdt(balanceMinor))}</b>`
   );
 }
 
@@ -388,19 +375,26 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `🔧 *Store Temporarily Closed*\n\n${md(current.maintenanceMessage)}\n\nThank you for your patience\\.`,
+      `🔧 <b>Store Temporarily Closed</b>\n\n${escHtml(current.maintenanceMessage)}\n\nThank you for your patience.`,
       new InlineKeyboard().text('❓ Support', 'support:').text('🏠 Home', 'home:'),
     );
     return true;
   }
 
+  function clearPending(chatId: string | number): void {
+    const key = emailKey(context.botConnection.id, chatId);
+    awaitingEmail.delete(key);
+    awaitingFind.delete(key);
+  }
+
   async function showHome(screen: Screen): Promise<void> {
+    clearPending(screen.chatId);
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
     await show(bot, screen, welcomeText(current, balance), homeKeyboard(current), 'HTML');
   }
 
-  async function showShop(screen: Screen, categoryToken?: string): Promise<void> {
+  async function showShop(screen: Screen, categoryToken?: string, showAll = false): Promise<void> {
     if (await maintenanceBlock(screen)) {
       return;
     }
@@ -410,22 +404,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(
         bot,
         screen,
-        `😔 *No products available right now*\n\nCheck back soon\\!`,
+        `😔 <b>No products available right now</b>\n\nCheck back soon!`,
         new InlineKeyboard().text('🏠 Home', 'home:'),
       );
       return;
     }
     const categories = [...new Set(catalog.map((item) => item.product.category).filter((value): value is string => Boolean(value)))];
-    if (!categoryToken && categories.length > 1) {
+    if (!showAll && !categoryToken && categories.length > 1) {
       const keyboard = new InlineKeyboard();
       for (const category of categories) {
         keyboard.text(clip(category, 40), `cat:${categoryKey(category)}`).row();
       }
+      keyboard.text('📦 All Products', 'shop_all:').row();
       keyboard.text('🏠 Home', 'home:');
       await show(
         bot,
         screen,
-        `🛍 *Browse Shop*\n\n${md(current.storeName)} — ${catalog.length} products\n\nChoose a category:`,
+        `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${catalog.length} products\n\nChoose a category:`,
         keyboard,
       );
       return;
@@ -436,9 +431,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         : catalog.filter((item) => item.product.category !== null && categoryKey(item.product.category) === categoryToken);
     const keyboard = new InlineKeyboard();
     for (const item of visible) {
-      const price = formatUsdt(item.priceMinor).replace(' USDT', '');
       const stock = item.product.stockUnlimited ? '∞' : soldOut(item.product) ? 'sold out' : `${item.product.stockCount ?? 0} left`;
-      const label = clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${price} USDT (${stock})`, 64);
+      const label = clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${formatUsdt(item.priceMinor)} (${stock})`, 64);
       keyboard.text(label, soldOut(item.product) ? 'soldout:' : `product:${item.product.id}`).row();
     }
     if (categories.length > 1) {
@@ -448,7 +442,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `🛍 *Browse Shop*\n\n${md(current.storeName)} — ${visible.length} products\n\nSelect a product:`,
+      `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${visible.length} products\n\nSelect a product:`,
       keyboard,
     );
   }
@@ -466,12 +460,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const product = item.product;
     const minutes = product.estimatedDeliveryMinutes;
     const text =
-      `📦 *${md(product.title)}*\n\n` +
-      `${md(product.description ?? 'No description.')}\n\n` +
-      `💵 Price: *${money(item.priceMinor)}*\n` +
-      `📦 Stock: ${md(stockPhrase(product))}\n` +
-      `⏱ Delivery: ${minutes ? md(`~${minutes} minutes`) : 'Instant'}\n` +
-      `📂 Type: ${md(deliveryLabel(product))}`;
+      `📦 <b>${escHtml(product.title)}</b>\n\n` +
+      `${escHtml(product.description ?? 'No description.')}\n\n` +
+      `💵 Price: <b>${money(item.priceMinor)}</b>\n` +
+      `📦 Stock: ${escHtml(stockPhrase(product))}\n` +
+      `⏱ Delivery: ${minutes ? escHtml(`~${minutes} minutes`) : 'Instant'}\n` +
+      `📂 Type: ${escHtml(deliveryLabel(product))}`;
     const keyboard = new InlineKeyboard();
     if (soldOut(product) || product.status !== 'published') {
       keyboard.text('❌ Out of Stock', 'sold:').row();
@@ -491,12 +485,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (balance > 0n) {
       if (balance >= price && price > 0n) {
         keyboard
-          .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)} USDT)`, 64), `pay_wallet:${order.id}`)
+          .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)})`, 64), `pay_wallet:${order.id}`)
           .row();
       } else {
         keyboard
           .text(
-            clip(`💰 Wallet: ${formatUsdt(balance)} USDT (need ${formatUsdt(price)})`, 64),
+            clip(`💰 Wallet: ${formatUsdt(balance)} (need ${formatUsdt(price)})`, 64),
             `wallet_low:${order.id}`,
           )
           .row();
@@ -531,9 +525,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const notice = config.demoEnabled ? '\n\n⚠️ <i>Demo mode — no real payment required</i>' : '';
     const text =
       `✅ <b>Order Summary</b>\n\n` +
-      `📦 ${html(productTitle)}\n` +
+      `📦 ${escHtml(productTitle)}\n` +
       `🔢 Quantity: ${order.quantity}\n` +
-      `💵 Total: <b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b>\n` +
+      `💵 Total: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
       `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
       `Choose how to pay:${notice}`;
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
@@ -569,8 +563,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         await show(
           bot,
           screen,
-          `📦 <b>${html(item.product.title)}</b>\n\n` +
-            `💵 Unit price: <b>${html(formatUsdt(item.priceMinor))} USDT</b>\n` +
+          `📦 <b>${escHtml(item.product.title)}</b>\n\n` +
+            `💵 Unit price: <b>${escHtml(formatUsdt(item.priceMinor))}</b>\n` +
             `📊 Available: ${item.product.stockUnlimited ? 'Unlimited' : item.product.stockCount} units\n\n` +
             `How many would you like to buy?\n` +
             `(Enter 1 to ${maxQty})`,
@@ -597,7 +591,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           bot,
           screen,
           `📧 <b>Email Required</b>\n\n` +
-            `<b>${html(item.product.title)}</b> is activated on your account.\n\n` +
+            `<b>${escHtml(item.product.title)}</b> is activated on your account.\n\n` +
             `Please send your <b>email address</b> to continue:\n` +
             `(e.g. yourname@gmail.com)`,
           new InlineKeyboard().text('❌ Cancel', `cancel_order:${order.id}`),
@@ -607,7 +601,44 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       }
       await showPaymentOptions(screen, order, item.product.title);
     } catch (error: unknown) {
-      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
+      logger.error('telegram buy failed', {
+        code: error instanceof AppError ? error.code : 'unknown',
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      const code = error instanceof AppError ? error.code : '';
+      if (code === 'INSUFFICIENT_FUNDS' || code === 'INSUFFICIENT_AVAILABLE_FUNDS') {
+        await show(
+          bot,
+          screen,
+          '❌ <b>Store Unavailable</b>\n\nThis store cannot complete that purchase right now. Please try again later or contact /support.',
+          new InlineKeyboard().text('❓ Support', 'support:').text('⬅ Back', 'start:'),
+        );
+        return;
+      }
+      if (code === 'OUT_OF_STOCK' || code === 'PRODUCT_NOT_AVAILABLE') {
+        await show(
+          bot,
+          screen,
+          '❌ <b>Out of Stock</b>\n\nThis product is currently unavailable. Browse other products.',
+          new InlineKeyboard().text('🛍 Browse Shop', 'shop_all:'),
+        );
+        return;
+      }
+      if (code === 'NOT_FOUND' || code === 'PRODUCT_NOT_FOUND') {
+        await show(
+          bot,
+          screen,
+          '❌ <b>Product Unavailable</b>\n\nThis product is no longer listed.',
+          new InlineKeyboard().text('🛍 Browse Shop', 'shop_all:'),
+        );
+        return;
+      }
+      await show(
+        bot,
+        screen,
+        '❌ <b>Something went wrong</b>\n\nPlease try again. If this keeps happening, contact /support.',
+        homeKeyboard(await storeContext()),
+      );
     }
   }
 
@@ -640,13 +671,13 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `✅ *Payment Confirmed\\!*\n\n` +
-        `📦 ${md(product.title)}\n` +
+      `✅ <b>Payment Confirmed!</b>\n\n` +
+        `📦 ${escHtml(product.title)}\n` +
         `💵 ${money(order.quotedRetailPriceMinor)}\n` +
-        `🔖 Order: \`${orderRef(order.id)}\`\n\n` +
-        `Your order is being prepared\\.\n` +
-        `${minutes ? `⏱ Estimated delivery: ~${minutes} minutes` : 'Delivery is in progress\\.'}\n\n` +
-        `You will receive your product in this chat shortly\\.`,
+        `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+        `Your order is being prepared.\n` +
+        `${minutes ? `⏱ Estimated delivery: ~${minutes} minutes` : 'Delivery is in progress.'}\n\n` +
+        `You will receive your product in this chat shortly.`,
       new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
     );
   }
@@ -684,7 +715,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         bot,
         screen,
         `💳 <b>Binance Pay</b>\n\n` +
-          `💵 Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
+          `💵 Amount: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
           `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
           `Open Binance Pay and complete the payment.\n` +
           `Then send your <b>Binance Pay Order ID</b> in this chat.`,
@@ -692,6 +723,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         'HTML',
       );
     } catch (error: unknown) {
+      logger.error('telegram binance checkout failed', {
+        orderId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
       const timedOut = error instanceof AppError && error.code === 'BINANCE_TIMEOUT';
       await show(
         bot,
@@ -720,12 +755,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `📤 *Send USDT \\(BEP20\\)*\n\n` +
-        `Send exactly:\n*${money(order.quotedRetailPriceMinor)}* on BEP20\n\n` +
-        `To this address:\n\`${md(address)}\`\n\n` +
-        `⚠️ Send the EXACT amount\\.\n` +
-        `After sending, reply with your transaction hash \\(0x and 64 characters\\)\\.\n\n` +
-        `Order: \`${orderRef(order.id)}\`\n` +
+      `📤 <b>Send USDT (BEP20)</b>\n\n` +
+        `Send exactly:\n<b>${money(order.quotedRetailPriceMinor)}</b> on BEP20\n\n` +
+        `To this address:\n<code>${escHtml(address)}</code>\n\n` +
+        `⚠️ Send the EXACT amount.\n` +
+        `After sending, reply with your transaction hash (0x and 64 characters).\n\n` +
+        `Order: <code>${orderRef(order.id)}</code>\n` +
         `⏰ Expires in 24 hours`,
       keyboard,
     );
@@ -743,8 +778,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       bot,
       screen,
       `📤 <b>Send USDT (TRC20)</b>\n\n` +
-        `Send exactly:\n<b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b> on TRC20 network (TRON)\n\n` +
-        `To address:\n<code>${html(address)}</code>\n\n` +
+        `Send exactly:\n<b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b> on TRC20 network (TRON)\n\n` +
+        `To address:\n<code>${escHtml(address)}</code>\n\n` +
         `⚠️ Send on TRC20 network ONLY. BEP20/ERC20 will be lost.\n\n` +
         `After sending, reply with your transaction hash.\n` +
         `Order: <code>${orderRef(order.id)}</code>`,
@@ -793,7 +828,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         bot,
         screen,
         `✅ <b>Demo Payment Confirmed!</b>\n\n` +
-          `📦 ${html(product.title)}\n` +
+          `📦 ${escHtml(product.title)}\n` +
           `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
           `Your order is being prepared. You'll receive it shortly.\n\n` +
           `<i>⚠️ This was a simulated payment in demo mode.</i>`,
@@ -849,10 +884,19 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         const { processQueuedOrder } = await import('@/modules/fulfillment');
         await processQueuedOrder(context.supabase, order.id);
       } catch (error: unknown) {
-        logger.info('wallet fulfillment already running', {
+        logger.error('wallet fulfillment failed', {
           orderId: order.id,
           message: error instanceof Error ? error.message : 'unknown',
         });
+        await show(
+          bot,
+          screen,
+          `✅ <b>Payment Received</b>\n\n` +
+            `Your order is being processed. You'll receive your product shortly.\n` +
+            `Check <b>My Orders</b> for status updates.`,
+          new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+        );
+        return;
       }
       const latest = await getOrder(context.supabase, order.id);
       const manual = product.deliveryType === 'manual' || latest.fulfillmentStatus === 'manual_pending';
@@ -863,7 +907,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           bot,
           screen,
           `⏳ <b>Processing Your Order</b>\n\n` +
-            `📦 ${html(product.title)}\n` +
+            `📦 ${escHtml(product.title)}\n` +
             `Your order requires manual processing (usually within 5-30 minutes).\n` +
             `We'll message you here when it's ready.\n\n` +
             `Order: <code>${orderRef(order.id)}</code>`,
@@ -877,7 +921,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           bot,
           screen,
           `⏳ <b>Activation In Progress</b>\n\n` +
-            `📦 ${html(product.title)}\n` +
+            `📦 ${escHtml(product.title)}\n` +
             `📧 Being activated on your email.\n` +
             `⏱ ETA: ASAP — we'll message you when ready.\n\n` +
             `Order: <code>${orderRef(order.id)}</code>`,
@@ -890,10 +934,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         bot,
         screen,
         `✅ <b>Delivered!</b>\n\n` +
-          `📦 ${html(product.title)}\n` +
+          `📦 ${escHtml(product.title)}\n` +
           `🔢 Quantity: ${latest.quantity}\n` +
-          `💵 Paid: ${html(formatUsdt(paid.amount))} from wallet\n` +
-          `💰 Remaining balance: <b>${html(formatUsdt(paid.newBalance))} USDT</b>\n` +
+          `💵 Paid: ${escHtml(formatUsdt(paid.amount))} from wallet\n` +
+          `💰 Remaining balance: <b>${escHtml(formatUsdt(paid.newBalance))}</b>\n` +
           `Order: <code>${orderRef(order.id)}</code>\n\n` +
           `Your product is in this chat.`,
         homeKeys,
@@ -941,10 +985,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     const order = await latestPayableOrder();
     if (!order) {
-      await show(bot, screen, `No pending order found\\. Use /orders to check your orders\\.`, homeKeyboard(await storeContext()));
+      await show(bot, screen, `No pending order found. Use /orders to check your orders.`, homeKeyboard(await storeContext()));
       return true;
     }
-    await show(bot, screen, isHash ? `⏳ Verifying your transaction on the blockchain\\.\\.\\.` : `⏳ Verifying your Binance Pay payment\\.\\.\\.`);
+    await show(bot, screen, isHash ? `⏳ Verifying your transaction on the blockchain...` : `⏳ Verifying your Binance Pay payment...`);
     if ((await storeContext()).isDemoMode) {
       await new Promise((resolve) => {
         setTimeout(resolve, PAYMENT_CONFIG.demo.verificationDelayMs);
@@ -966,6 +1010,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(method);
       await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
     } catch (error: unknown) {
+      logger.error('telegram payment verification failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
       const timedOut = error instanceof AppError && error.code === 'BINANCE_TIMEOUT';
       await show(
         bot,
@@ -1014,8 +1061,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         bot,
         screen,
         `✅ <b>Token Redeemed!</b>\n\n` +
-          `Added: <b>+${html(formatUsdt(result.amountCredited))}</b>\n` +
-          `New store balance: <b>${html(formatUsdt(result.newBalance))}</b>`,
+          `Added: <b>+${escHtml(formatUsdt(result.amountCredited))}</b>\n` +
+          `New store balance: <b>${escHtml(formatUsdt(result.newBalance))}</b>`,
         new InlineKeyboard().text('🏠 Home', 'home:').text('🛍 Shop Now', 'shop:'),
         'HTML',
       );
@@ -1030,8 +1077,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       bot,
       screen,
       `✅ <b>Token Redeemed!</b>\n\n` +
-        `Added: <b>+${html(formatUsdt(credit.amountCredited))}</b>\n` +
-        `New Balance: <b>${html(formatUsdt(credit.newBalance))}</b>\n\n` +
+        `Added: <b>+${escHtml(formatUsdt(credit.amountCredited))}</b>\n` +
+        `New Balance: <b>${escHtml(formatUsdt(credit.newBalance))}</b>\n\n` +
         `Your funds are ready to use. Tap below to browse products!`,
       new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('💰 My Wallet', 'wallet:'),
       'HTML',
@@ -1045,26 +1092,25 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const fresh = await getCustomerById(context.supabase, customer.id);
     customer = fresh;
     const balance = fresh.creditBalanceMinor;
-    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 5 });
-    const paid = orders.filter((order) => order.paymentStatus === 'verified');
+    const paid = await listOrders(context.supabase, {
+      customerId: customer.id,
+      paymentStatus: 'verified',
+      limit: 5,
+    });
     const products = await listProductsByIds(
       context.supabase,
       paid.map((order) => order.productId),
     );
-    const reserved = orders
-      .filter((order) => order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification')
-      .reduce((sum, order) => sum + order.quotedRetailPriceMinor, 0n);
-    const available = balance > reserved ? balance - reserved : 0n;
     let text =
       `💰 <b>Your Wallet</b>\n\n` +
-      `Balance: <b>${html(formatUsdt(balance))} USDT</b>\n` +
-      `Reserved: ${html(formatUsdt(reserved))} USDT (pending orders)\n` +
-      `Available: <b>${html(formatUsdt(available))} USDT</b>\n\n`;
+      `<b>Balance</b>\n` +
+      `${formatUsdt(balance)}\n\n` +
+      `Use your balance to purchase products from the shop.`;
     if (paid.length > 0) {
-      text += `<b>Recent Activity:</b>\n`;
+      text += `\n\n<b>Recent Activity:</b>\n`;
       for (const order of paid) {
         const title = products.get(order.productId)?.title ?? 'Product';
-        text += `• ${html(title)} — ${html(formatUsdt(order.quotedRetailPriceMinor))}\n`;
+        text += `• ${escHtml(title)} — ${escHtml(formatUsdt(order.quotedRetailPriceMinor))}\n`;
       }
     }
     const current = await storeContext();
@@ -1083,6 +1129,78 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, text, keyboard, 'HTML');
   }
 
+  async function showBep20Topup(screen: Screen): Promise<void> {
+    const address = (await storeContext()).usdtWalletAddress;
+    if (!address) {
+      await show(
+        bot,
+        screen,
+        `📤 <b>Top Up — USDT BEP20</b>\n\nThis store has not set a BEP20 address yet.\nRedeem a top-up token or contact /support.`,
+        new InlineKeyboard().text('🔑 Redeem Token', 'dep_token:').text('⬅ Back to Wallet', 'wallet:'),
+      );
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      `📤 <b>Top Up — USDT BEP20</b>\n\n` +
+        `Send USDT (BEP20) to the address below.\n` +
+        `Your balance is credited automatically after network confirmation.\n\n` +
+        `<code>${escHtml(address)}</code>\n\n` +
+        `<i>Minimum: 1.00 USDT · Network: BNB Smart Chain (BEP20)\n` +
+        `Balance updates within a few minutes of confirmation.</i>`,
+      new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
+    );
+  }
+
+  async function showBinanceTopup(screen: Screen): Promise<void> {
+    const merchantId = (await storeContext()).binanceMerchantId;
+    if (!merchantId) {
+      await show(
+        bot,
+        screen,
+        `💳 <b>Top Up — Binance Pay</b>\n\nThis store has not set a Binance Pay merchant ID yet.\nRedeem a top-up token or contact /support.`,
+        new InlineKeyboard().text('🔑 Redeem Token', 'dep_token:').text('⬅ Back to Wallet', 'wallet:'),
+      );
+      return;
+    }
+    const reference = customer?.telegramUserId ?? 'your Telegram ID';
+    await show(
+      bot,
+      screen,
+      `💳 <b>Top Up — Binance Pay</b>\n\n` +
+        `Send USDT via Binance Pay to the merchant below.\n` +
+        `Your balance is credited automatically.\n\n` +
+        `Merchant ID: <code>${escHtml(merchantId)}</code>\n\n` +
+        `<b>Reference (required):</b> <code>${escHtml(reference)}</code>\n` +
+        `<i>Include your Telegram ID as the reference so we can match your payment.</i>`,
+      new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
+    );
+  }
+
+  async function showTrc20Topup(screen: Screen): Promise<void> {
+    const address = (await storeContext()).trc20WalletAddress;
+    if (!address) {
+      await show(
+        bot,
+        screen,
+        `📤 <b>Top Up — USDT TRC20</b>\n\nThis store has not set a TRC20 address yet.\nRedeem a top-up token or contact /support.`,
+        new InlineKeyboard().text('🔑 Redeem Token', 'dep_token:').text('⬅ Back to Wallet', 'wallet:'),
+      );
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      `📤 <b>Top Up — USDT TRC20</b>\n\n` +
+        `Send USDT (TRC20) to the address below.\n` +
+        `Your balance is credited automatically after network confirmation.\n\n` +
+        `<code>${escHtml(address)}</code>\n\n` +
+        `<i>Network: TRON (TRC20) only. BEP20 and ERC20 transfers will be lost.</i>`,
+      new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
+    );
+  }
+
   async function showDeposit(screen: Screen): Promise<void> {
     if (await maintenanceBlock(screen)) {
       return;
@@ -1094,6 +1212,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (current.binancePayEnabled) {
       keyboard.text('💳 Binance Pay', 'dep_bp:').row();
+    }
+    if (current.trc20Enabled && current.trc20WalletAddress) {
+      keyboard.text('📤 Send USDT (TRC20)', 'dep_trc20:').row();
     }
     keyboard.text('⬅ Back', 'wallet:');
     await show(
@@ -1114,7 +1235,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(
         bot,
         screen,
-        `📭 *No Orders Yet*\n\nYou haven't placed any orders yet\\.`,
+        `📭 <b>No Orders Yet</b>\n\nYou haven't placed any orders yet.`,
         new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('🏠 Home', 'home:'),
       );
       return;
@@ -1136,7 +1257,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         .row();
     }
     keyboard.text('🏠 Home', 'home:');
-    await show(bot, screen, `📦 *Your Orders*\n\nHere are your recent orders:`, keyboard);
+    await show(bot, screen, `📦 <b>Your Orders</b>\n\nHere are your recent orders:`, keyboard);
   }
 
   async function showOrder(screen: Screen, orderId: string): Promise<void> {
@@ -1149,12 +1270,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const when = order.createdAt.toISOString().slice(0, 16).replace('T', ' ');
     const text =
       `📦 <b>Order Details</b>\n\n` +
-      `Product: ${html(product.title)}\n` +
+      `Product: ${escHtml(product.title)}\n` +
       `Quantity: ${order.quantity}\n` +
-      `Amount: <b>${html(formatUsdt(order.quotedRetailPriceMinor))} USDT</b>\n` +
-      `Status: ${html(customerFacingStatus(order))}\n` +
+      `Amount: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
+      `Status: ${escHtml(customerFacingStatus(order))}\n` +
       `Order ID: <code>${orderRef(order.id)}</code>\n` +
-      `Date: ${html(when)} UTC`;
+      `Date: ${escHtml(when)} UTC`;
     const keyboard = new InlineKeyboard();
     if (order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification') {
       keyboard.text('💳 Complete Payment', `pay_menu:${order.id}`).row();
@@ -1176,11 +1297,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `👤 *Your Profile*\n\n` +
-        `Name: ${md(name)}\n` +
-        `Username: ${md(username)}\n` +
-        `Member since: ${md(joined)}\n\n` +
-        `📊 *Your Stats*\n` +
+      `👤 <b>Your Profile</b>\n\n` +
+        `Name: ${escHtml(name)}\n` +
+        `Username: ${escHtml(username)}\n` +
+        `Member since: ${escHtml(joined)}\n\n` +
+        `📊 <b>Your Stats</b>\n` +
         `Total Orders: ${orders.length}\n` +
         `Completed: ${completed.length}\n` +
         `Total Spent: ${money(spent)}`,
@@ -1190,12 +1311,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function showSupport(screen: Screen): Promise<void> {
     const current = await storeContext();
-    const contact = current.supportContact ? `Contact: ${md(current.supportContact)}\n` : '';
-    const telegram = current.supportTelegramUrl ? `Telegram: ${md(current.supportTelegramUrl)}\n` : '';
+    const contact = current.supportContact ? `Contact: ${escHtml(current.supportContact)}\n` : '';
+    const telegram = current.supportTelegramUrl ? `Telegram: ${escHtml(current.supportTelegramUrl)}\n` : '';
     await show(
       bot,
       screen,
-      `❓ *Support*\n\n${contact}${telegram}\nInclude your *Order ID* when asking about an order\\.\nUse /orders to find it\\.`,
+      `❓ <b>Support</b>\n\n${contact}${telegram}\nInclude your <b>Order ID</b> when asking about an order.\nUse /orders to find it.`,
       new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
     );
   }
@@ -1203,10 +1324,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function showTerms(screen: Screen): Promise<void> {
     const current = await storeContext();
     if (!current.termsOfService) {
-      await show(bot, screen, `📜 *Terms & Policies*\n\nTerms are not configured yet\\.`, navRow(new InlineKeyboard()));
+      await show(bot, screen, `📜 <b>Terms & Policies</b>\n\nTerms are not configured yet.`, navRow(new InlineKeyboard()));
       return;
     }
-    await show(bot, screen, `📜 *Terms & Policies*\n\n${md(current.termsOfService.slice(0, 3000))}`, navRow(new InlineKeyboard()));
+    await show(bot, screen, `📜 <b>Terms & Policies</b>\n\n${escHtml(current.termsOfService.slice(0, 3000))}`, navRow(new InlineKeyboard()));
   }
 
   async function showApi(screen: Screen): Promise<void> {
@@ -1214,10 +1335,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `🔑 *Developer API*\n\n` +
-        `Integrate this store with the REST API\\.\n\n` +
-        `📚 Docs:\n${md(`${origin}/api-docs`)}\n\n` +
-        `API keys:\n${md(`${origin}/reseller/settings/api-keys`)}`,
+      `🔑 <b>Developer API</b>\n\n` +
+        `Integrate this store with the REST API.\n\n` +
+        `📚 Docs:\n${escHtml(`${origin}/api-docs`)}\n\n` +
+        `API keys:\n${escHtml(`${origin}/reseller/settings/api-keys`)}`,
       navRow(new InlineKeyboard()),
     );
   }
@@ -1229,12 +1350,13 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `🤝 *Become a Reseller*\n\n${md(pitch)}\n\nTo get started, contact us:\n${md(contact)}`,
+      `🤝 <b>Become a Reseller</b>\n\n${escHtml(pitch)}\n\nTo get started, contact us:\n${escHtml(contact)}`,
       new InlineKeyboard().text('❓ Support', 'support:').text('🏠 Home', 'home:'),
     );
   }
 
   async function cancel(screen: Screen, orderId: string): Promise<void> {
+    clearPending(screen.chatId);
     const order = await ownedOrder(orderId);
     if (!order) {
       await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
@@ -1247,9 +1369,18 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         }
       }
       await cancelOrder(context.supabase, order.id, 'customer cancelled in telegram');
-      await show(bot, screen, `❌ Order \`${orderRef(order.id)}\` was cancelled\\.`, homeKeyboard(await storeContext()));
+      await show(bot, screen, `❌ Order <code>${orderRef(order.id)}</code> was cancelled.`, homeKeyboard(await storeContext()));
     } catch (error: unknown) {
-      await show(bot, screen, friendly(error), homeKeyboard(await storeContext()));
+      logger.error('telegram cancel failed', {
+        orderId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      await show(
+        bot,
+        screen,
+        `❌ <b>Could not cancel order</b>\n\nPlease try again or contact /support.`,
+        homeKeyboard(await storeContext()),
+      );
     }
   }
 
@@ -1258,8 +1389,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showHome(screen);
       return;
     }
-    if (data === 'shop:' || data === 'shop' || data === 'shop_all:') {
-      await showShop(screen, data === 'shop_all:' ? undefined : undefined);
+    if (data === 'shop_all:') {
+      await showShop(screen, undefined, true);
+      return;
+    }
+    if (data === 'shop:' || data === 'shop') {
+      await showShop(screen);
       return;
     }
     if (data.startsWith('cat:')) {
@@ -1390,13 +1525,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showDeposit(screen);
       return;
     }
-    if (data === 'dep_bep20:' || data === 'dep_bp:') {
-      await show(
-        bot,
-        screen,
-        `💳 *Add Funds*\n\nUSDT and Binance Pay are applied to an open order\\.\n\nPlace an order, then send your transaction hash or Binance Pay Order ID in this chat\\.`,
-        new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('📦 My Orders', 'orders:'),
-      );
+    if (data === 'dep_bep20:' || data === 'deposit_bep20:') {
+      await showBep20Topup(screen);
+      return;
+    }
+    if (data === 'dep_bp:' || data === 'deposit_bp:') {
+      await showBinanceTopup(screen);
+      return;
+    }
+    if (data === 'dep_trc20:' || data === 'deposit_trc20:') {
+      await showTrc20Topup(screen);
       return;
     }
     if (data === 'dep_token:') {
@@ -1415,7 +1553,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (data === 'copy_addr:') {
       const address = (await storeContext()).usdtWalletAddress;
       if (address) {
-        await bot.api.sendMessage(screen.chatId, `\`${md(address)}\``, { parse_mode: 'MarkdownV2' });
+        await bot.api.sendMessage(screen.chatId, `<code>${escHtml(address)}</code>`, { parse_mode: 'HTML' });
       }
       return;
     }
@@ -1443,7 +1581,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         screen,
         `🎁 <b>Refer & Earn</b>\n\n` +
           `Share your link and earn when friends buy:\n\n` +
-          `<code>${html(referLink)}</code>\n\n` +
+          `<code>${escHtml(referLink)}</code>\n\n` +
           `Tap to copy and share with friends!`,
         new InlineKeyboard().text('📋 Copy Link', 'copy_ref:').text('⬅ Menu', 'start:'),
         'HTML',
@@ -1452,10 +1590,6 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (data === 'copy_ref:') {
       await show(bot, screen, 'The referral link is in the message above. Tap and hold it to copy.', new InlineKeyboard().text('⬅ Menu', 'start:'), 'HTML');
-      return;
-    }
-    if (data === 'deposit_bp:' || data === 'deposit_bep20:' || data === 'deposit_trc20:') {
-      await showDeposit(screen);
       return;
     }
     if (data === 'reseller_signup:') {
@@ -1542,7 +1676,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       }
     }
     const current = await storeContext();
-    await show(bot, screen, `🤔 I didn't understand that\\.\n\nUse the menu below to navigate:`, homeKeyboard(current));
+    await show(bot, screen, `🤔 I didn't understand that.\n\nUse the menu below to navigate:`, homeKeyboard(current));
   }
 
   bot.command('start', async (ctx) => {
@@ -1654,8 +1788,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           void telegramSetMyCommands(botToken).catch(() => undefined);
         }
         if (customer.isBlocked) {
-          await bot.api.sendMessage(identity.chatId, '🚫 Your account has been blocked\\. Contact support for assistance\\.', {
-            parse_mode: 'MarkdownV2',
+          await bot.api.sendMessage(identity.chatId, '🚫 <b>Account blocked</b>\n\nYour account has been blocked. Contact /support for assistance.', {
+            parse_mode: 'HTML',
           });
           return;
         }

@@ -32,6 +32,7 @@ export type BotContext = {
   readonly resellerSignupMessage: string | null;
   readonly termsOfService: string | null;
   readonly botConnectionId: string | null;
+  readonly binanceMerchantId: string | null;
 };
 
 /**
@@ -92,5 +93,6 @@ export async function resolveBotContext(
     resellerSignupMessage: tenant?.resellerSignupMessage ?? null,
     termsOfService: tenant?.termsOfService ?? null,
     botConnectionId,
+    binanceMerchantId: payments.binance?.merchantId.trim() || null,
   };
 }

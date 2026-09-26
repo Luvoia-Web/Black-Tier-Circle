@@ -35,11 +35,12 @@ export async function announcePublishedProduct(supabase: DbClient, product: Prod
       }
       const token = decrypt(encrypted);
       const stockText = product.stockUnlimited ? 'Unlimited' : String(product.stockCount ?? 0);
+      const title = product.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const text =
-        `📦 <b>${product.title}</b>\n` +
+        `📦 <b>${title}</b>\n` +
         `➕ Added: ${product.stockUnlimited ? 'Unlimited' : product.stockCount ?? 0}\n` +
         `📦 Current stock: ${stockText}\n` +
-        `💸 Price: <b>$${formatUsdt(product.retailPriceMinor)} USDT</b>`;
+        `💸 Price: <b>${formatUsdt(product.retailPriceMinor)}</b>`;
       await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

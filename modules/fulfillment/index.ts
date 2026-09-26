@@ -522,10 +522,11 @@ export async function deliverManualCompletion(
     }
     const product = await getProduct(supabase, order.productId);
     const orderRef = order.id.slice(0, 8).toUpperCase();
-    const title = sanitizeInput(product.title).replace(/[*_`[\]]/g, '').slice(0, 200);
+    const esc = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const title = esc(sanitizeInput(product.title).slice(0, 200));
     const message =
       deliveryContent && deliveryContent.length > 0
-        ? `🎉 *Your order is ready!*\n\n📦 *${title}*\n\nHere is your delivery:\n\n${sanitizeInput(deliveryContent).slice(0, 3000)}\n\n✅ Order \`${orderRef}\` complete.\nThank you for your purchase!\n\nNeed help? /support`
+        ? `🎉 <b>Your order is ready!</b>\n\n📦 <b>${title}</b>\n\nHere is your delivery:\n\n${esc(sanitizeInput(deliveryContent).slice(0, 3000))}\n\n✅ Order <code>${orderRef}</code> complete.\nThank you for your purchase!\n\nNeed help? /support`
         : FULFILLMENT_CONFIG.delivery.orderDelivered;
     await sendTextDelivery(token, customer.telegramChatId, message);
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'telegram text sent' });

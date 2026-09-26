@@ -335,7 +335,7 @@ export async function redeemTopupToken(
     tenantId,
     type: 'wallet_credited',
     title: 'Wallet Topped Up',
-    body: `+${formatUsdt(credited)} USDT added to your wallet. New balance: ${formatUsdt(balance)} USDT`,
+    body: `+${formatUsdt(credited)} added to your wallet. New balance: ${formatUsdt(balance)}`,
     metadata: { amount: formatUsdt(credited) },
   });
   return {
@@ -626,7 +626,7 @@ async function notifyWalletOwner(
     tenantId,
     type,
     title: 'Wallet Adjusted by Owner',
-    body: `Your wallet was adjusted by ${sign}${formatUsdt(amountMinor)} USDT by the platform owner.`,
+    body: `Your wallet was adjusted by ${sign}${formatUsdt(amountMinor)} by the platform owner.`,
     metadata: { amount: formatUsdt(amountMinor) },
   });
 }

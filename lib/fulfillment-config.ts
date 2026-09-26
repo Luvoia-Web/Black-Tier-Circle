@@ -24,12 +24,15 @@ export const FULFILLMENT_CONFIG = {
 
   delivery: {
     /** Message sent to customer along with the file */
-    fileDeliveryCaption: (productTitle: string, orderRef?: string) =>
-      `🎉 *Your order is ready!*\n\n📦 *${productTitle}*\n\nHere is your file.\n\n${orderRef ? `✅ Order \`${orderRef}\` complete.\n` : ''}Thank you for your purchase!\n\nNeed help? /support`,
+    fileDeliveryCaption: (productTitle: string, orderRef?: string) => {
+      const title = productTitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const ref = orderRef?.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `🎉 <b>Your order is ready!</b>\n\n📦 <b>${title}</b>\n\nHere is your file.\n\n${ref ? `✅ Order <code>${ref}</code> complete.\n` : ''}Thank you for your purchase!\n\nNeed help? /support`;
+    },
 
     /** Message when manual delivery is pending */
     manualDeliveryPending: (estimatedMinutes: number | null) =>
-      `✅ *Payment confirmed!*\n\nYour order is being prepared.${estimatedMinutes ? ` Estimated delivery: ~${estimatedMinutes} minutes.` : ''}\n\nWe will send it to you here shortly.`,
+      `✅ <b>Payment confirmed!</b>\n\nYour order is being prepared.${estimatedMinutes ? ` Estimated delivery: ~${estimatedMinutes} minutes.` : ''}\n\nWe will send it to you here shortly.`,
 
     /** Message when a manual order has been fulfilled */
     orderDelivered: '✅ Your order has been delivered! Enjoy your purchase.',
