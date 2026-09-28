@@ -30,6 +30,7 @@ import {
   supplierArtifact,
   supplierOrderIdFromArtifact,
 } from '@/modules/supplier/place';
+import { scheduleFulfilledOrderMemory } from '@/lib/order-memory';
 import { getOrder, getOrderEvents, recordTransition, type Order } from '@/modules/orders';
 import { consumeReservation, releaseReservation } from '@/modules/wallet';
 import { mapDeliveryAttemptRow, mapFulfillmentAttemptRow } from './map';
@@ -49,6 +50,16 @@ function enqueueOrderWebhook(
   event: 'order.fulfilled' | 'order.delivered' | 'order.failed',
   data: Record<string, unknown>,
 ): void {
+  if (event === 'order.fulfilled') {
+    try {
+      // MemoryOS: non-blocking side-effect, never blocks commerce
+      scheduleFulfilledOrderMemory(supabase, data);
+    } catch (error: unknown) {
+      logger.error('order memory retain failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    }
+  }
   void import('@/modules/public-api/webhooks')
     .then(({ enqueueWebhook }) => {
       enqueueWebhook(supabase, tenantId, event, data);

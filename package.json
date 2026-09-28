@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
     "seed:owner": "tsx scripts/seed-owner.ts",
-    "tunnel": "tsx scripts/dev-tunnel.ts"
+    "tunnel": "tsx scripts/dev-tunnel.ts",
+    "memory:seed": "npx ts-node scripts/seed-memory-demo.ts",
+    "memory:smoke": "npx ts-node scripts/test-memory-isolation.ts"
   },
   "dependencies": {
     "@react-spring/web": "^10.1.2",
@@ -22,6 +24,7 @@
     "@studio-freight/react-lenis": "^0.0.47",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
+    "@vectorize-io/hindsight-client": "^0.10.1",
     "autoprefixer": "^10.4.20",
     "framer-motion": "^13.4.3",
     "grammy": "^1.34.0",
@@ -48,6 +51,7 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.21",
     "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
     "tsx": "^4.19.2",
     "vitest": "^1.6.0"
   }

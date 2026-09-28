@@ -18,6 +18,7 @@ const TABS = [
   { href: ROUTES.reseller.deliveries, label: 'Deliveries' },
   { href: ROUTES.reseller.deposits, label: 'Deposits' },
   { href: ROUTES.reseller.customers, label: 'Wallets' },
+  { href: ROUTES.reseller.intelligence, label: 'Intelligence' },
   { href: ROUTES.reseller.products, label: 'Catalog & Pricing' },
   { href: ROUTES.reseller.bills, label: 'My Bills' },
   { href: ROUTES.reseller.settings, label: 'Settings' },

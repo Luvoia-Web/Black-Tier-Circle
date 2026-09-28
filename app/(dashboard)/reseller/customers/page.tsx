@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
+import { CustomerIntelligencePanel } from '@/components/intelligence/CustomerIntelligencePanel';
 import { ErrorState, TableSkeleton } from '@/components/ui/fetch-states';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatCard } from '@/components/ui/stat-card';
@@ -38,6 +39,7 @@ export default function ResellerCustomersPage(): JSX.Element {
   const [q, setQ] = useState('');
   const [withBalance, setWithBalance] = useState(false);
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const [selected, setSelected] = useState<Row | null>(null);
   const [amount, setAmount] = useState('1.00');
 
   const load = useCallback(async (): Promise<void> => {
@@ -82,8 +84,9 @@ export default function ResellerCustomersPage(): JSX.Element {
     await load();
   }
 
-  async function showHistory(id: string): Promise<void> {
-    const response = await fetch(API_ROUTES.resellerCustomer(id));
+  async function showHistory(row: Row): Promise<void> {
+    setSelected(row);
+    const response = await fetch(API_ROUTES.resellerCustomer(row.id));
     const json = (await response.json()) as {
       success: boolean;
       data?: { history: HistoryItem[] };
@@ -103,7 +106,7 @@ export default function ResellerCustomersPage(): JSX.Element {
       header: 'ACTIONS',
       render: (row) => (
         <div className="flex flex-wrap gap-2 text-xs">
-          <button type="button" className="text-[var(--accent-soft)]" onClick={() => void showHistory(row.id)}>
+          <button type="button" className="text-[var(--accent-soft)]" onClick={() => void showHistory(row)}>
             History
           </button>
           <button type="button" className="text-[var(--green)]" onClick={() => void act(row.id, 'add')}>
@@ -179,7 +182,12 @@ export default function ResellerCustomersPage(): JSX.Element {
                 </li>
               ))}
             </ul>
-            <button type="button" className="mt-4 text-sm text-[var(--accent-soft)]" onClick={() => setHistory(null)}>
+            {selected ? (
+              <div className="mt-4 border-t border-[var(--border)] pt-4">
+                <CustomerIntelligencePanel customerId={selected.id} tenantId="" customerName={selected.buyer} />
+              </div>
+            ) : null}
+            <button type="button" className="mt-4 text-sm text-[var(--accent-soft)]" onClick={() => { setHistory(null); setSelected(null); }}>
               Close
             </button>
           </div>

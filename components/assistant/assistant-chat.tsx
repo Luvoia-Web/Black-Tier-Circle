@@ -18,6 +18,8 @@ export type ChatMessage = {
   readonly role: 'user' | 'assistant';
   readonly content: string;
   readonly at: string;
+  readonly memoryPowered?: boolean;
+  readonly memories?: ReadonlyArray<{ readonly text: string }>;
 };
 
 type AssistantChatProps = {
@@ -28,7 +30,11 @@ type AssistantChatProps = {
   readonly onLoadingChange?: (loading: boolean) => void;
 };
 
-async function readAssistantStream(response: Response, onDelta: (text: string) => void): Promise<void> {
+async function readAssistantStream(
+  response: Response,
+  onDelta: (text: string) => void,
+  onMemory?: (hint: { memoryPowered: boolean; memories: ReadonlyArray<{ text: string }> }) => void,
+): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) {
     return;
@@ -53,7 +59,21 @@ async function readAssistantStream(response: Response, onDelta: (text: string) =
         continue;
       }
       try {
-        const event = JSON.parse(payload) as { type?: string; delta?: { type?: string; text?: string } };
+        const event = JSON.parse(payload) as {
+          type?: string;
+          memoryPowered?: boolean;
+          memories?: Array<{ text?: string }>;
+          delta?: { type?: string; text?: string };
+        };
+        if (event.type === 'memory_context') {
+          onMemory?.({
+            memoryPowered: event.memoryPowered === true,
+            memories: (event.memories ?? []).flatMap((item) =>
+              typeof item.text === 'string' ? [{ text: item.text }] : [],
+            ),
+          });
+          continue;
+        }
         if (event.type === 'content_block_delta' && event.delta?.text) {
           onDelta(event.delta.text);
         }
@@ -114,17 +134,34 @@ export function AssistantChat({
         return;
       }
       let assembled = '';
-      onMessages([
-        ...next,
-        { id: assistantId, role: 'assistant', content: '', at: new Date().toISOString() },
-      ]);
-      await readAssistantStream(response, (delta) => {
-        assembled += delta;
+      let memoryPowered = false;
+      let memories: ReadonlyArray<{ text: string }> = [];
+      const publish = (): void => {
         onMessages([
           ...next,
-          { id: assistantId, role: 'assistant', content: assembled, at: new Date().toISOString() },
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: assembled,
+            at: new Date().toISOString(),
+            memoryPowered,
+            memories,
+          },
         ]);
-      });
+      };
+      publish();
+      await readAssistantStream(
+        response,
+        (delta) => {
+          assembled += delta;
+          publish();
+        },
+        (hint) => {
+          memoryPowered = hint.memoryPowered;
+          memories = hint.memories;
+          publish();
+        },
+      );
     } catch {
       setError('The assistant is unavailable right now.');
     } finally {

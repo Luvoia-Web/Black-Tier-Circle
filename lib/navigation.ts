@@ -60,6 +60,7 @@ export const ROUTES = {
     deliveries: '/reseller/deliveries',
     deposits: '/reseller/deposits',
     customers: '/reseller/customers',
+    intelligence: '/reseller/intelligence',
     bills: '/reseller/bills',
   },
   public: {
@@ -145,6 +146,10 @@ export const API_ROUTES = {
   resellerCustomers: `${API_PREFIX}/reseller/customers`,
   resellerCustomer: (customerId: string) => `${API_PREFIX}/reseller/customers/${customerId}`,
   resellerBills: `${API_PREFIX}/reseller/bills`,
+  intelligenceCustomer: `${API_PREFIX}/intelligence/customer`,
+  intelligenceStore: `${API_PREFIX}/intelligence/store`,
+  intelligenceRecovery: `${API_PREFIX}/intelligence/recovery`,
+  intelligenceOutcome: `${API_PREFIX}/intelligence/outcome`,
   resellerMarkup: `${API_PREFIX}/reseller/listings/markup`,
   ownerLaunch: `${API_PREFIX}/owner/launch`,
   ownerSettings: `${API_PREFIX}/owner/settings`,

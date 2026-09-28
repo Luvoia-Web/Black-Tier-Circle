@@ -1,14 +1,22 @@
 /**
  * @file app/api/assistant/route.ts
  *
- * Streams a Black Tier Circle assistant reply from Claude.
+ * Streams a Black Tier Circle assistant reply from Grok.
  *
  * @module Api
  */
 
-import { requireRole } from '@/lib/auth/session';
+import { asDbClient, requireReseller, requireRole } from '@/lib/auth/session';
 import { AppError } from '@/lib/errors';
+import {
+  recallCustomerExperience,
+  resolveCustomerMemoryBank,
+  retainCommerceExperience,
+  type MemoryEvidence,
+} from '@/lib/hindsight';
+import { DEMO_CUSTOMER_ID, DEMO_TENANT_ID } from '@/lib/intelligence-demo';
 import { handleRouteError, readJsonBody } from '@/lib/http';
+import { getTenantByUserId } from '@/modules/tenants';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -51,26 +59,33 @@ const BodySchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    await requireRole(['owner', 'reseller']);
+    const session = await requireRole(['owner', 'reseller']);
     const body = BodySchema.parse(await readJsonBody(request));
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GROK_API_KEY;
     if (!apiKey) {
-      throw new AppError('ASSISTANT_UNAVAILABLE', 'Add ANTHROPIC_API_KEY to enable the assistant', 503);
+      throw new AppError('ASSISTANT_UNAVAILABLE', 'Add GROK_API_KEY to enable the assistant', 503);
     }
 
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+    const memory = await loadCustomerMemory(session, userMessage);
+    const system = memory.memories.length > 0
+      ? `${SYSTEM_PROMPT}\n\nCustomer memory context (use this to personalize your response):\n${memory.memories
+          .slice(0, 5)
+          .map((item) => `- ${item.text}`)
+          .join('\n')}`
+      : SYSTEM_PROMPT;
+
+    const upstream = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'grok-3',
         max_tokens: 1024,
         stream: true,
-        system: SYSTEM_PROMPT,
-        messages: body.messages,
+        messages: [{ role: 'system', content: system }, ...body.messages],
       }),
     });
 
@@ -79,13 +94,127 @@ export async function POST(request: Request): Promise<Response> {
       throw new AppError('ASSISTANT_FAILED', detail.slice(0, 180) || 'Assistant request failed', 502);
     }
 
-    return new Response(upstream.body, {
+    const memoryPowered = memory.memories.length > 0;
+    const prelude = `data: ${JSON.stringify({
+      type: 'memory_context',
+      memoryPowered,
+      memories: memory.memories.slice(0, 5).map((item) => ({ text: item.text })),
+    })}\n\n`;
+    const encoder = new TextEncoder();
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let aiResponse = '';
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode(prelude));
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) {
+              break;
+            }
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) {
+                continue;
+              }
+              const payload = trimmed.slice(5).trim();
+              if (!payload || payload === '[DONE]') {
+                continue;
+              }
+              try {
+                const event = JSON.parse(payload) as {
+                  choices?: Array<{ delta?: { content?: string } }>;
+                };
+                const text = event.choices?.[0]?.delta?.content;
+                if (typeof text !== 'string' || text.length === 0) {
+                  continue;
+                }
+                aiResponse += text;
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: 'content_block_delta', delta: { text } })}\n\n`,
+                  ),
+                );
+              } catch {
+                // Ignore keep-alive lines from the upstream stream.
+              }
+            }
+          }
+          controller.close();
+        } catch (error: unknown) {
+          controller.error(error);
+        } finally {
+          if (memory.bankId) {
+            void retainCommerceExperience(
+              memory.bankId,
+              `chat-${Date.now()}`,
+              `Customer asked: ${userMessage.slice(0, 200)} | Response summary: ${aiResponse.slice(0, 200)}`,
+              ['kind:support_resolution'],
+              { channel: 'chatbot' },
+            ).catch(() => undefined);
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-store',
+        'X-Memory-Powered': memoryPowered ? 'true' : 'false',
       },
     });
   } catch (error: unknown) {
     return handleRouteError(error);
   }
+}
+
+async function loadCustomerMemory(
+  session: Awaited<ReturnType<typeof requireRole>>,
+  userMessage: string,
+): Promise<{ bankId: string | null; memories: MemoryEvidence[] }> {
+  let tenantId: string | null = null;
+  const customerId = session.user.id;
+  try {
+    if (session.profile.role === 'reseller') {
+      const reseller = await requireReseller();
+      tenantId = reseller.tenant.id;
+    } else {
+      const tenant = await getTenantByUserId(asDbClient(session.admin), session.user.id);
+      tenantId = tenant.id;
+    }
+  } catch {
+    tenantId = null;
+  }
+
+  if (tenantId && userMessage.trim().length > 0) {
+    const bankId = resolveCustomerMemoryBank(tenantId, customerId);
+    try {
+      const memories = await recallCustomerExperience(bankId, userMessage);
+      if (memories.length > 0) {
+        return { bankId, memories };
+      }
+    } catch {
+      // Memory lookup must not block the assistant.
+    }
+  }
+
+  if (process.env.NODE_ENV !== 'production' && userMessage.trim().length > 0) {
+    const bankId = resolveCustomerMemoryBank(DEMO_TENANT_ID, DEMO_CUSTOMER_ID);
+    try {
+      const memories = await recallCustomerExperience(bankId, userMessage);
+      if (memories.length > 0) {
+        return { bankId, memories };
+      }
+    } catch {
+      return { bankId: null, memories: [] };
+    }
+  }
+
+  return { bankId: tenantId ? resolveCustomerMemoryBank(tenantId, customerId) : null, memories: [] };
 }
