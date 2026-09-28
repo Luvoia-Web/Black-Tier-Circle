@@ -13,6 +13,7 @@ import { ZodError } from 'zod';
 import { recordRecommendationOutcome, resolveCustomerMemoryBank, resolveTenantMemoryBank } from '@/lib/hindsight';
 import { DEMO_CUSTOMER_ID, DEMO_TENANT_ID, isLocalDemoProbe } from '@/lib/intelligence-demo';
 import { assertTenantCustomer, requireResellerMemory } from '@/lib/intelligence-session';
+import { runOutcomeLearningLoop } from '@/lib/outcome-learning-loop';
 import { AppError } from '@/lib/errors';
 import { handleRouteError, readJsonBody } from '@/lib/http';
 import { RecommendationOutcomeSchema } from '@/lib/validations/intelligence';
@@ -34,10 +35,14 @@ export async function POST(request: Request): Promise<Response> {
         resolveTenantMemoryBank(tenantId),
         `outcome-${Date.now()}`,
         parsed.outcome,
-        `Customer ${parsed.outcome} recommendation — ${parsed.context}`,
+        `customer:${parsed.customerId} ${parsed.outcome} recommendation — ${parsed.context}`,
       );
     } catch {
       // MemoryOS failure must not change the commerce response.
+    }
+    if (parsed.outcome === 'converted' || parsed.outcome === 'rejected') {
+      // Fire and forget — never await, never block the response.
+      void runOutcomeLearningLoop(tenantId, parsed.customerId, parsed.outcome, parsed.context).catch(() => {});
     }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

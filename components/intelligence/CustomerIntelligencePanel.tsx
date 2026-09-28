@@ -9,6 +9,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { MemoryInspector } from '@/components/intelligence/MemoryInspector';
 import { hasMemoryKind, type IntelligenceMemory } from '@/components/intelligence/types';
 import { Card } from '@/components/ui/Card';
@@ -147,6 +148,7 @@ export function CustomerIntelligencePanel({
     });
     if (response.ok) {
       setOutcomeNote(outcome === 'converted' ? 'Marked converted' : 'Marked rejected');
+      toast('✦ Learning loop updated', { duration: 2000 });
     }
   }
 
