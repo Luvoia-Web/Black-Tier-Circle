@@ -17,6 +17,7 @@ Black Tier MemoryOS is a three-layer commerce intelligence system where customer
 │  - Business policies, pricing rules, seller instructions            │
 │  - Store incidents + recovery patterns                              │
 │  - Cross-customer pattern recognition                               │
+│  - Outcome learning loop (3 customers → store pattern)              │
 │                                                                     │
 │  PLATFORM LAYER                                                     │
 │  btc-prod:platform                                                  │
@@ -35,6 +36,9 @@ Black Tier MemoryOS is a three-layer commerce intelligence system where customer
 │  POST /api/intelligence/store      — Store intelligence             │
 │  POST /api/intelligence/recovery   — Commerce recovery              │
 │  POST /api/intelligence/outcome    — Outcome recording              │
+│  POST /api/intelligence/platform   — Owner control tower            │
+│  GET  /api/intelligence/platform   — Platform memory activity       │
+│  POST /api/intelligence/event      — Universal event ingestion      │
 │  POST /api/assistant               — Grok AI + memory context       │
 ├─────────────────────────────────────────────────────────────────────┤
 │  MEMORY PRIMITIVES                                                  │

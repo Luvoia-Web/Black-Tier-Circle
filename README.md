@@ -25,6 +25,7 @@ Black Tier MemoryOS records what a sale, an objection, or an incident meant, the
 │  - Business policies, pricing rules, seller instructions            │
 │  - Store incidents + recovery patterns                              │
 │  - Cross-customer pattern recognition                               │
+│  - Outcome learning loop (3 customers → store pattern)              │
 │                                                                     │
 │  PLATFORM LAYER                                                     │
 │  btc-prod:platform                                                  │
@@ -43,6 +44,9 @@ Black Tier MemoryOS records what a sale, an objection, or an incident meant, the
 │  POST /api/intelligence/store      — Store intelligence             │
 │  POST /api/intelligence/recovery   — Commerce recovery              │
 │  POST /api/intelligence/outcome    — Outcome recording              │
+│  POST /api/intelligence/platform   — Owner control tower            │
+│  GET  /api/intelligence/platform   — Platform memory activity       │
+│  POST /api/intelligence/event      — Universal event ingestion      │
 │  POST /api/assistant               — Grok AI + memory context       │
 ├─────────────────────────────────────────────────────────────────────┤
 │  MEMORY PRIMITIVES                                                  │
@@ -167,6 +171,9 @@ npm run memory:smoke
 - `POST /api/intelligence/store` — Store intelligence + seller instructions
 - `POST /api/intelligence/recovery` — Commerce incident recovery
 - `POST /api/intelligence/outcome` — Record converted / rejected outcome
+- `POST /api/intelligence/platform` — Owner control tower (platform bank only)
+- `GET /api/intelligence/platform` — Platform memory activity
+- `POST /api/intelligence/event` — Universal event ingestion (any source → any memory bank)
 - `POST /api/assistant` — Grok AI chat with memory context
 
 Tenant id is taken from the authenticated session, not from the request body.
@@ -175,12 +182,15 @@ Tenant id is taken from the authenticated session, not from the request body.
 
 ```
 lib/hindsight.ts                     — HindsightClient, bank resolvers, fail-open wrappers
+lib/outcome-learning-loop.ts         — Promotes repeated customer outcomes to the store bank
 lib/order-memory.ts                  — Purchase memory retention after fulfillment
 lib/intelligence-session.ts          — Tenant resolution from authenticated session
 app/api/intelligence/customer/       — Customer intelligence endpoint
 app/api/intelligence/store/          — Store intelligence endpoint
 app/api/intelligence/recovery/       — Commerce recovery endpoint
 app/api/intelligence/outcome/        — Outcome recording endpoint
+app/api/intelligence/platform/       — Owner Operations Control Tower
+app/api/intelligence/event/          — Universal event ingestion
 components/intelligence/             — All UI panels
 scripts/seed-memory-demo.ts          — Seeds 5 demo memories across banks
 scripts/test-memory-isolation.ts     — Verifies zero cross-tenant leakage
