@@ -30,6 +30,7 @@ const OWNER_COMMANDS: ReadonlyArray<Command> = [
   { label: 'Tokens', href: ROUTES.owner.tokens },
   { label: 'Settings', href: ROUTES.owner.settings },
   { label: 'Launch', href: ROUTES.owner.launch },
+  { label: 'Intelligence', href: ROUTES.owner.intelligence },
 ];
 
 const RESELLER_COMMANDS: ReadonlyArray<Command> = [

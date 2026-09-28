@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Bot,
+  Brain,
   ChevronLeft,
   Code2,
   CreditCard,
@@ -63,6 +64,7 @@ const OWNER_GROUPS: ReadonlyArray<NavGroup> = [
     label: null,
     items: [
       { href: ROUTES.owner.home, label: 'Dashboard', icon: LayoutDashboard },
+      { href: ROUTES.owner.intelligence, label: 'Intelligence', icon: Brain },
       { href: ROUTES.owner.orders, label: 'Orders', icon: ShoppingBag },
       { href: ROUTES.owner.products, label: 'Products', icon: Package },
       { href: ROUTES.owner.wallets, label: 'Wallet', icon: CreditCard },
