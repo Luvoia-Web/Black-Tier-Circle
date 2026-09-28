@@ -11,4 +11,4 @@ ALTER TABLE suppliers
 UPDATE suppliers
 SET adapter_name = 'prodseller'
 WHERE adapter_name = 'generic'
-  AND (base_url ILIKE '%prodseller%' OR slug = 'prodseller');
+AND (base_url ILIKE '%prodseller%' OR slug = 'prodseller');
