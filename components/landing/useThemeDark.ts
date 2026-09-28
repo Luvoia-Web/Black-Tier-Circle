@@ -1,7 +1,5 @@
 /**
- * @file components/landing/useThemeDark.ts
- *
- * Reads the document theme attribute set by the root bootstrap script.
+ * Theme toggle with a circular clip reveal from the control.
  */
 
 'use client';
@@ -25,13 +23,28 @@ export function useThemeDark(): boolean {
   return dark;
 }
 
-export function toggleTheme(): void {
+type ThemeOrigin = { readonly x: number; readonly y: number } | { readonly clientX: number; readonly clientY: number };
+
+export function toggleTheme(origin?: ThemeOrigin): void {
   const root = document.documentElement;
   const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-  root.setAttribute('data-theme', next);
-  try {
-    localStorage.setItem('btc-theme', next);
-  } catch {
-    /* private mode */
+  const apply = (): void => {
+    root.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('btc-theme', next);
+    } catch {
+      /* private mode */
+    }
+  };
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const x = origin && 'clientX' in origin ? origin.clientX : origin?.x;
+  const y = origin && 'clientY' in origin ? origin.clientY : origin?.y;
+  const start = document.startViewTransition?.bind(document);
+  if (!reduced && x !== undefined && y !== undefined && start) {
+    root.style.setProperty('--theme-x', `${x}px`);
+    root.style.setProperty('--theme-y', `${y}px`);
+    start(apply);
+    return;
   }
+  apply();
 }

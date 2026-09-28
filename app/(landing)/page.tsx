@@ -1,38 +1,30 @@
 /**
  * @file app/(landing)/page.tsx
  *
- * Public marketing page. No session, no Supabase, no dashboard imports.
+ * Public MemoryOS homepage. The WebGL canvas is client-only.
  */
 
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Hero } from '@/components/landing/Hero';
-import { TransitionWipe } from '@/components/landing/TransitionWipe';
-import { ProblemSolution } from '@/components/landing/ProblemSolution';
-import { HowItWorks } from '@/components/landing/HowItWorks';
-import { FeaturesGrid } from '@/components/landing/FeaturesGrid';
-import { PlatformPreview } from '@/components/landing/PlatformPreview';
-import { StatsCounter } from '@/components/landing/StatsCounter';
-import { PricingCards } from '@/components/landing/PricingCards';
-import { TrustSection } from '@/components/landing/TrustSection';
-import { CTASection } from '@/components/landing/CTASection';
-import { LandingFooter } from '@/components/landing/LandingFooter';
+import dynamic from 'next/dynamic';
+import { MemoryNav } from '@/components/landing/MemoryNav';
+import { MemoryPreloader } from '@/components/landing/MemoryPreloader';
+import { MemoryTop } from '@/components/landing/MemoryTop';
+import { MemoryMiddle } from '@/components/landing/MemoryMiddle';
+import { MemoryBottom } from '@/components/landing/MemoryBottom';
+
+const ExperienceCanvas = dynamic(() => import('@/components/landing/ExperienceCanvas'), {
+  ssr: false,
+});
 
 export default function LandingPage(): JSX.Element {
   return (
     <>
-      <LandingNav />
+      <ExperienceCanvas />
+      <MemoryPreloader />
+      <MemoryNav />
       <main id="content">
-        <Hero />
-        <TransitionWipe />
-        <ProblemSolution />
-        <HowItWorks />
-        <FeaturesGrid />
-        <PlatformPreview />
-        <StatsCounter />
-        <PricingCards />
-        <TrustSection />
-        <CTASection />
-        <LandingFooter />
+        <MemoryTop />
+        <MemoryMiddle />
+        <MemoryBottom />
       </main>
     </>
   );
