@@ -75,14 +75,14 @@ export async function POST(request: Request): Promise<Response> {
           .join('\n')}`
       : SYSTEM_PROMPT;
 
-    const upstream = await fetch('https://api.x.ai/v1/chat/completions', {
+    const upstream = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-3',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 1024,
         stream: true,
         messages: [{ role: 'system', content: system }, ...body.messages],
