@@ -87,7 +87,7 @@ async function readAssistantStream(
 /**
  * Message list, suggestions, and composer.
  */
-const QUICK = ['How do I add products?', "What's my wallet balance?", 'Bot not responding?'];
+const QUICK = ['What does my top customer prefer?', 'Which products convert best?', 'Show recovery patterns from store memory'];
 
 export function AssistantChat({
   messages,
