@@ -2,6 +2,7 @@
  * @file components/ui/ThemeToggle.tsx
  *
  * Dark/light mode toggle. Persists to localStorage as `btc-theme`.
+ * Default theme is light.
  *
  * @module Components
  */
@@ -15,10 +16,10 @@ const STORAGE_KEY = 'btc-theme';
 
 function readTheme(): 'dark' | 'light' {
   if (typeof document === 'undefined') {
-    return 'dark';
+    return 'light';
   }
   const current = document.documentElement.getAttribute('data-theme');
-  return current === 'light' ? 'light' : 'dark';
+  return current === 'dark' ? 'dark' : 'light';
 }
 
 function applyTheme(next: 'dark' | 'light'): void {
@@ -34,10 +35,13 @@ function applyTheme(next: 'dark' | 'light'): void {
  * Circular sun/moon button that toggles `data-theme` on `<html>`.
  */
 export function ThemeToggle(): JSX.Element {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>('light');
 
   useEffect(() => {
-    setTheme(readTheme());
+    const stored = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch { return null; } })();
+    const initial: 'dark' | 'light' = stored === 'dark' ? 'dark' : 'light';
+    applyTheme(initial);
+    setTheme(initial);
   }, []);
 
   function handleToggle(): void {
