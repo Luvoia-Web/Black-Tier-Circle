@@ -61,9 +61,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireRole(['owner', 'reseller']);
     const body = BodySchema.parse(await readJsonBody(request));
-    const apiKey = process.env.GROK_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      throw new AppError('ASSISTANT_UNAVAILABLE', 'Add GROK_API_KEY to enable the assistant', 503);
+      throw new AppError('ASSISTANT_UNAVAILABLE', 'Add GROQ_API_KEY to enable the assistant', 503);
     }
 
     const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
