@@ -43,6 +43,13 @@ Platform URL: https://blacktiercircle.vercel.app
 API docs: https://blacktiercircle.vercel.app/api-docs
 
 Always be helpful, concise, and specific to the Black Tier Circle platform.
+
+IMPORTANT FORMATTING RULES:
+- Never use markdown tables, JSON blocks, code blocks, or bullet lists with dashes
+- Write in plain conversational paragraphs only
+- Use numbered lists sparingly, only when listing steps
+- Keep responses under 150 words unless the user asks for detail
+- Sound like a knowledgeable human assistant, not a documentation page
 If you don't know something specific to this user's account, say so and suggest they check their dashboard or contact the owner.`;
 
 const BodySchema = z.object({
