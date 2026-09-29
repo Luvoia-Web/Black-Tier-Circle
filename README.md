@@ -18,7 +18,7 @@
 
 > **HackWithHyderabad 3.0** · A fully deployed, production-grade platform solving a real market crisis in India's $2B+ digital reseller economy.
 
-**[Live Demo](https://blacktiercircle.vercel.app)** · **[Telegram Bot](https://t.me/blacktiercirclebot)** · **[Architecture](./ARCHITECTURE.md)** · **[Innovation](./INNOVATION.md)**
+**[Live Demo](https://blacktiercircle.vercel.app)** · **[Telegram Bot](https://t.me/blacktiercirclebot)** · **[Try the Demo](./DEMO.md)** · **[Architecture](./ARCHITECTURE.md)** · **[Innovation](./INNOVATION.md)**
 
 </div>
 
