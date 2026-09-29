@@ -82,7 +82,7 @@ export async function POST(request: Request): Promise<Response> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'llama3-70b-8192',
+        model: 'llama-3.1-8b-instant',
         max_tokens: 1024,
         stream: true,
         messages: [{ role: 'system', content: system }, ...body.messages],
