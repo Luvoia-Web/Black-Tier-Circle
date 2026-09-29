@@ -1264,6 +1264,9 @@ a, button {
   font-size: 13px;
 }
 .ai-session li { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.7); }
+.ai-session-btn { display: block; width: 100%; text-align: left; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.75); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background 0.15s; }
+.ai-session-btn:hover { background: rgba(139,92,246,0.25); color: #fff; }
+.ai-session-btn.is-active { background: rgba(139,92,246,0.35); color: #fff; border-color: rgba(139,92,246,0.5); }
 .ai-side-user { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .ai-side-avatar {
   display: flex;

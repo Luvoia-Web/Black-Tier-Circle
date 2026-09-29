@@ -8,21 +8,61 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AssistantChat, type ChatMessage } from '@/components/assistant/assistant-chat';
 import { useDashboardIdentity } from '@/components/dashboard-identity';
 import { ROUTES } from '@/lib/navigation';
 
+type ChatSession = {
+  readonly id: string;
+  readonly messages: ChatMessage[];
+  readonly startedAt: string;
+};
+
+function sessionTitle(session: ChatSession): string {
+  const first = session.messages.find((m) => m.role === 'user');
+  if (!first) return 'New chat';
+  return first.content.length > 40 ? first.content.slice(0, 40) + '…' : first.content;
+}
+
 /**
  * Dashboard page for a longer assistant conversation.
  */
 export function AssistantPage(): JSX.Element {
-  const { displayName, role } = useDashboardIdentity();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { displayName, role } = useshboardIdentity();
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeId, setActiveId] = useState<string>(() => crypto.randomUUID());
   const [navOpen, setNavOpen] = useState(false);
   const home = role === 'owner' ? ROUTES.owner.home : ROUTES.reseller.home;
-  const prompts = messages.filter((message) => message.role === 'user');
+
+  const activeSession = sessions.find((s) => s.id === activeId);
+  const messages = activeSession?.messages ?? [];
+
+  const handleMessages = useCallback(
+    (next: ChatMessage[]) => {
+      setSessions((prev) => {
+        const existing = prev.find((s) => s.id === activeId);
+        if (existing) {
+          return prev.map((s) => s.id === activeId ? { ...s, messages: next } : s);
+        }
+        return [...prev, { id: activeId, messages: next, startedAt: new Date().toISOString() }];
+      });
+    },
+    [activeId],
+  );
+
+  function newChat(): void {
+    setActiveId(crypto.randomUUID());
+    setNavOpen(false);
+  }
+
+  function switchSession(id: string): void {
+    setActiveId(id);
+    setNavOpen(false);
+  }
+
+  const savedSessions = sessions.filter((s) => s.messages.length > 0);
 
   return (
     <div className="ai-page">
@@ -35,15 +75,26 @@ export function AssistantPage(): JSX.Element {
       </button>
       <aside className={`ai-side${navOpen ? ' is-open' : ''}`}>
         <p className="ai-side-title">BTC Assistant</p>
-        <button type="button" className="ai-new-chat" onClick={() => setMessages([])}>
+        <button type="button" className="ai-new-chat" onClick={newChat}>
           + New Chat
         </button>
-        <div className={`ai-session${prompts.length >= 0 ? ' is-active' : ''}`}>
-          <p>Current Session</p>
-          <ul>
-            {prompts.length === 0 ? <li>No messages yet</li> : prompts.map((message) => <li key={message.id}>{message.content}</li>)}
-          </ul>
-        </div>
+        {savedSessions.length === 0 ? (
+          <div className="ai-session is-active">
+            <p>Current Session</p>
+            <ul><li>No messages yet</li></ul>
+          </div>
+        ) : (
+          savedSessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              className={`ai-session-btn${session.id === activeId ? ' is-active' : ''}`}
+              onClick={() => switchSession(session.id)}
+            >
+              {sessionTitle(session)}
+            </button>
+          ))
+        )}
         <div className="ai-side-user">
           <span className="ai-side-avatar" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</span>
           <div>
@@ -54,7 +105,7 @@ export function AssistantPage(): JSX.Element {
         <Link href={home} className="ai-side-back">Back to dashboard</Link>
       </aside>
       <section className="ai-stage">
-        <AssistantChat messages={messages} onMessages={setMessages} displayName={displayName} />
+        <AssistantChat key={activeId} messages={messages} onMessages={handleMessages} displayName={displayName} />
       </section>
     </div>
   );
