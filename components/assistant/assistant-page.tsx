@@ -63,7 +63,7 @@ export function AssistantPage(): JSX.Element {
   const handleMessages = useCallback(
     (next: ChatMessage[]) => {
       setSessions((prev) => {
-        const isting = prev.find((s) => s.id === activeId);
+        const existing = prev.find((s) => s.id === activeId);
         let updated: ChatSession[];
         if (existing) {
           updated = prev.map((s) => s.id === activeId ? { ...s, messages: next } : s);
