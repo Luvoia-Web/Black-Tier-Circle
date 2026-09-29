@@ -10,19 +10,19 @@ import { AIOrb } from '@/components/ai/AIOrb';
 import { SuggestionChip } from '@/components/ai/SuggestionChip';
 
 const PANEL_CHIPS = [
-  { mark: '🤖', label: 'How do I connect my bot?' },
-  { mark: '💰', label: 'How does wallet top-up work?' },
-  { mark: '🛍', label: 'How do resellers set prices?' },
-  { mark: '🔑', label: 'How does auto-delivery work?' },
+  { mark: '✦', label: 'What does my top customer prefer?' },
+  { mark: '📦', label: 'Which products convert best?' },
+  { mark: '🔄', label: 'Show me recent recovery patterns' },
+  { mark: '🧠', label: 'What has the platform learned?' },
 ];
 
 const PAGE_CHIPS = [
-  { mark: '🤖', label: 'Connect Your Bot', hint: 'Step by step guide', fill: 'How do I connect my bot?' },
-  { mark: '💰', label: 'Wallet & Deposits', hint: 'Top up and manage funds', fill: 'How does wallet top-up work?' },
-  { mark: '🛍', label: 'Products & Pricing', hint: 'Add products, set margins', fill: 'How do resellers set prices?' },
-  { mark: '🔑', label: 'Auto Delivery', hint: 'How orders are fulfilled', fill: 'How does auto-delivery work?' },
-  { mark: '📊', label: 'Analytics', hint: 'Understand your store metrics', fill: 'How do I read store analytics?' },
-  { mark: '⚙️', label: 'Settings Help', hint: 'Configure your store bot', fill: 'How do I configure store settings?' },
+  { mark: '✦', label: 'Customer Memory', hint: 'What your customers prefer', fill: 'What does my top customer prefer buying and what objections do they raise?' },
+  { mark: '📦', label: 'Best Products', hint: 'Top converting items', fill: 'Which products convert best in my store and why?' },
+  { mark: '🔄', label: 'Recovery Intel', hint: 'Cart abandonment patterns', fill: 'What are the best cart recovery strategies based on store memory?' },
+  { mark: '🧠', label: 'Platform Patterns', hint: 'Cross-store intelligence', fill: 'What patterns has the platform learned across all reseller stores?' },
+  { mark: '⚡', label: 'Peak Hours', hint: 'When customers buy most', fill: 'What are the peak commerce hours and when should I run promotions?' },
+  { mark: '🎯', label: 'Learning Loop', hint: 'AI pattern upgrades', fill: 'How does the outcome learning loop promote customer patterns to store memory?' },
 ];
 
 type AIWelcomeScreenProps = {
@@ -41,8 +41,8 @@ export function AIWelcomeScreen({ variant, displayName, onPick }: AIWelcomeScree
       <div className="ai-welcome is-page">
         <AIOrb size={120} rings />
         <h2 className="ai-hero-title">Hi, {name}!</h2>
-        <p className="ai-hero-lead">I&apos;m your Black Tier Circle AI assistant.</p>
-        <p className="ai-hero-sub">Ask me anything about your store, products, or how the platform works.</p>
+        <p className="ai-hero-lead">I&apos;m your BT Memory AI — powered by MemoryOS.</p>
+        <p className="ai-hero-sub">Ask me anything about your customers, store patterns, or platform intelligence.</p>
         <div className="ai-chip-grid is-page">
           {PAGE_CHIPS.map((chip, index) => (
             <SuggestionChip
@@ -63,8 +63,8 @@ export function AIWelcomeScreen({ variant, displayName, onPick }: AIWelcomeScree
   return (
     <div className="ai-welcome">
       <AIOrb size={80} rings />
-      <p className="ai-welcome-title">Hi! I&apos;m your BTC Assistant.</p>
-      <p className="ai-welcome-sub">Ask me anything about the platform.</p>
+      <p className="ai-welcome-title">Hi! I&apos;m your BT Memory AI.</p>
+      <p className="ai-welcome-sub">Ask me about customers, patterns, or store intelligence.</p>
       <div className="ai-chip-grid">
         {PANEL_CHIPS.map((chip, index) => (
           <SuggestionChip key={chip.label} mark={chip.mark} label={chip.label} delay={index * 100} onPick={onPick} />
