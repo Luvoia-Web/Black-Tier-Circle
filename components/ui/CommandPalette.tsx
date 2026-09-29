@@ -35,6 +35,7 @@ const OWNER_COMMANDS: ReadonlyArray<Command> = [
 
 const RESELLER_COMMANDS: ReadonlyArray<Command> = [
   { label: 'Dashboard', href: ROUTES.reseller.home },
+  { label: 'Intelligence', href: ROUTES.reseller.intelligence },
   { label: 'Orders', href: ROUTES.reseller.orders },
   { label: 'My Store', href: ROUTES.reseller.products },
   { label: 'Wallet & Deposits', href: ROUTES.reseller.deposits },
@@ -86,8 +87,8 @@ export function CommandPalette({ role }: { readonly role: UserRole }): JSX.Eleme
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/60 p-4 pt-[12vh]">
-      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-xl">
+    <div className="fixed inset-0 z-[80] flex items-start justify-center bg-[rgba(2,3,10,0.62)] p-4 pt-[12vh] backdrop-blur-md">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--border-glow)] bg-[var(--surface-1)] shadow-[0_24px_80px_rgba(100,55,255,0.25)]">
         <input
           autoFocus
           value={query}

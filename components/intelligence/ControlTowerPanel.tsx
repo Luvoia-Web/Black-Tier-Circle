@@ -228,18 +228,20 @@ export function ControlTowerPanel(): JSX.Element {
             className="flex flex-col gap-3 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 shadow-[var(--shadow-card)] sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-center gap-3">
-              <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
-                {degraded ? null : (
-                  <span className="absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full bg-[var(--green)] opacity-60" />
-                )}
+              <span className="relative flex h-4 w-4" aria-hidden="true">
                 <span
-                  className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                    degraded ? 'bg-[var(--amber)]' : 'bg-[var(--green)]'
+                  className={`absolute inline-flex h-full w-full motion-safe:animate-ping rounded-full opacity-50 ${
+                    degraded ? 'bg-[var(--amber)]' : 'bg-[var(--success)]'
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex h-4 w-4 rounded-full ${
+                    degraded ? 'bg-[var(--amber)]' : 'bg-[var(--success)]'
                   }`}
                 />
               </span>
-              <p className="text-sm font-medium text-[var(--text-1)]">
-                Memory layer: {degraded ? 'degraded' : 'operational'}
+              <p className="text-sm font-medium uppercase tracking-[0.12em] text-[var(--text-0)]">
+                Memory layer: {degraded ? 'DEGRADED' : 'OPERATIONAL'}
               </p>
             </div>
             <button

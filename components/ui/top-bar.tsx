@@ -82,7 +82,7 @@ export function TopBar({ displayName, role, avatarUrl = null, onMenuClick }: Top
   const meta = titleForPath(pathname, role);
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-page)]/80 px-4 backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--border-ghost)] bg-[var(--surface-0)]/90 px-4 backdrop-blur-md sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
@@ -97,16 +97,16 @@ export function TopBar({ displayName, role, avatarUrl = null, onMenuClick }: Top
           <p className="hidden text-sm text-[var(--text-2)] sm:block">{meta.crumb}</p>
         </motion.div>
       </div>
+      <button
+        type="button"
+        className="hidden h-9 min-w-[220px] items-center gap-2 rounded-full border border-[var(--border-ghost)] bg-[var(--surface-1)] px-3 text-left text-xs text-[var(--text-3)] md:flex"
+        onClick={() => window.dispatchEvent(new Event('btc:command'))}
+      >
+        <Search size={14} aria-hidden="true" />
+        Search
+        <span className="ml-auto rounded-md border border-[var(--border-soft)] px-1.5 py-0.5 font-mono text-[10px]">⌘K</span>
+      </button>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="Search"
-          onClick={() => window.dispatchEvent(new Event('btc:command'))}
-          className="hidden h-11 cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-[var(--text-2)] hover:text-[var(--text-1)] sm:flex"
-        >
-          <Search size={14} aria-hidden="true" />
-          Search
-        </button>
         <ThemeToggle />
         <NotificationBell role={role} />
         <span className="avatar-ring hidden h-9 w-9 items-center justify-center rounded-full p-[2px] sm:flex" title={displayName}>

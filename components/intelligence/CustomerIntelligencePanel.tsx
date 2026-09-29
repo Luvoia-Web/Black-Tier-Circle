@@ -220,26 +220,36 @@ export function CustomerIntelligencePanel({
           </div>
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-[var(--text-1)]">AI Recommendation</h3>
-            <Card>
-              <p className="whitespace-pre-wrap text-sm text-[var(--text-1)]">
+            <Card className="border-l-[3px] border-l-[var(--electric)] bg-[var(--surface-3)]">
+              <p className="bg-[image:var(--grad-memory)] bg-clip-text text-xs font-medium text-transparent">✦ AI Recommendation</p>
+              <p className="mt-3 whitespace-pre-wrap text-sm text-[var(--text-0)]">
                 {data.recommendation ?? 'No recommendation yet.'}
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  className="text-xs text-[var(--accent-soft)]"
+                  className="min-h-11 rounded-full border border-[var(--border-soft)] px-3 text-xs text-[var(--text-0)]"
                   onClick={() => setInspectorOpen(true)}
                 >
-                  WHY? See Evidence
+                  WHY? →
                 </button>
-                <button type="button" className="text-xs text-[var(--green)]" onClick={() => void recordOutcome('converted')}>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-full bg-[image:linear-gradient(135deg,#00E5A0,#0ea5a0)] px-3 text-xs font-medium text-[#04221a] active:scale-[0.97]"
+                  onClick={() => void recordOutcome('converted')}
+                >
                   ✓ Converted
                 </button>
-                <button type="button" className="text-xs text-[var(--red)]" onClick={() => void recordOutcome('rejected')}>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-full border border-[var(--danger)] px-3 text-xs text-[var(--danger)] active:scale-[0.97]"
+                  onClick={() => void recordOutcome('rejected')}
+                >
                   ✗ Rejected
                 </button>
                 {outcomeNote ? <span className="text-xs text-[var(--text-3)]">{outcomeNote}</span> : null}
               </div>
+              <p className="mt-3 text-right font-mono text-[10px] text-[var(--text-3)]">Powered by Hindsight by Vectorize</p>
             </Card>
           </div>
         </>

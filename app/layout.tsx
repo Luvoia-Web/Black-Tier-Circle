@@ -46,10 +46,12 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
         <Toaster
           position="bottom-right"
           toastOptions={{
+            duration: 2000,
             style: {
-              background: 'var(--bg-elevated, var(--bg-card))',
-              border: '1px solid var(--border)',
-              color: 'var(--text-1)',
+              background: 'var(--surface-2, var(--bg-card))',
+              border: '1px solid var(--border-soft)',
+              borderLeft: '3px solid var(--memory)',
+              color: 'var(--text-0, var(--text-1))',
             },
           }}
         />

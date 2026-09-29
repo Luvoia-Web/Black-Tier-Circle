@@ -30,12 +30,12 @@ export function MemoryInspector({ evidence, recommendation, onClose }: MemoryIns
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,3,10,0.72)] p-4 backdrop-blur-md" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="memory-inspector-title"
-        className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-page)] p-5 shadow-[var(--shadow-card)]"
+        className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[var(--border-glow)] bg-[var(--surface-1)] p-6 shadow-[0_24px_80px_rgba(100,55,255,0.28)]"
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id="memory-inspector-title" className="text-lg font-semibold text-[var(--text-1)]">

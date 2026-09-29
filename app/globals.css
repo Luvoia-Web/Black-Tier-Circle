@@ -4,39 +4,59 @@
 
 /* ─── DESIGN TOKENS ─────────────────────────────────────────── */
 :root {
-  /* Backgrounds */
-  --bg-page:     #0c0c10;
-  --bg-card:     #13131a;
-  --bg-raised:   #1a1a24;
-  --bg-hover:    #1f1f2e;
-  --bg-overlay:  #242433;
+  --void: #02030A;
+  --surface-0: #060812;
+  --surface-1: #0A0E1A;
+  --surface-2: #0F1525;
+  --surface-3: #161E35;
+  --border-ghost: rgba(99, 120, 255, 0.08);
+  --border-glow: rgba(99, 120, 255, 0.35);
+  --grad-primary: linear-gradient(135deg, #6437FF 0%, #3D7BFF 40%, #00D4FF 100%);
+  --grad-memory: linear-gradient(135deg, #A855F7 0%, #6437FF 50%, #3D7BFF 100%);
+  --grad-commerce: linear-gradient(135deg, #FF6B35 0%, #FFB347 50%, #E6B450 100%);
+  --electric: #6437FF;
+  --plasma: #00D4FF;
+  --memory: #A855F7;
+  --commerce: #FF6B35;
+  --gold: #E6B450;
+  --success: #00E5A0;
+  --danger: #FF4757;
+
+  /* Backgrounds — aliased so existing screens inherit the palette */
+  --bg-page:     var(--surface-0);
+  --bg-card:     var(--surface-1);
+  --bg-raised:   var(--surface-2);
+  --bg-hover:    var(--surface-3);
+  --bg-overlay:  #1c2744;
+  --bg-elevated: var(--surface-2);
 
   /* Accents */
-  --accent:      #7c3aed;   /* violet-700 — primary */
-  --accent-soft: #8b5cf6;   /* violet-500 */
-  --accent-glow: rgba(124,58,237,0.18);
-  --green:       #10b981;   /* emerald-500 */
-  --green-soft:  rgba(16,185,129,0.12);
-  --amber:       #f59e0b;
-  --amber-soft:  rgba(245,158,11,0.12);
-  --red:         #ef4444;
-  --red-soft:    rgba(239,68,68,0.12);
-  --blue:        #3b82f6;
-  --blue-soft:   rgba(59,130,246,0.12);
+  --accent:      var(--electric);
+  --accent-soft: #8b7cff;
+  --accent-glow: rgba(100, 55, 255, 0.22);
+  --green:       var(--success);
+  --green-soft:  rgba(0, 229, 160, 0.12);
+  --amber:       #f5b942;
+  --amber-soft:  rgba(245, 185, 66, 0.14);
+  --red:         var(--danger);
+  --red-soft:    rgba(255, 71, 87, 0.12);
+  --blue:        #3D7BFF;
+  --blue-soft:   rgba(61, 123, 255, 0.14);
 
   /* Text */
-  --text-1: #f4f4fb;   /* headings, values */
-  --text-2: #b4b4c8;   /* labels, secondary — 4.5:1 on page */
-  --text-3: #8e8ea6;   /* muted, still readable */
+  --text-0: #FFFFFF;
+  --text-1: #C8D3FF;
+  --text-2: #7B8FC0;
+  --text-3: #8b98c4;
 
   /* Borders */
-  --border:       #1e1e2c;
-  --border-soft:  #252536;
-  --border-focus: #7c3aed;
+  --border:       rgba(99, 120, 255, 0.15);
+  --border-soft:  rgba(99, 120, 255, 0.15);
+  --border-focus: var(--electric);
 
   /* Sidebar */
-  --sidebar-w: 220px;
-  --sidebar-bg: #0a0a0e;
+  --sidebar-w: 240px;
+  --sidebar-bg: var(--surface-1);
 
   /* Radius */
   --r-sm: 6px;
@@ -51,21 +71,27 @@
 
 /* ─── LIGHT MODE ─────────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-page:    #f4f4f8;
-  --bg-card:    #ffffff;
-  --bg-raised:  #f0f0f6;
-  --bg-hover:   #e8e8f0;
-  --bg-overlay: #e0e0ec;
-
-  --text-1: #12121a;
-  --text-2: #3f3f55;
-  --text-3: #5c5c74;
-
-  --border:      #e2e2ec;
-  --border-soft: #ebebf5;
-  --sidebar-bg:  #ffffff;
-
-  --shadow-card: 0 2px 12px rgba(0,0,0,0.08);
+  --void: #F0F2FF;
+  --surface-0: #F7F8FF;
+  --surface-1: #FFFFFF;
+  --surface-2: #EEF0FF;
+  --surface-3: #E4E7FF;
+  --border-ghost: rgba(99, 120, 255, 0.10);
+  --border-glow: rgba(99, 120, 255, 0.50);
+  --text-0: #080A1A;
+  --text-1: #1A2050;
+  --text-2: #4A5680;
+  --text-3: #5c6a9a;
+  --bg-page: var(--surface-0);
+  --bg-card: var(--surface-1);
+  --bg-raised: var(--surface-2);
+  --bg-hover: var(--surface-3);
+  --bg-overlay: #E4E7FF;
+  --bg-elevated: #FFFFFF;
+  --border: rgba(99, 120, 255, 0.20);
+  --border-soft: rgba(99, 120, 255, 0.20);
+  --sidebar-bg: #FFFFFF;
+  --shadow-card: 0 4px 24px rgba(99, 120, 255, 0.12);
 }
 
 /* ─── BASE STYLES ─────────────────────────────────────────────── */
@@ -371,14 +397,89 @@ a, button {
 
 .login-stage {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
   min-height: 100vh;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
   overflow: hidden;
-  background: #09090b;
-  padding: 24px 16px 40px;
+  background: var(--void);
+  padding: 0;
 }
+.login-visual {
+  position: relative;
+  display: grid;
+  place-items: center start;
+  overflow: hidden;
+  padding: 4rem;
+  background:
+    radial-gradient(520px 380px at 30% 40%, rgba(100, 55, 255, 0.45), transparent 62%),
+    radial-gradient(420px 320px at 72% 68%, rgba(0, 212, 255, 0.22), transparent 60%),
+    #02030a;
+}
+.login-visual-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 10ch;
+  font-size: clamp(2.6rem, 4.4vw, 4.4rem);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.92;
+  background: linear-gradient(135deg, #ffffff 0%, #a8c0ff 50%, #6b8aff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.login-pane-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+  background: var(--surface-0);
+}
+.mem-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background-image: var(--grad-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.role-pill {
+  display: inline-flex;
+  margin-top: 2px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.role-pill.is-owner { color: #1a1408; background: var(--gold); }
+.role-pill.is-reseller { color: #fff; background: #3d7bff; }
+@media (max-width: 860px) {
+  .login-stage { grid-template-columns: 1fr; }
+  .login-visual { display: none; }
+}
+[data-theme='light'] .login-card {
+  background: #fff;
+  border-color: rgba(99, 120, 255, 0.22);
+  box-shadow: 0 18px 50px rgba(99, 120, 255, 0.12);
+}
+[data-theme='light'] .login-field {
+  color: #080a1a;
+  background: #f7f8ff;
+  border-color: rgba(99, 120, 255, 0.28);
+}
+[data-theme='light'] .login-field::placeholder { color: #7b8fc0; }
+[data-theme='light'] .login-tabs { background: #eef0ff; }
+[data-theme='light'] .login-tab { color: #4a5680; }
+[data-theme='light'] .login-tab[aria-selected='true'] { color: #080a1a; }
+[data-theme='light'] .login-tab-indicator { background: #fff; }
+[data-theme='light'] .login-pane-wrap { background: #f0f2ff; }
 .login-grid {
   pointer-events: none;
   position: absolute;
@@ -495,7 +596,7 @@ a, button {
   justify-content: center;
   border: 0;
   border-radius: 12px;
-  background: var(--accent);
+  background-image: var(--grad-primary);
   color: #fff;
   font-size: 15px;
   font-weight: 500;
@@ -762,8 +863,8 @@ a, button {
   right: 24px;
   bottom: 24px;
   z-index: 50;
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
 }
 .ai-launcher-label {
   position: absolute;
@@ -815,9 +916,8 @@ a, button {
   justify-content: center;
   border: 0;
   border-radius: 999px;
-  background: rgba(139, 92, 246, 0.15);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.4), 0 0 40px rgba(139, 92, 246, 0.2);
+  background-image: var(--grad-primary);
+  box-shadow: 0 0 20px rgba(100, 55, 255, 0.45), 0 0 40px rgba(100, 55, 255, 0.2);
   animation: ai-counter 3s linear infinite;
 }
 .ai-launcher.is-entered .ai-fab { animation-delay: 0.7s; }
@@ -847,8 +947,8 @@ a, button {
   bottom: 24px;
   z-index: 50;
   display: flex;
-  width: min(400px, calc(100vw - 16px));
-  height: min(720px, calc(100vh - 100px));
+  width: min(420px, calc(100vw - 16px));
+  height: min(600px, calc(100vh - 100px));
   flex-direction: column;
   overflow: hidden;
   border-radius: 24px;

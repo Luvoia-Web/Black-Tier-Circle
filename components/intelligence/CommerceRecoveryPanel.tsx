@@ -90,6 +90,11 @@ export function CommerceRecoveryPanel({ tenantId }: CommerceRecoveryPanelProps):
         evidence: asMemories(json.evidence),
         degraded: json.degraded === true,
       });
+      window.dispatchEvent(
+        new CustomEvent('btc:memory-activity', {
+          detail: { text: `Recovery searched for ${incidentType.toLowerCase()}`, tone: 'orange' },
+        }),
+      );
     } catch {
       setResult({ pastIncidents: [], suggestedRecovery: null, evidence: [], degraded: true });
     } finally {

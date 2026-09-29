@@ -204,11 +204,11 @@ function LoginForm(): JSX.Element {
 
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex items-center gap-2 text-[22px] font-semibold text-white">
-        <DiamondMark />
-        Black Tier Circle
+      <div className="mb-2 flex items-center gap-2 text-[22px] font-semibold text-[var(--text-0)]">
+        <span className="mem-mark" aria-hidden="true">BT</span>
+        Black Tier MemoryOS
       </div>
-      <p className="mb-8 text-sm text-white/50">The reseller platform for digital products</p>
+      <p className="mb-8 text-sm text-[var(--text-2)]">Sign in to your store</p>
 
       <div className="login-tabs mb-6" role="tablist" aria-label="Account">
         <span className="login-tab-indicator" data-tab={tab} />
@@ -240,7 +240,7 @@ function LoginForm(): JSX.Element {
 
       {tab === 'signin' ? (
         <form key="signin" onSubmit={(event) => void onSubmit(event)} className="login-pane flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Email address
             <input
               type="email"
@@ -253,7 +253,7 @@ function LoginForm(): JSX.Element {
               className="login-field"
             />
           </label>
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Password
             <span className="relative">
               <input
@@ -274,7 +274,7 @@ function LoginForm(): JSX.Element {
               type="button"
               onClick={() => void onForgotPassword()}
               disabled={forgotLoading}
-              className="text-xs text-[var(--accent-soft)] hover:text-white disabled:opacity-60"
+              className="text-xs text-[var(--accent-soft)] hover:text-[var(--text-0)] disabled:opacity-60"
             >
               {forgotLoading ? 'Sending…' : 'Forgot password?'}
             </button>
@@ -285,7 +285,7 @@ function LoginForm(): JSX.Element {
         </form>
       ) : (
         <form key="signup" onSubmit={onCreateAccount} className="login-pane flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Display name
             <input
               type="text"
@@ -299,7 +299,7 @@ function LoginForm(): JSX.Element {
               className="login-field"
             />
           </label>
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Email address
             <input
               type="email"
@@ -312,7 +312,7 @@ function LoginForm(): JSX.Element {
               className="login-field"
             />
           </label>
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Password
             <span className="relative">
               <input
@@ -329,7 +329,7 @@ function LoginForm(): JSX.Element {
               <PasswordToggle shown={showPassword} onToggle={() => setShowPassword((current) => !current)} />
             </span>
           </label>
-          <label className="flex flex-col gap-1.5 text-xs text-white/70">
+          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
             Confirm password
             <input
               type={showPassword ? 'text' : 'password'}
@@ -351,7 +351,7 @@ function LoginForm(): JSX.Element {
         </form>
       )}
 
-      <div className="my-6 flex items-center gap-3 text-xs text-white/30">
+      <div className="my-6 flex items-center gap-3 text-xs text-[var(--text-3)]">
         <span className="h-px flex-1 bg-white/10" />
         or continue with
         <span className="h-px flex-1 bg-white/10" />
@@ -383,7 +383,7 @@ function PasswordToggle({ shown, onToggle }: { readonly shown: boolean; readonly
       type="button"
       onClick={onToggle}
       aria-label={shown ? 'Hide password' : 'Show password'}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-2)] hover:text-[var(--text-0)]"
     >
       {shown ? (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
@@ -406,14 +406,6 @@ function Spinner({ dark = false }: { readonly dark?: boolean }): JSX.Element {
       className={`h-4 w-4 animate-spin rounded-full border-2 border-t-transparent ${dark ? 'border-gray-900' : 'border-white'}`}
       aria-hidden="true"
     />
-  );
-}
-
-function DiamondMark(): JSX.Element {
-  return (
-    <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 1.2 14.2 8 8 14.8 1.8 8 8 1.2z" fill="var(--accent)" />
-    </svg>
   );
 }
 
@@ -440,36 +432,32 @@ function GoogleMark(): JSX.Element {
 export default function LoginPage(): JSX.Element {
   return (
     <main className="login-stage">
-      <SplineScene
-        url="https://prod.spline.design/6Wq1Q7YGyM-iab9i/scene.splinecode"
-        fallback={<CSSOrb />}
-        className="absolute inset-0 opacity-70"
-      />
-      <div className="login-grid" aria-hidden="true" />
-      <div className="login-orb login-orb-1" aria-hidden="true" />
-      <div className="login-orb login-orb-2" aria-hidden="true" />
-      <div className="login-orb login-orb-3" aria-hidden="true" />
-      <div className="absolute right-6 top-6 z-10">
-        <ThemeToggle />
-      </div>
-      <div className="flex w-full flex-col items-center">
-        <div className="login-card">
-          <Suspense fallback={<p className="text-sm text-white/50">Loading…</p>}>
-            <LoginForm />
-          </Suspense>
+      <section className="login-visual">
+        <SplineScene
+          url="https://prod.spline.design/6Wq1Q7YGyM-iab9i/scene.splinecode"
+          fallback={<CSSOrb />}
+          className="absolute inset-0 opacity-50"
+        />
+        <div className="login-visual-copy">
+          <p>Commerce should learn.</p>
+          <p>Now it does.</p>
         </div>
-        <p className="relative z-10 mt-6 text-center text-xs text-white/20">
-          Protected by Black Tier Circle
-          <span className="mx-2">·</span>
-          <a href="/login" className="hover:text-white/50">
-            Privacy Policy
-          </a>
-          <span className="mx-2">·</span>
-          <a href="/login" className="hover:text-white/50">
-            Terms
-          </a>
-        </p>
-      </div>
+      </section>
+      <section className="login-pane-wrap">
+        <div className="absolute right-6 top-6 z-10">
+          <ThemeToggle />
+        </div>
+        <div className="flex w-full flex-col items-center">
+          <div className="login-card">
+            <Suspense fallback={<p className="text-sm text-[var(--text-2)]">Loading…</p>}>
+              <LoginForm />
+            </Suspense>
+          </div>
+          <p className="relative z-10 mt-6 text-center text-xs text-[var(--text-3)]">
+            No public signup. Ask the store owner for an invite.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }

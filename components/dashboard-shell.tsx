@@ -43,10 +43,16 @@ export function DashboardShell({
   children,
 }: DashboardShellProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [uiDemo, setUiDemo] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [desktop, setDesktop] = useState(false);
   const pathname = usePathname();
-  const sidebarOffset = desktop ? (collapsed ? 64 : 220) : 0;
+  const sidebarOffset = desktop ? (collapsed ? 64 : 240) : 0;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setUiDemo(params.get('demo') === '1');
+  }, [pathname]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
@@ -75,7 +81,15 @@ export function DashboardShell({
         animate={{ marginLeft: sidebarOffset }}
         transition={{ type: 'spring', stiffness: 260, damping: 30 }}
       >
-        {demoMode ? (
+        {uiDemo ? (
+          <div className="flex items-center justify-center gap-3 bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
+            DEMO MODE — sample memory is on screen for this session.
+            <button type="button" className="underline" onClick={() => setUiDemo(false)}>
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+        {demoMode && !uiDemo ? (
           <div className="bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
             Demo Mode — Payments are simulated. Add real API keys to go live.
           </div>

@@ -28,8 +28,8 @@ export function AIChatPanel({ thinking, onExpand, onClose, panelRef, children }:
       <header className="ai-panel-head">
         <AIOrb size={36} thinking={thinking} />
         <div className="min-w-0 flex-1">
-          <p className="ai-panel-title">BTC Assistant</p>
-          <p className="ai-panel-powered">Powered by Claude</p>
+          <p className="ai-panel-title">✦ BT Memory AI</p>
+          <p className="ai-panel-powered">Memory Active · Powered by Hindsight</p>
           <p className="ai-status">
             <span className={`ai-status-dot${thinking ? ' is-busy' : ''}`} aria-hidden="true" />
             {thinking ? 'Thinking...' : 'Online'}

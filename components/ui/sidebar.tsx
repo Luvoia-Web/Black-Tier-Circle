@@ -93,6 +93,7 @@ const RESELLER_GROUPS: ReadonlyArray<NavGroup> = [
     label: null,
     items: [
       { href: ROUTES.reseller.home, label: 'Dashboard', icon: LayoutDashboard },
+      { href: ROUTES.reseller.intelligence, label: 'Intelligence', icon: Brain },
       { href: ROUTES.reseller.orders, label: 'Orders', icon: ShoppingBag },
       { href: ROUTES.reseller.products, label: 'Products', icon: Package },
       { href: ROUTES.reseller.deposits, label: 'Wallet', icon: CreditCard },
@@ -223,9 +224,9 @@ export function Sidebar({
       >
         <div className="flex h-14 items-center justify-between border-b border-[var(--border)] px-3">
           <span className="flex min-w-0 items-center gap-2">
-            <DiamondMark />
+            <span className="mem-mark" aria-hidden="true">BT</span>
             {collapsed ? null : (
-              <p className="truncate text-sm font-semibold text-[var(--text-1)]">Black Tier Circle</p>
+              <p className="truncate text-sm font-semibold tracking-tight text-[var(--text-0)]">MemoryOS</p>
             )}
           </span>
           <button
@@ -264,10 +265,10 @@ export function Sidebar({
                       onClick={onClose}
                       title={item.label}
                       aria-current={active ? 'page' : undefined}
-                      className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[var(--r-md)] border-l-2 px-3 py-2 text-sm ${
+                      className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-sm transition-colors duration-150 ${
                         active
-                          ? 'border-[var(--accent-soft)] bg-[rgba(139,92,246,0.15)] font-medium text-[var(--text-1)]'
-                          : 'border-transparent text-[var(--text-2)] hover:border-[var(--accent-soft)] hover:bg-[rgba(139,92,246,0.1)] hover:text-[var(--text-1)]'
+                          ? 'border-[var(--electric)] bg-[var(--surface-3)] font-medium text-[var(--text-0)]'
+                          : 'border-transparent text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-0)]'
                       }`}
                     >
                       <Icon size={20} aria-hidden="true" className={active ? 'text-[var(--accent-soft)]' : ''} />
@@ -309,12 +310,12 @@ export function Sidebar({
             {collapsed ? null : role === 'reseller' ? (
               <Link href={ROUTES.reseller.account} onClick={onClose} className="min-w-0">
                 <p className="truncate text-sm text-[var(--text-1)]">{displayName}</p>
-                <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>
+                <span className="role-pill is-reseller">{ROLE_LABEL[role]}</span>
               </Link>
             ) : (
               <div className="min-w-0">
-                <p className="truncate text-sm text-[var(--text-1)]">{displayName}</p>
-                <p className="text-xs uppercase tracking-wide text-[var(--text-3)]">{ROLE_LABEL[role]}</p>
+                <p className="truncate text-sm text-[var(--text-0)]">{displayName}</p>
+                <span className={role === 'owner' ? 'role-pill is-owner' : 'role-pill is-reseller'}>{ROLE_LABEL[role]}</span>
               </div>
             )}
           </div>
@@ -342,14 +343,6 @@ export function Sidebar({
         </div>
       </aside>
     </>
-  );
-}
-
-function DiamondMark(): JSX.Element {
-  return (
-    <svg className="css-orb h-4 w-4 shrink-0" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 1.2 14.2 8 8 14.8 1.8 8 8 1.2z" fill="var(--accent-soft)" />
-    </svg>
   );
 }
 

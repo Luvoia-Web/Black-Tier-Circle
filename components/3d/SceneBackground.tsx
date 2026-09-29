@@ -3,6 +3,10 @@
 import { useEffect, useRef } from 'react';
 import { usePrefersReducedMotion } from '@/lib/use-reduced-motion';
 
+function indexColor(id: number): string {
+  return id % 3 === 0 ? '#A855F7' : '#6437FF';
+}
+
 const PARTICLES = Array.from({ length: 30 }, (_, index) => ({
   id: index,
   left: `${(index * 37) % 100}%`,
@@ -101,17 +105,30 @@ export function SceneBackground(): JSX.Element {
           backgroundSize: '40px 40px',
         }}
       />
+      <svg className="absolute inset-0 h-full w-full opacity-[0.05]" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {PARTICLES.slice(0, 18).map((dot, index) => {
+          const next = PARTICLES[(index + 4) % PARTICLES.length];
+          if (!next) return null;
+          const x1 = (dot.id * 37) % 100;
+          const y1 = (dot.id * 53) % 100;
+          const x2 = (next.id * 37) % 100;
+          const y2 = (next.id * 53) % 100;
+          return <line key={`link-${dot.id}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#6437FF" strokeWidth="0.2" />;
+        })}
+      </svg>
       {PARTICLES.map((dot) => (
         <span
           key={dot.id}
-          className="particle-dot absolute rounded-full bg-[rgba(139,92,246,0.4)]"
+          className="particle-dot absolute rounded-full"
           style={{
             left: dot.left,
             top: dot.top,
             width: dot.size,
             height: dot.size,
-            animationDuration: `${dot.duration}s`,
+            background: indexColor(dot.id),
+            animationDuration: reduced ? '0s' : `${dot.duration}s`,
             animationDelay: `${dot.delay}s`,
+            opacity: 0.45,
           }}
         />
       ))}
