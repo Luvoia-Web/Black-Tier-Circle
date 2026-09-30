@@ -76,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
 
     logger.info('reseller invitation accepted', { tenantId: tenant.id });
     return jsonSuccess({
-      message: 'Account created! Pending owner approval.',
+      message: 'Account created successfully. You can now log in.',
     });
   } catch (error: unknown) {
     if (createdTenantId !== null) {
