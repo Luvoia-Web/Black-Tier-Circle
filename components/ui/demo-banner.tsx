@@ -4,10 +4,10 @@ export function DemoBanner() {
   if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') return null;
   return (
     <div style={{
-      background: 'rgba(220, 38, 38, 0.15)',
+      background: 'rgba(109, 40, 217, 0.12)',
       backdropFilter: 'blur(8px)',
-      color: '#fff',
-      borderBottom: '1px solid rgba(220, 38, 38, 0.4)',
+      color: 'rgb(196, 181, 253)',
+      borderBottom: '1px solid rgba(139, 92, 246, 0.25)',
       textAlign: 'center' as const,
       padding: '8px 16px',
       fontSize: '13px',
