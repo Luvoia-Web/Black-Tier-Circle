@@ -22,6 +22,11 @@ export const metadata: Metadata = {
     template: '%s — Black Tier Circle',
   },
   description: 'Multi-tenant Telegram reseller platform',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
 };
 
 type RootLayoutProps = {
