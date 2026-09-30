@@ -9,8 +9,21 @@
 
 'use client';
 
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { gsap, prefersReducedMotion, useGSAP } from '@/lib/landing/gsap';
+import { Button } from '@/components/ui/Button';
+import { AnimatedCrown } from '@/components/ui/animated-crown';
+import {
+  AuthLeftPanel,
+  AuthRightPanel,
+  fieldClass,
+  glassCardClass,
+  headingClass,
+  quoteClass,
+  submitClass,
+} from '@/components/auth/auth-chrome';
 
 const TERMS = `Black Tier Circle is a multi-tenant platform for selling digital products through Telegram.
 
@@ -24,11 +37,80 @@ You agree to keep your bot token private, to use the platform lawfully, and to t
 
 type Step = 1 | 2 | 3;
 
-function DiamondMark(): JSX.Element {
+const STEP_COPY: Record<Step, { readonly quote: string; readonly sub: string }> = {
+  1: {
+    quote: 'Your store. Your brand. Your customers.',
+    sub: 'Join the platform built for resellers who mean business.',
+  },
+  2: {
+    quote: 'Every sale remembered. Every pattern learned. Go.',
+    sub: 'MemoryOS watches your store so you never miss a signal.',
+  },
+  3: {
+    quote: 'The curtain rises. The platform is yours.',
+    sub: 'Intelligence activated. Commerce begins now.',
+  },
+};
+
+function StepDots({ step }: { readonly step: Step }): JSX.Element {
   return (
-    <svg className="onboarding-diamond" width="42" height="42" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 1.2 14.2 8 8 14.8 1.8 8 8 1.2z" fill="var(--accent)" />
-    </svg>
+    <div className="mt-8 flex items-center justify-center" role="group" aria-label={`Step ${step} of 3`}>
+      {[1, 2, 3].map((item, index) => {
+        const active = step === 3 || item === step;
+        return (
+          <div key={item} className="flex items-center">
+            {index > 0 ? (
+              <span className="auth-connector h-0.5 w-6" aria-hidden="true" />
+            ) : null}
+            <span
+              aria-hidden="true"
+              className={
+                active
+                  ? 'h-2 w-8 rounded-full bg-purple-600 transition-all duration-300'
+                  : 'auth-dot-idle h-2 w-2 rounded-full transition-all duration-300'
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LaunchButton({
+  saving,
+  accepted,
+  onLaunch,
+}: {
+  readonly saving: boolean;
+  readonly accepted: boolean;
+  readonly onLaunch: () => void;
+}): JSX.Element {
+  const launchBtnRef = useRef<HTMLButtonElement>(null);
+
+  useGSAP(() => {
+    if (launchBtnRef.current === null || prefersReducedMotion()) {
+      return;
+    }
+    gsap.to(launchBtnRef.current, {
+      boxShadow: '0 0 20px 4px rgba(124,58,237,0.5)',
+      duration: 1,
+      repeat: -1,
+      yoyo: true,
+      ease: 'power1.inOut',
+    });
+  }, { dependencies: [] });
+
+  return (
+    <button
+      ref={launchBtnRef}
+      type="button"
+      className={submitClass}
+      disabled={!accepted || saving}
+      onClick={onLaunch}
+    >
+      {saving ? 'Launching…' : 'Launch My Dashboard →'}
+    </button>
   );
 }
 
@@ -37,6 +119,7 @@ function DiamondMark(): JSX.Element {
  */
 export function OnboardingWizard(): JSX.Element {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
   const [step, setStep] = useState<Step>(1);
   const [direction, setDirection] = useState<1 | -1>(1);
   const [displayName, setDisplayName] = useState('');
@@ -109,147 +192,179 @@ export function OnboardingWizard(): JSX.Element {
   }
 
   const nameReady = displayName.trim().length >= 2;
+  const copy = STEP_COPY[step];
 
   return (
-    <div className="onboarding-card">
-      <div className="onboarding-progress" role="group" aria-label={`Step ${step} of 3`}>
-        {[1, 2, 3].map((item) => (
-          <span
-            key={item}
-            className={`onboarding-dot${item === step ? ' is-current' : ''}${item < step ? ' is-done' : ''}`}
-            aria-hidden="true"
-          />
-        ))}
-        <span className="onboarding-step-label">
-          {step}/3
-        </span>
-      </div>
-
-      <div className="onboarding-viewport">
-        <div key={step} className="onboarding-pane" data-direction={direction}>
-          {step === 1 ? (
-            <form onSubmit={continueFromName}>
-              <div className="mb-5 flex justify-center">
-                <DiamondMark />
-              </div>
-              <h1 className="onboarding-title">Welcome to Black Tier Circle</h1>
-              <p className="onboarding-subtitle">Let&apos;s get your account set up in just a few steps.</p>
-              <label className="onboarding-label" htmlFor="onboarding-name">
-                What&apos;s your name?
-              </label>
-              <input
-                id="onboarding-name"
-                className="login-field"
-                value={displayName}
-                placeholder="Kushal Chaudhari"
-                autoComplete="name"
-                onChange={(event) => {
-                  setDisplayName(event.target.value);
-                  if (nameError) {
-                    setNameError(null);
-                  }
-                }}
-                onBlur={() => {
-                  if (displayName.trim().length > 0 && displayName.trim().length < 2) {
-                    setNameError('Enter the name you want on your profile.');
-                  }
-                }}
-              />
-              <p className="onboarding-help">This will appear on your profile and dashboard</p>
-              {nameError ? (
-                <p className="onboarding-error" role="alert">
-                  {nameError}
-                </p>
-              ) : null}
-              <button type="submit" className="login-submit mt-6" disabled={!nameReady}>
-                Continue
-              </button>
-            </form>
-          ) : null}
-
-          {step === 2 ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                go(3);
-              }}
+    <div className="flex min-h-dvh w-full flex-col lg:h-dvh lg:flex-row lg:overflow-hidden">
+      <AuthLeftPanel>
+        <div className="relative mt-6 min-h-[9.5rem] w-full">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
+              transition={{ duration: reduceMotion ? 0 : 0.4 }}
             >
-              <h1 className="onboarding-title">Tell us about your store</h1>
-              <p className="onboarding-subtitle">Customers will see this when they visit your bot</p>
-              <label className="onboarding-label" htmlFor="onboarding-store">
-                Store name
-              </label>
-              <input
-                id="onboarding-store"
-                className="login-field"
-                value={storeName}
-                placeholder="My Awesome Store"
-                onChange={(event) => setStoreName(event.target.value)}
-              />
-              <label className="onboarding-label mt-4" htmlFor="onboarding-support">
-                Support contact
-              </label>
-              <input
-                id="onboarding-support"
-                className="login-field"
-                value={supportContact}
-                placeholder="@TelegramHandle or email"
-                onChange={(event) => setSupportContact(event.target.value)}
-              />
-              <p className="onboarding-help">Both optional — you can set them later in settings</p>
-              <div className="mt-6 flex gap-3">
-                <button type="button" className="onboarding-back" onClick={() => go(1)}>
-                  Back
-                </button>
-                <button type="submit" className="login-submit">
-                  Continue
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-          {step === 3 ? (
-            <div>
-              <h1 className="onboarding-title">You&apos;re almost ready!</h1>
-              <p className="onboarding-subtitle">Review your details, then open your dashboard.</p>
-              <dl className="onboarding-summary">
-                <div>
-                  <dt>Name</dt>
-                  <dd>{displayName.trim()}</dd>
-                </div>
-                <div>
-                  <dt>Store</dt>
-                  <dd>{storeName.trim() || 'Set later'}</dd>
-                </div>
-              </dl>
-              <div className="onboarding-terms" tabIndex={0}>
-                {TERMS}
-              </div>
-              <label className="onboarding-check">
-                <input
-                  type="checkbox"
-                  checked={accepted}
-                  onChange={(event) => setAccepted(event.target.checked)}
-                />
-                <span>I agree to the Terms of Service and Privacy Policy</span>
-              </label>
-              {formError ? (
-                <p className="onboarding-error" role="alert">
-                  {formError}
-                </p>
-              ) : null}
-              <div className="mt-6 flex gap-3">
-                <button type="button" className="onboarding-back" onClick={() => go(2)} disabled={saving}>
-                  Back
-                </button>
-                <button type="button" className="login-submit" disabled={!accepted || saving} onClick={() => void launch()}>
-                  {saving ? 'Launching…' : 'Launch My Dashboard'}
-                </button>
-              </div>
-            </div>
-          ) : null}
+              <p className={quoteClass}>{copy.quote}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{copy.sub}</p>
+            </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
+      </AuthLeftPanel>
+
+      <AuthRightPanel>
+        <motion.div
+          className={glassCardClass}
+          initial={reduceMotion ? false : { opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.5, ease: 'easeOut' }}
+        >
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              data-direction={direction}
+              initial={reduceMotion ? false : { opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -40 }}
+              transition={{ duration: reduceMotion ? 0 : 0.35, ease: 'easeInOut' }}
+            >
+              {step === 1 ? (
+                <form onSubmit={continueFromName}>
+                  <div className="mb-4 flex justify-center">
+                    <AnimatedCrown size={40} float={false} />
+                  </div>
+                  <h1 className={headingClass}>Welcome to Black Tier Circle</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">What should we call you?</p>
+                  <label className="mb-1.5 mt-6 block text-xs font-medium text-muted-foreground" htmlFor="onboarding-name">
+                    Name
+                  </label>
+                  <input
+                    id="onboarding-name"
+                    className={fieldClass}
+                    value={displayName}
+                    placeholder="Kushal Chaudhari"
+                    autoComplete="name"
+                    aria-invalid={nameError !== null}
+                    aria-describedby={nameError ? 'onboarding-name-error' : 'onboarding-name-help'}
+                    onChange={(event) => {
+                      setDisplayName(event.target.value);
+                      if (nameError) {
+                        setNameError(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (displayName.trim().length > 0 && displayName.trim().length < 2) {
+                        setNameError('Enter the name you want on your profile.');
+                      }
+                    }}
+                  />
+                  <p id="onboarding-name-help" className="mt-1 text-xs text-muted-foreground">
+                    This will appear on your profile and dashboard
+                  </p>
+                  {nameError ? (
+                    <p id="onboarding-name-error" className="auth-alert-red mt-2 text-[13px]" role="alert">
+                      {nameError}
+                    </p>
+                  ) : null}
+                  <button type="submit" className={`${submitClass} mt-6`} disabled={!nameReady}>
+                    Continue
+                  </button>
+                </form>
+              ) : null}
+
+              {step === 2 ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    go(3);
+                  }}
+                >
+                  <h1 className={headingClass}>Tell us about your store</h1>
+                  <label className="mb-1.5 mt-6 block text-xs font-medium text-muted-foreground" htmlFor="onboarding-store">
+                    Store name
+                  </label>
+                  <input
+                    id="onboarding-store"
+                    className={fieldClass}
+                    value={storeName}
+                    placeholder="My Awesome Store"
+                    onChange={(event) => setStoreName(event.target.value)}
+                  />
+                  <label className="mb-1.5 mt-4 block text-xs font-medium text-muted-foreground" htmlFor="onboarding-support">
+                    Support contact
+                  </label>
+                  <input
+                    id="onboarding-support"
+                    className={fieldClass}
+                    value={supportContact}
+                    placeholder="@TelegramHandle or email"
+                    onChange={(event) => setSupportContact(event.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">Both optional — you can set them later in settings</p>
+                  <div className="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+                    <Button type="button" variant="ghost" className="h-11 cursor-pointer px-4 text-muted-foreground" onClick={() => go(1)}>
+                      Back
+                    </Button>
+                    <button type="submit" className={submitClass}>
+                      Continue
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+
+              {step === 3 ? (
+                <div>
+                  <h1 className={headingClass}>You&apos;re almost ready!</h1>
+                  <dl className="mt-5 space-y-2 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Name</dt>
+                      <dd className="text-sm text-foreground">{displayName.trim()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Store</dt>
+                      <dd className="text-sm text-foreground">{storeName.trim() || 'Set later'}</dd>
+                    </div>
+                  </dl>
+                  <div
+                    className="auth-terms mt-4 h-32 overflow-y-auto rounded-xl border p-3 text-xs text-muted-foreground"
+                    tabIndex={0}
+                  >
+                    {TERMS}
+                  </div>
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-purple-600"
+                      checked={accepted}
+                      onChange={(event) => setAccepted(event.target.checked)}
+                    />
+                    <span>I agree to the Terms of Service and Privacy Policy</span>
+                  </label>
+                  {formError ? (
+                    <p className="auth-alert-red mt-2 text-[13px]" role="alert">
+                      {formError}
+                    </p>
+                  ) : null}
+                  <div className="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-11 cursor-pointer px-4 text-muted-foreground"
+                      onClick={() => go(2)}
+                      disabled={saving}
+                    >
+                      Back
+                    </Button>
+                    <LaunchButton saving={saving} accepted={accepted} onLaunch={() => void launch()} />
+                  </div>
+                </div>
+              ) : null}
+            </motion.div>
+          </AnimatePresence>
+          <StepDots step={step} />
+        </motion.div>
+      </AuthRightPanel>
     </div>
   );
 }

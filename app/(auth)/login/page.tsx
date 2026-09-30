@@ -11,12 +11,12 @@
 
 import { type FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { UserRole } from '@/modules/identity/types';
-import { CSSOrb } from '@/components/3d/CSSOrb';
-import { SplineScene } from '@/components/3d/SplineScene';
-import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { AuthLeftPanel, AuthRightPanel, fieldClass, glassCardClass, googleClass, quoteClass, submitClass } from '@/components/auth/auth-chrome';
+import { AnimatedCrown } from '@/components/ui/animated-crown';
 
 function isUserRole(value: unknown): value is UserRole {
   return value === 'owner' || value === 'reseller' || value === 'staff';
@@ -192,21 +192,21 @@ function LoginForm(): JSX.Element {
     }
   }
 
-  return (
-    <div className="flex flex-col">
-      <div className="mb-2 flex items-center gap-2 text-[22px] font-semibold text-[var(--text-0)]">
-        <span className="mem-mark" aria-hidden="true">BT</span>
-        Black Tier MemoryOS
-      </div>
-      <p className="mb-8 text-sm text-[var(--text-2)]">Sign in to your store</p>
+  const reduceMotion = useReducedMotion();
 
-      <div className="login-tabs mb-6" role="tablist" aria-label="Account">
-        <span className="login-tab-indicator" data-tab={tab} />
+  return (
+    <div className="flex w-full flex-col items-center">
+      <AnimatedCrown size={36} float={false} />
+      <h1 className="mt-3 text-xl font-semibold text-foreground">Black Tier Circle</h1>
+
+      <div className="auth-tabs mt-4 flex w-full rounded-xl p-1" role="tablist" aria-label="Account">
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'signin'}
-          className="login-tab"
+          className={tab === 'signin'
+            ? 'flex-1 cursor-pointer rounded-lg bg-purple-600 px-4 py-1.5 text-sm font-medium text-white'
+            : 'flex-1 cursor-pointer rounded-lg px-4 py-1.5 text-sm text-muted-foreground'}
           onClick={() => {
             setTab('signin');
             setError(null);
@@ -218,7 +218,9 @@ function LoginForm(): JSX.Element {
           type="button"
           role="tab"
           aria-selected={tab === 'signup'}
-          className="login-tab"
+          className={tab === 'signup'
+            ? 'flex-1 cursor-pointer rounded-lg bg-purple-600 px-4 py-1.5 text-sm font-medium text-white'
+            : 'flex-1 cursor-pointer rounded-lg px-4 py-1.5 text-sm text-muted-foreground'}
           onClick={() => {
             setTab('signup');
             setError(null);
@@ -228,141 +230,170 @@ function LoginForm(): JSX.Element {
         </button>
       </div>
 
-      {tab === 'signin' ? (
-        <form key="signin" onSubmit={(event) => void onSubmit(event)} className="login-pane flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Email address
-            <input
-              type="email"
-              name="email"
-              autoComplete="email"
-              required
-              placeholder="you@company.com"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="login-field"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Password
-            <span className="relative">
+      <AnimatePresence mode="wait">
+        {tab === 'signin' ? (
+          <motion.form
+            key="signin"
+            onSubmit={(event) => void onSubmit(event)}
+            className="mt-5 flex w-full flex-col gap-4"
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
+            transition={{ duration: reduceMotion ? 0 : 0.25, ease: 'easeOut' }}
+          >
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Email address
               <input
-                type={showPassword ? 'text' : 'password'}
-                name="password"
-                autoComplete="current-password"
+                type="email"
+                name="email"
+                autoComplete="email"
                 required
-                placeholder="Your password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="login-field pr-12"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className={fieldClass}
               />
-              <PasswordToggle shown={showPassword} onToggle={() => setShowPassword((current) => !current)} />
-            </span>
-          </label>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => void onForgotPassword()}
-              disabled={forgotLoading}
-              className="text-xs text-[var(--accent-soft)] hover:text-[var(--text-0)] disabled:opacity-60"
-            >
-              {forgotLoading ? 'Sending…' : 'Forgot password?'}
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Password
+              <span className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className={`${fieldClass} pr-12`}
+                />
+                <PasswordToggle shown={showPassword} onToggle={() => setShowPassword((current) => !current)} />
+              </span>
+            </label>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void onForgotPassword()}
+                disabled={forgotLoading}
+                className="auth-link cursor-pointer text-xs hover:text-foreground disabled:opacity-60"
+              >
+                {forgotLoading ? 'Sending…' : 'Forgot password?'}
+              </button>
+            </div>
+            <button type="submit" disabled={loading || googleLoading} className={submitClass}>
+              {loading ? <Spinner /> : 'Sign In'}
             </button>
-          </div>
-          <button type="submit" disabled={loading || googleLoading} className="login-submit">
-            {loading ? <Spinner /> : 'Sign In'}
-          </button>
-        </form>
-      ) : (
-        <form key="signup" onSubmit={onCreateAccount} className="login-pane flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Display name
-            <input
-              type="text"
-              name="name"
-              autoComplete="name"
-              required
-              minLength={2}
-              placeholder="Your name"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              className="login-field"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Email address
-            <input
-              type="email"
-              name="email"
-              autoComplete="email"
-              required
-              placeholder="you@company.com"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="login-field"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Password
-            <span className="relative">
+          </motion.form>
+        ) : (
+          <motion.form
+            key="signup"
+            onSubmit={onCreateAccount}
+            className="mt-5 flex w-full flex-col gap-4"
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
+            transition={{ duration: reduceMotion ? 0 : 0.25, ease: 'easeOut' }}
+          >
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Display name
+              <input
+                type="text"
+                name="name"
+                autoComplete="name"
+                required
+                minLength={2}
+                placeholder="Your name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                className={fieldClass}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Email address
+              <input
+                type="email"
+                name="email"
+                autoComplete="email"
+                required
+                placeholder="you@company.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className={fieldClass}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Password
+              <span className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="new-password"
+                  autoComplete="new-password"
+                  required
+                  minLength={8}
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className={`${fieldClass} pr-12`}
+                />
+                <PasswordToggle shown={showPassword} onToggle={() => setShowPassword((current) => !current)} />
+              </span>
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Confirm password
               <input
                 type={showPassword ? 'text' : 'password'}
-                name="new-password"
+                name="confirm-password"
                 autoComplete="new-password"
                 required
-                minLength={8}
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="login-field pr-12"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                className={fieldClass}
               />
-              <PasswordToggle shown={showPassword} onToggle={() => setShowPassword((current) => !current)} />
-            </span>
-          </label>
-          <label className="flex flex-col gap-1.5 text-xs text-[var(--text-2)]">
-            Confirm password
-            <input
-              type={showPassword ? 'text' : 'password'}
-              name="confirm-password"
-              autoComplete="new-password"
-              required
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              className="login-field"
-            />
-          </label>
-          <p className="login-banner login-banner-amber">
-            <InfoMark />
-            <span>Account creation requires an invitation from the store owner.</span>
-          </p>
-          <button type="submit" className="login-submit">
-            Create Account
-          </button>
-        </form>
-      )}
+            </label>
+            <p className="auth-alert-amber flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
+              <InfoMark />
+              <span>Account creation requires an invitation from the store owner.</span>
+            </p>
+            <button type="submit" className={submitClass}>
+              Create Account
+            </button>
+          </motion.form>
+        )}
+      </AnimatePresence>
 
-      <div className="my-6 flex items-center gap-3 text-xs text-[var(--text-3)]">
-        <span className="h-px flex-1 bg-white/10" />
+      <div className="my-6 flex w-full items-center gap-3 text-xs text-muted-foreground">
+        <span className="auth-rule h-px flex-1" />
         or continue with
-        <span className="h-px flex-1 bg-white/10" />
+        <span className="auth-rule h-px flex-1" />
       </div>
 
       <button
         type="button"
         disabled={googleLoading || loading}
         onClick={() => void signInWithGoogle()}
-        className="login-google"
+        className={googleClass}
       >
         <GoogleMark />
-        {googleLoading ? <Spinner dark /> : 'Continue with Google'}
+        {googleLoading ? <Spinner /> : 'Continue with Google'}
       </button>
 
       {error ? (
-        <p className={`login-banner mt-4 ${tone === 'amber' ? 'login-banner-amber' : 'login-banner-red'}`} role="alert">
+        <p
+          className={`mt-4 flex w-full items-start gap-2.5 rounded-xl px-4 py-3 text-[13px] ${
+            tone === 'amber'
+              ? 'auth-alert-amber border border-amber-500/30 bg-amber-500/10'
+              : 'auth-alert-red border border-red-500/30 bg-red-500/10'
+          }`}
+          role="alert"
+        >
           <InfoMark />
           <span>{error}</span>
         </p>
       ) : null}
+
+      <p className="mt-4 text-center text-xs text-muted-foreground">
+        No public signup. Ask the store owner for an invite.
+      </p>
     </div>
   );
 }
@@ -373,7 +404,7 @@ function PasswordToggle({ shown, onToggle }: { readonly shown: boolean; readonly
       type="button"
       onClick={onToggle}
       aria-label={shown ? 'Hide password' : 'Show password'}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-2)] hover:text-[var(--text-0)]"
+      className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-foreground"
     >
       {shown ? (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
@@ -390,10 +421,10 @@ function PasswordToggle({ shown, onToggle }: { readonly shown: boolean; readonly
   );
 }
 
-function Spinner({ dark = false }: { readonly dark?: boolean }): JSX.Element {
+function Spinner(): JSX.Element {
   return (
     <span
-      className={`h-4 w-4 animate-spin rounded-full border-2 border-t-transparent ${dark ? 'border-gray-900' : 'border-white'}`}
+      className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
       aria-hidden="true"
     />
   );
@@ -419,35 +450,63 @@ function GoogleMark(): JSX.Element {
   );
 }
 
+const LOGIN_STATS = [
+  { value: '171', label: 'Tests Passing' },
+  { value: '21', label: 'Migrations Live' },
+  { value: '4', label: 'Payment Methods' },
+  { value: '60s', label: 'Bot Deployment' },
+] as const;
+
 export default function LoginPage(): JSX.Element {
+  const reduceMotion = useReducedMotion();
+
   return (
-    <main className="login-stage">
-      <section className="login-visual">
-        <SplineScene
-          url="https://prod.spline.design/6Wq1Q7YGyM-iab9i/scene.splinecode"
-          fallback={<CSSOrb />}
-          className="absolute inset-0 opacity-50"
-        />
-        <div className="login-visual-copy">
-          <p>Commerce should learn.</p>
-          <p>Now it does.</p>
-        </div>
-      </section>
-      <section className="login-pane-wrap">
-        <div className="absolute right-6 top-6 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="flex w-full flex-col items-center">
-          <div className="login-card">
-            <Suspense fallback={<p className="text-sm text-[var(--text-2)]">Loading…</p>}>
-              <LoginForm />
-            </Suspense>
-          </div>
-          <p className="relative z-10 mt-6 text-center text-xs text-[var(--text-3)]">
-            No public signup. Ask the store owner for an invite.
-          </p>
-        </div>
-      </section>
+    <main className="flex min-h-dvh w-full flex-col lg:h-dvh lg:flex-row lg:overflow-hidden">
+      <AuthLeftPanel>
+        <motion.p
+          className={`mt-6 ${quoteClass}`}
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.6, delay: reduceMotion ? 0 : 0.3, ease: 'easeOut' }}
+        >
+          Commerce should learn. Now it does.
+        </motion.p>
+        <motion.div
+          className="mt-10 grid w-full max-w-sm grid-cols-2 gap-x-8 gap-y-6 text-left"
+          initial="hidden"
+          animate="show"
+          variants={{
+            hidden: {},
+            show: { transition: { delayChildren: reduceMotion ? 0 : 0.6, staggerChildren: reduceMotion ? 0 : 0.08 } },
+          }}
+        >
+          {LOGIN_STATS.map((stat) => (
+            <motion.div
+              key={stat.label}
+              variants={{
+                hidden: { opacity: reduceMotion ? 1 : 0, y: reduceMotion ? 0 : 12 },
+                show: { opacity: 1, y: 0 },
+              }}
+              transition={{ duration: reduceMotion ? 0 : 0.4, ease: 'easeOut' }}
+            >
+              <p className="auth-stat text-2xl font-bold">{stat.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
+            </motion.div>
+          ))}
+        </motion.div>
+      </AuthLeftPanel>
+      <AuthRightPanel>
+        <motion.div
+          className={glassCardClass}
+          initial={reduceMotion ? false : { opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.5, ease: 'easeOut' }}
+        >
+          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+            <LoginForm />
+          </Suspense>
+        </motion.div>
+      </AuthRightPanel>
     </main>
   );
 }
