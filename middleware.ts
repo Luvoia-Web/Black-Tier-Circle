@@ -142,29 +142,12 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   const home = dashboardHomeForRole(role);
-  const holdForApproval = role === 'reseller' && gate.status === 'pending';
 
   if (role !== 'owner' && gate.status === 'suspended' && pathname !== ROUTES.suspended) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = ROUTES.suspended;
     redirectUrl.search = '';
     return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
-  }
-
-  if (holdForApproval) {
-    if (!gate.onboardingCompleted && !isOnboardingRoute(pathname)) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = ROUTES.onboarding;
-      redirectUrl.search = '';
-      return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
-    }
-    if (gate.onboardingCompleted && pathname !== ROUTES.pending) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = ROUTES.pending;
-      redirectUrl.search = '';
-      return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
-    }
-    return supabaseResponse;
   }
 
   if (pathname === ROUTES.pending || pathname === ROUTES.suspended) {

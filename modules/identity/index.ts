@@ -128,8 +128,8 @@ export async function getOrCreateProfile(
     .insert({
       id: userId,
       display_name: defaults.displayName,
-      role: defaults.role ?? 'reseller',
-      status: defaults.status ?? 'pending',
+      role: defaults.role ?? 'owner',
+      status: defaults.status ?? 'active',
       timezone: defaults.timezone ?? 'Asia/Kolkata',
       mfa_enabled: false,
     })

@@ -10,7 +10,7 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AppError, NotFoundError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
-import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
+import { dashboardHomeForRole } from '@/lib/navigation';
 import { sanitizeInput } from '@/lib/sanitize';
 import { completeOnboarding } from '@/modules/identity';
 import { getTenantSettings, updateTenantSettings } from '@/modules/tenant-settings';
@@ -62,8 +62,7 @@ export async function POST(request: Request): Promise<Response> {
       supportContact: supportContact.length > 0 ? supportContact : null,
     });
 
-    const destination =
-      profile.role === 'reseller' && profile.status === 'pending' ? ROUTES.pending : dashboardHomeForRole(profile.role);
+    const destination = dashboardHomeForRole(profile.role);
     return jsonSuccess({ destination });
   } catch (error: unknown) {
     if (error instanceof AppError) {

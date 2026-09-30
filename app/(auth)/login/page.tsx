@@ -11,7 +11,7 @@
 
 import { type FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ROUTES, dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { UserRole } from '@/modules/identity/types';
 import { CSSOrb } from '@/components/3d/CSSOrb';
@@ -48,7 +48,6 @@ function bannerTone(code: string | null, message: string): 'red' | 'amber' {
 function LoginForm(): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next');
   const urlError = searchParams.get('error');
   const [tab, setTab] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
@@ -144,16 +143,7 @@ function LoginForm(): JSX.Element {
         return;
       }
 
-      const destination =
-        row.role === 'reseller' && row.status === 'pending'
-          ? row.onboarding_completed === true
-            ? ROUTES.pending
-            : ROUTES.onboarding
-          : row.onboarding_completed === true
-            ? next !== null && isSafeNextPath(next, row.role)
-              ? next
-              : dashboardHomeForRole(row.role)
-            : ROUTES.onboarding;
+      const destination = dashboardHomeForRole(row.role);
       router.push(destination);
       router.refresh();
     } catch {

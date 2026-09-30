@@ -39,12 +39,8 @@ export async function requireOperatorMemory(): Promise<MemorySession> {
   const session = await requireRole(['owner', 'reseller']);
   const db = asDbClient(session.admin);
   const tenant = await getTenantByUserId(db, session.user.id);
-  if (session.profile.role === 'reseller' && tenant.status !== 'active') {
-    throw new AuthError(
-      tenant.status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'TENANT_NOT_ACTIVE',
-      tenant.status === 'suspended' ? 'This account has been suspended' : 'Reseller account is not active',
-      403,
-    );
+  if (session.profile.role === 'reseller' && tenant.status === 'suspended') {
+    throw new AuthError('ACCOUNT_SUSPENDED', 'This account has been suspended', 403);
   }
   return { tenantId: tenant.id, userId: session.user.id, db };
 }

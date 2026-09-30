@@ -45,8 +45,8 @@ export async function POST(request: Request): Promise<Response> {
       email: body.email.toLowerCase(),
       password: body.password,
       email_confirm: true,
-      app_metadata: { role: 'reseller' },
-      user_metadata: { display_name: body.displayName, role: 'reseller' },
+      app_metadata: { role: 'owner' },
+      user_metadata: { display_name: body.displayName, role: 'owner' },
     });
     if (createError || created.user === null) {
       throw new ValidationError(
@@ -59,8 +59,8 @@ export async function POST(request: Request): Promise<Response> {
 
     await getOrCreateProfile(asDbClient(admin), createdUserId, {
       displayName: body.displayName,
-      role: 'reseller',
-      status: 'pending',
+      role: 'owner',
+      status: 'active',
     });
 
     const tenant = await createTenant(asDbClient(admin), createdUserId, body.displayName);
