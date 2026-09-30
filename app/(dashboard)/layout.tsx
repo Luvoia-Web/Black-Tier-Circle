@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { DemoBanner } from '@/components/ui/demo-banner';
 import { NotFoundError } from '@/lib/errors';
 import { ROUTES } from '@/lib/navigation';
 import { isPlatformPaymentConfigured } from '@/lib/payment-config';
@@ -54,13 +55,16 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   }
 
   return (
-    <DashboardShell
-      displayName={profile.displayName}
-      role={profile.role}
-      avatarUrl={profile.avatarUrl}
-      demoMode={demoMode}
-    >
-      {children}
-    </DashboardShell>
+    <>
+      <DemoBanner />
+      <DashboardShell
+        displayName={profile.displayName}
+        role={profile.role}
+        avatarUrl={profile.avatarUrl}
+        demoMode={demoMode}
+      >
+        {children}
+      </DashboardShell>
+    </>
   );
 }

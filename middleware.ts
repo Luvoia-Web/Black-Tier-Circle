@@ -188,7 +188,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
   }
 
-  if (isOwnerRoute(pathname) && role !== 'owner') {
+  const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+
+  if (isOwnerRoute(pathname) && role !== 'owner' && !demoMode) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = home;
     redirectUrl.search = '';
