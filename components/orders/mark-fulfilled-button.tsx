@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { API_ROUTES } from '@/lib/navigation';
 
 type MarkFulfilledButtonProps = {
@@ -22,6 +23,7 @@ type MarkFulfilledButtonProps = {
  * @param props - Order id and optional note field
  */
 export function MarkFulfilledButton({ orderId, noteEnabled = false }: MarkFulfilledButtonProps): JSX.Element {
+  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export function MarkFulfilledButton({ orderId, noteEnabled = false }: MarkFulfil
         setError(json.error?.message ?? 'Unable to mark fulfilled');
         return;
       }
-      window.location.reload();
+      router.refresh();
     } catch {
       setError('Unable to mark fulfilled');
     } finally {

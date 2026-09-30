@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonRow } from '@/components/ui/Skeleton';
 import { API_ROUTES } from '@/lib/navigation';
 
 type BotRow = {
@@ -101,14 +102,18 @@ export default function OwnerBotsPage(): JSX.Element {
       <PageHeader title="Bots" description="Owner store bot and connected reseller bots" />
       <section className="mb-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-6">
         <h2 className="text-sm font-medium text-[var(--text-2)]">Owner store bot</h2>
-        <p className="mt-2 text-lg font-semibold text-[var(--text-1)]">
-          {ownerConfigured ? 'Connected from settings' : 'Not connected'}
-        </p>
-        <p className="mt-1 text-sm text-[var(--text-2)]">
-          {ownerConfigured
-            ? 'The owner store bot uses the token saved in platform settings and the same customer UX as reseller bots.'
-            : 'Connect the owner store bot from Settings. The token is stored encrypted in the database.'}
-        </p>
+        {!loading && (
+          <>
+            <p className="mt-2 text-lg font-semibold text-[var(--text-1)]">
+              {ownerConfigured ? 'Connected from settings' : 'Not connected'}
+            </p>
+            <p className="mt-1 text-sm text-[var(--text-2)]">
+              {ownerConfigured
+                ? 'The owner store bot uses the token saved in platform settings and the same customer UX as reseller bots.'
+                : 'Connect the owner store bot from Settings. The token is stored encrypted in the database.'}
+            </p>
+          </>
+        )}
       </section>
       {error ? (
         <p className="mb-4 rounded-md border border-[var(--red)]/20 bg-[var(--red-soft)] px-3 py-2 text-sm text-[var(--red)]">
@@ -116,7 +121,11 @@ export default function OwnerBotsPage(): JSX.Element {
         </p>
       ) : null}
       {loading ? (
-        <p className="text-sm text-[var(--text-2)]">Loading bots…</p>
+        <>
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </>
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} emptyMessage="No reseller bots connected." />
       )}

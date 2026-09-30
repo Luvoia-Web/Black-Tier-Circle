@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { API_ROUTES } from '@/lib/navigation';
 
 type SupplierOrderActionsProps = {
@@ -20,6 +21,7 @@ type SupplierOrderActionsProps = {
  * Owner manual actions for supplier fulfillment.
  */
 export function SupplierOrderActions({ orderId, canAct }: SupplierOrderActionsProps): JSX.Element {
+  const router = useRouter();
   const [deliveryData, setDeliveryData] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function SupplierOrderActions({ orderId, canAct }: SupplierOrderActionsPr
         setError(json.error?.message ?? 'Unable to update supplier order');
         return false;
       }
-      window.location.reload();
+      router.refresh();
       return true;
     } catch {
       setError('Unable to update supplier order');

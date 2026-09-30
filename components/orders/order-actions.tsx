@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MarkFulfilledButton } from '@/components/orders/mark-fulfilled-button';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 
@@ -30,6 +31,7 @@ export function OrderActions({
   deliveryStatus,
   paymentStatus,
 }: OrderActionsProps): JSX.Element {
+  const router = useRouter();
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -48,7 +50,7 @@ export function OrderActions({
         setError(json.error?.message ?? 'Action failed');
         return false;
       }
-      window.location.reload();
+      router.refresh();
       return true;
     } catch {
       setError('Action failed');

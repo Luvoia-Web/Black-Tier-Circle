@@ -41,32 +41,36 @@ function minLen(name: string, min: number): boolean {
  * Evaluates launch checklist items from env + database.
  */
 export async function evaluateLaunchChecklist(supabase: DbClient): Promise<LaunchCheck[]> {
-  const products = await listProducts(supabase);
+  const [products, tenants] = await Promise.all([
+    listProducts(supabase),
+    listTenants(supabase),
+  ]);
   const published = products.filter((product) => product.status === 'published');
-  const tenants = await listTenants(supabase);
   const activeTenants = tenants.filter((tenant) => tenant.status === 'active');
 
   let fileProductsReady = published.length > 0;
   let supplierSkuReady = true;
-  for (const product of published) {
-    if (product.deliveryType === 'supplier_api') {
-      if (!product.supplierSku) {
-        supplierSkuReady = false;
+  await Promise.all(
+    published.map(async (product) => {
+      if (product.deliveryType === 'supplier_api') {
+        if (!product.supplierSku) {
+          supplierSkuReady = false;
+        }
+        return;
       }
-      continue;
-    }
-    if (product.deliveryType === 'manual') {
-      continue;
-    }
-    try {
-      const withAssets = await getProductWithAssets(supabase, product.id);
-      if (!withAssets.assets.some((asset) => !asset.isPreview)) {
+      if (product.deliveryType === 'manual') {
+        return;
+      }
+      try {
+        const withAssets = await getProductWithAssets(supabase, product.id);
+        if (!withAssets.assets.some((asset) => !asset.isPreview)) {
+          fileProductsReady = false;
+        }
+      } catch {
         fileProductsReady = false;
       }
-    } catch {
-      fileProductsReady = false;
-    }
-  }
+    }),
+  );
   if (published.length === 0) {
     fileProductsReady = false;
     supplierSkuReady = false;
@@ -75,23 +79,25 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
   let resellerBotConnected = false;
   let webhookSecretsSet = true;
   let resellerWalletFunded = false;
-  for (const tenant of activeTenants) {
-    const bot = await getBotConnection(supabase, tenant.id);
-    if (bot?.status === 'connected') {
-      resellerBotConnected = true;
-    }
-    if (bot && (!bot.webhookSecret || bot.webhookSecret.length === 0)) {
-      webhookSecretsSet = false;
-    }
-    try {
-      const wallet = await getWallet(supabase, tenant.id);
-      if (wallet.balanceTotal > 0n) {
-        resellerWalletFunded = true;
+  await Promise.all(
+    activeTenants.map(async (tenant) => {
+      const bot = await getBotConnection(supabase, tenant.id);
+      if (bot?.status === 'connected') {
+        resellerBotConnected = true;
       }
-    } catch {
-      // wallet missing
-    }
-  }
+      if (bot && (!bot.webhookSecret || bot.webhookSecret.length === 0)) {
+        webhookSecretsSet = false;
+      }
+      try {
+        const wallet = await getWallet(supabase, tenant.id);
+        if (wallet.balanceTotal > 0n) {
+          resellerWalletFunded = true;
+        }
+      } catch {
+        // wallet missing
+      }
+    }),
+  );
   if (activeTenants.length === 0) {
     webhookSecretsSet = false;
   }
