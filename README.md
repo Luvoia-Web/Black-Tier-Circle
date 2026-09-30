@@ -24,6 +24,12 @@
 
 ---
 
+## 🔓 Evaluation Access
+
+The live platform is configured for open evaluation. Sign up at [blacktiercircle.vercel.app](https://blacktiercircle.vercel.app) with any email — you receive full platform admin access instantly, with no approval gate.
+
+> This is intentional for evaluation. In production, new reseller accounts require owner approval before activation. A violet **Demo Mode** banner in the dashboard confirms evaluation access is active. All features — bots, orders, wallets, supplier API, AI intelligence, MemoryOS — are fully functional.
+
 ## Executive Summary
 
 Black Tier Circle is a **production-deployed, multi-tenant Telegram commerce platform** that allows digital product resellers to launch a fully-featured Telegram shop in under 60 seconds — with zero coding, zero infrastructure management, and zero custody of customer funds by the platform.
@@ -376,6 +382,8 @@ HINDSIGHT_BANK_PREFIX=btc-prod             # Namespace for memory banks
 | GitHub Repository | [Luvoia-Web/Black-Tier-Circle](https://github.com/Luvoia-Web/Black-Tier-Circle) |
 
 **To test the bot:** Open Telegram → search `@blacktiercirclebot` → send `/start`
+
+> **Demo Mode Active:** Sign up with any email to get instant full admin access. The platform runs with `NEXT_PUBLIC_DEMO_MODE=true` for evaluation — no approval workflow, no restrictions.
 
 ---
 
