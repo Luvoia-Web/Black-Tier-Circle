@@ -159,6 +159,38 @@ export async function recallCustomerExperience(bankId: string, query: string) {
 
 ---
 
+## MemoryOS in Action — Before vs. After
+
+Memory is not a feature in Black Tier Circle. It is the product.
+
+**Without MemoryOS:**
+> Customer: "What should I buy?"
+> RIA: "I can help you find products. What are you interested in?"
+> _(No context. No history. No personalization.)_
+
+**With MemoryOS (three-layer recall active):**
+> Customer: "What should I buy?"
+> RIA: "Hey Rahul — based on your last two top-ups and the Spotify Premium you bought in August, you might want to look at the Netflix 1-month plan. Your wallet has enough balance."
+> _(Platform context + Tenant catalog + Customer history — all retrieved in a single Hindsight query.)_
+
+The three layers resolve in order: **Platform bank** → global product knowledge and platform policies. **Tenant bank** → reseller-specific catalog, pricing, and configuration. **Customer bank** → individual purchase history, wallet activity, and preferences. The closest semantic match across all three surfaces in every RIA response.
+
+Without memory, every conversation starts from zero. With Hindsight, RIA knows the customer before they finish typing.
+
+---
+
+## Why This Is Not a Chatbot
+
+Most AI integrations bolt a chatbot onto an existing product. Black Tier Circle inverts this: the memory layer is the core infrastructure, and the rest of the platform is built around it.
+
+- **Resellers** get a support agent that knows their entire catalog and every customer's history — without training anything.
+- **Customers** get responses that feel like a human who has been managing their account for months.
+- **The platform** gets compounding value: every interaction makes the next one better.
+
+This is what persistent memory enables that a stateless LLM call never could.
+
+---
+
 ## Feature Set
 
 ### Platform Owner
