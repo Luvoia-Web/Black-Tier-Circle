@@ -4,7 +4,7 @@ export function DemoBanner() {
   if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') return null;
   return (
     <div style={{
-      background: 'rgba(109, 40, 217, 0.45)',
+      background: 'rgba(109, 40, 217, 0.2)',
       backdropFilter: 'blur(8px)',
       color: '#fff',
       textAlign: 'center',

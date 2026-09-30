@@ -89,11 +89,6 @@ export function DashboardShell({
             </button>
           </div>
         ) : null}
-        {demoMode && !uiDemo ? (
-          <div className="bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
-            Demo Mode — Payments are simulated. Add real API keys to go live.
-          </div>
-        ) : null}
         <TopBar displayName={displayName} role={role} avatarUrl={avatarUrl} onMenuClick={() => setOpen(true)} />
         <ScrollProgress />
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">
