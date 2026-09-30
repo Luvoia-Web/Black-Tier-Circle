@@ -4,7 +4,8 @@ export function DemoBanner() {
   if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true') return null;
   return (
     <div style={{
-      background: 'linear-gradient(90deg, #6d28d9, #4f46e5)',
+      background: 'rgba(109, 40, 217, 0.45)',
+      backdropFilter: 'blur(8px)',
       color: '#fff',
       textAlign: 'center',
       padding: '10px 16px',
@@ -14,7 +15,7 @@ export function DemoBanner() {
       zIndex: 9999,
       position: 'relative',
     }}>
-      🔓 Demo Mode Active — You have full platform access for evaluation. In production, owner features are restricted to the platform owner only.
+      🔓 Demo Mode Active — You have full platform access for evaluation. In production, admin features are restricted to the platform admin only.
     </div>
   );
 }
