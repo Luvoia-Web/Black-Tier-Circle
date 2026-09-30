@@ -57,7 +57,8 @@ type ProfileGate = {
 async function readProfileGate(
   supabase: ReturnType<typeof createServerClient>,
   userId: string,
-): Promise<ProfileGate> {
+  request: NextRequest,
+): Promise<ProfileGate | NextResponse> {
   const full = await supabase
     .from('profiles')
     .select('role, status, onboarding_completed')
@@ -73,6 +74,9 @@ async function readProfileGate(
     };
   }
   const fallback = await supabase.from('profiles').select('role, status').eq('id', userId).maybeSingle();
+  if (fallback.error) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
   const fallbackRow = fallback.data as { role?: string; status?: string } | null;
   const role = fallbackRow?.role;
   return {
@@ -135,7 +139,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return supabaseResponse;
   }
 
-  const gate = await readProfileGate(supabase, session.user.id);
+  const gate = await readProfileGate(supabase, session.user.id, request);
+  if (gate instanceof NextResponse) {
+    return gate;
+  }
   let role = readRoleFromJwt(session) ?? gate.role;
   if (role === null) {
     role = 'reseller';

@@ -18,6 +18,13 @@ const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32; // bytes
 
 function getEncryptionKey(): Buffer {
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (!process.env.BOT_TOKEN_ENCRYPTION_KEY ||
+      process.env.BOT_TOKEN_ENCRYPTION_KEY.startsWith('PLACEHOLDER'))
+  ) {
+    throw new Error('BOT_TOKEN_ENCRYPTION_KEY is not set. Refusing to start in production.');
+  }
   const keyHex = process.env.BOT_TOKEN_ENCRYPTION_KEY;
   if (!keyHex || keyHex.startsWith('PLACEHOLDER')) {
     // In development with placeholder key, use a deterministic dev key
