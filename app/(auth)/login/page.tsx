@@ -12,7 +12,7 @@
 import { type FormEvent, Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole, isSafeNextPath } from '@/lib/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 import type { UserRole } from '@/modules/identity/types';
 import { AuthLeftPanel, AuthRightPanel, fieldClass, glassCardClass, googleClass, quoteClass, submitClass } from '@/components/auth/auth-chrome';
@@ -49,6 +49,7 @@ function LoginForm(): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlError = searchParams.get('error');
+  const next = searchParams.get('next');
   const [tab, setTab] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -143,7 +144,16 @@ function LoginForm(): JSX.Element {
         return;
       }
 
-      const destination = dashboardHomeForRole(row.role);
+      const destination =
+        row.role === 'reseller' && row.status === 'pending'
+          ? row.onboarding_completed === true
+            ? ROUTES.pending
+            : ROUTES.onboarding
+          : row.onboarding_completed === true
+            ? next !== null && isSafeNextPath(next, row.role)
+              ? next
+              : dashboardHomeForRole(row.role)
+            : ROUTES.onboarding;
       router.push(destination);
       router.refresh();
     } catch {
