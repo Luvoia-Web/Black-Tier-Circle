@@ -72,8 +72,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       const db = asDbClient(admin);
       const created = await getOrCreateProfile(db, userId, {
         displayName: fromGoogle.slice(0, 80),
-        role: 'owner',
-        status: 'active',
+        role: 'reseller',
+        status: 'pending',
       });
       await createTenant(db, userId, created.displayName);
       return redirectWithSession(ROUTES.onboarding);

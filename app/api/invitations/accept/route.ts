@@ -45,8 +45,8 @@ export async function POST(request: Request): Promise<Response> {
       email: body.email.toLowerCase(),
       password: body.password,
       email_confirm: true,
-      app_metadata: { role: 'owner' },
-      user_metadata: { display_name: body.displayName, role: 'owner' },
+      app_metadata: { role: 'reseller' },
+      user_metadata: { display_name: body.displayName, role: 'reseller' },
     });
     if (createError || created.user === null) {
       throw new ValidationError(
@@ -59,8 +59,8 @@ export async function POST(request: Request): Promise<Response> {
 
     await getOrCreateProfile(asDbClient(admin), createdUserId, {
       displayName: body.displayName,
-      role: 'owner',
-      status: 'active',
+      role: 'reseller',
+      status: 'pending',
     });
 
     const tenant = await createTenant(asDbClient(admin), createdUserId, body.displayName);
@@ -76,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
 
     logger.info('reseller invitation accepted', { tenantId: tenant.id });
     return jsonSuccess({
-      message: 'Account created successfully. You can now log in.',
+      message: 'Account created! Pending owner approval.',
     });
   } catch (error: unknown) {
     if (createdTenantId !== null) {

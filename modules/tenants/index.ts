@@ -105,7 +105,7 @@ export async function createTenant(
     .insert({
       owner_user_id: userId,
       display_name: displayName,
-      status: 'active',
+      status: 'pending',
     })
     .select('*')
     .single();
