@@ -49,6 +49,13 @@ describe('getOrCreateProfile', () => {
     expect(profile.status).toBe('pending');
     expect(db.tables.profiles).toHaveLength(1);
   });
+
+  it('defaults a new profile to reseller and pending when role and status are omitted', async () => {
+    const db = createMemoryDb();
+    const profile = await getOrCreateProfile(db, 'user-3', { displayName: 'New Reseller' });
+    expect(profile.role).toBe('reseller');
+    expect(profile.status).toBe('pending');
+  });
 });
 
 describe('completeOnboarding', () => {

@@ -124,6 +124,25 @@ describe('createOrder', () => {
     expect(second.id).toBe(first.id);
     expect(db.tables.orders).toHaveLength(1);
   });
+
+  it('throws TENANT_NOT_ACTIVE for a pending reseller tenant', async () => {
+    const db = seedOrderDb();
+    const tenants = db.tables.tenants ?? [];
+    const tenant = tenants[0];
+    if (tenant) {
+      tenant.status = 'pending';
+    }
+    await expect(
+      createOrder(db, {
+        channel: 'reseller_bot',
+        tenantId: TENANT_ID,
+        botId: BOT_ID,
+        customerId: CUSTOMER_ID,
+        productId: PRODUCT_ID,
+        idempotencyKey: 'pending-tenant',
+      }),
+    ).rejects.toMatchObject({ code: 'TENANT_NOT_ACTIVE' });
+  });
 });
 
 describe('cancelOrder', () => {

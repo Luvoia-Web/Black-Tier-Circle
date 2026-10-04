@@ -7,10 +7,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppError } from '@/lib/errors';
+import { AppError, TenantError } from '@/lib/errors';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { verifyTelegramSecret } from '@/integrations/telegram/webhook';
-import { connectBot, getOrCreateCustomer } from '@/modules/bots';
+import { assertTenantCanConnectBot, connectBot, getOrCreateCustomer } from '@/modules/bots';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 afterEach(() => {
@@ -83,6 +83,30 @@ describe('connectBot', () => {
     await expect(
       connectBot(db, { tenantId: '00000000-0000-4000-8000-000000000010', botToken: 'invalid-token-value-12345' }),
     ).rejects.toBeInstanceOf(AppError);
+  });
+});
+
+describe('assertTenantCanConnectBot', () => {
+  it('throws TENANT_NOT_ACTIVE for a pending tenant', () => {
+    expect(() => assertTenantCanConnectBot('pending')).toThrow(TenantError);
+    try {
+      assertTenantCanConnectBot('pending');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'TENANT_NOT_ACTIVE' });
+    }
+  });
+
+  it('throws TENANT_NOT_ACTIVE for a suspended tenant', () => {
+    expect(() => assertTenantCanConnectBot('suspended')).toThrow(TenantError);
+    try {
+      assertTenantCanConnectBot('suspended');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ code: 'TENANT_NOT_ACTIVE' });
+    }
+  });
+
+  it('does not throw for an active tenant', () => {
+    expect(() => assertTenantCanConnectBot('active')).not.toThrow();
   });
 });
 
