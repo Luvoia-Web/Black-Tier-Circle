@@ -561,7 +561,11 @@ export async function listResellerBotOverview(supabase: DbClient): Promise<Resel
  * @param status - Tenant account status
  */
 export function assertTenantCanConnectBot(status: string): void {
-  if (status === 'suspended') {
-    throw new TenantError('TENANT_NOT_ACTIVE', 'This account has been suspended.', 403);
+  if (status !== 'active') {
+    throw new TenantError(
+      'TENANT_NOT_ACTIVE',
+      'Your account must be activated by the owner before you can connect a bot.',
+      403,
+    );
   }
 }

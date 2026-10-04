@@ -130,8 +130,8 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
       throw new ValidationError('TENANT_REQUIRED', 'Reseller orders require a tenant');
     }
     const tenant = await getTenantById(supabase, input.tenantId);
-    if (tenant.status === 'suspended') {
-      throw new TenantError('TENANT_NOT_ACTIVE', 'This account has been suspended', 403);
+    if (tenant.status !== 'active') {
+      throw new TenantError('TENANT_NOT_ACTIVE', 'Reseller account is not active', 403);
     }
     const listing = await getListing(supabase, input.tenantId, input.productId);
     if (!listing.isVisible) {

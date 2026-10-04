@@ -90,8 +90,14 @@ export async function requireReseller(): Promise<ResellerSession> {
     throw new AuthError('FORBIDDEN', 'Reseller access required', 403);
   }
   const tenant = await getTenantByUserId(asDbClient(session.admin), session.user.id);
-  if (tenant.status === 'suspended') {
-    throw new AuthError('ACCOUNT_SUSPENDED', 'This account has been suspended', 403);
+  if (tenant.status !== 'active') {
+    throw new AuthError(
+      tenant.status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'TENANT_NOT_ACTIVE',
+      tenant.status === 'suspended'
+        ? 'This account has been suspended'
+        : 'Reseller account is not active',
+      403,
+    );
   }
   return { ...session, tenant };
 }
