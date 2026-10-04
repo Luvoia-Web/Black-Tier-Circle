@@ -18,7 +18,6 @@ import { DashboardIdentityProvider } from '@/components/dashboard-identity';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ScrollProgress } from '@/components/motion/ScrollProgress';
 import { CommandPalette } from '@/components/ui/CommandPalette';
-import { DemoBanner } from '@/components/ui/demo-banner';
 import { Sidebar } from '@/components/ui/sidebar';
 import { TopBar } from '@/components/ui/top-bar';
 import type { UserRole } from '@/modules/identity/types';
@@ -82,7 +81,6 @@ export function DashboardShell({
         animate={{ marginLeft: sidebarOffset }}
         transition={{ type: 'spring', stiffness: 260, damping: 30 }}
       >
-        <DemoBanner />
         {uiDemo ? (
           <div className="flex items-center justify-center gap-3 bg-[var(--amber-soft)] px-4 py-2 text-center text-sm text-[var(--amber)]">
             DEMO MODE — sample memory is on screen for this session.
