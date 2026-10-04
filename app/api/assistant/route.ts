@@ -211,7 +211,7 @@ async function loadCustomerMemory(
     }
   }
 
-  if (userMessage.trim().length > 0) {
+  if (process.env.NODE_ENV !== 'production' && userMessage.trim().length > 0) {
     const bankId = resolveCustomerMemoryBank(DEMO_TENANT_ID, DEMO_CUSTOMER_ID);
     try {
       const memories = await recallCustomerExperience(bankId, userMessage);
