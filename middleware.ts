@@ -36,14 +36,13 @@ function copyCookies(from: NextResponse, to: NextResponse): NextResponse {
 function readRoleFromJwt(session: {
   user: {
     app_metadata?: Record<string, unknown>;
-    user_metadata?: Record<string, unknown>;
   };
 }): UserRole | null {
+  // SECURITY: only app_metadata is trusted. user_metadata can be edited by the
+  // signed-in user from the browser, so it must never decide a role.
   const appRole = session.user.app_metadata?.role;
-  const userRole = session.user.user_metadata?.role;
-  const candidate = typeof appRole === 'string' ? appRole : typeof userRole === 'string' ? userRole : null;
-  if (candidate === 'owner' || candidate === 'reseller' || candidate === 'staff') {
-    return candidate;
+  if (appRole === 'owner' || appRole === 'reseller' || appRole === 'staff') {
+    return appRole;
   }
   return null;
 }
@@ -143,7 +142,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (gate instanceof NextResponse) {
     return gate;
   }
-  let role = readRoleFromJwt(session) ?? gate.role;
+  // SECURITY: the database profile is the source of truth for role.
+  let role = gate.role ?? readRoleFromJwt(session);
   if (role === null) {
     role = 'reseller';
   }
