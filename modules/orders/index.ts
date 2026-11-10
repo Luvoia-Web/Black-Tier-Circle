@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getProduct } from '@/modules/catalog';
 import { getListing } from '@/modules/pricing';
+import { quoteCheckout } from '@/modules/pricing/tier-store';
 import { getTenantById } from '@/modules/tenants';
 import { getWallet, releaseReservation, reserveFunds } from '@/modules/wallet';
 import { mapOrderEventRow, mapOrderRow } from './map';
@@ -141,11 +142,19 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
     }
   }
 
-  const unitRetail = isReseller
+  const baseUnit = isReseller
     ? (await getListing(supabase, input.tenantId as string, input.productId)).retailPriceMinor
     : product.retailPriceMinor;
-  const quotedRetailPrice = unitRetail * BigInt(quantity);
-  const quotedWholesalePrice = product.wholesalePriceMinor * BigInt(quantity);
+  const quote = await quoteCheckout({
+    supabase,
+    channel: input.channel,
+    tenantId: input.tenantId ?? null,
+    product,
+    baseUnit,
+    quantity,
+  });
+  const quotedRetailPrice = quote.quotedRetailMinor;
+  const quotedWholesalePrice = quote.quotedWholesaleMinor;
   const paymentStatus = 'awaiting';
   const fundingStatus = isReseller ? 'reserved' : 'not_applicable';
   const orderId = randomUUID();
@@ -249,10 +258,18 @@ export async function updateOrderQuantity(supabase: DbClient, orderId: string, q
   if (!product.stockUnlimited && (product.stockCount ?? 0) < quantity) {
     throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
   }
-  const unitRetail =
+  const baseUnit =
     order.tenantId !== null
       ? (await getListing(supabase, order.tenantId, order.productId)).retailPriceMinor
       : product.retailPriceMinor;
+  const quote = await quoteCheckout({
+    supabase,
+    channel: order.channel,
+    tenantId: order.tenantId,
+    product,
+    baseUnit,
+    quantity,
+  });
   const { checkoutIdempotencyKey } = await import('@/modules/orders/checkout');
   const nextKey =
     order.customerId === null
@@ -267,8 +284,8 @@ export async function updateOrderQuantity(supabase: DbClient, orderId: string, q
     .from('orders')
     .update({
       quantity,
-      quoted_retail_price: (unitRetail * BigInt(quantity)).toString(),
-      quoted_wholesale_price: (product.wholesalePriceMinor * BigInt(quantity)).toString(),
+      quoted_retail_price: quote.quotedRetailMinor.toString(),
+      quoted_wholesale_price: quote.quotedWholesaleMinor.toString(),
       idempotency_key: nextKey,
       updated_at: new Date().toISOString(),
     })
