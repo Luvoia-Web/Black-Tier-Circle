@@ -17,6 +17,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonPage } from '@/components/ui/Skeleton';
 import { formatUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
+import { BulkTierEditor } from '@/components/pricing/bulk-tier-editor';
 import { getMarginMinor, getMarginPercent } from '@/modules/pricing';
 
 type CatalogListing = {
@@ -433,6 +434,7 @@ export default function ResellerProductsPage(): JSX.Element {
                     </button>
                   ) : null}
                 </div>
+                {row.listing ? <BulkTierEditor endpoint={API_ROUTES.resellerListingTiers(row.listing.id)} productTitle={row.title} /> : null}
               </article>
             );
           })}

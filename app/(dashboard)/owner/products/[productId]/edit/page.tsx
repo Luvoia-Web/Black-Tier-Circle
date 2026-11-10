@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProductForm, type ProductFormValues } from '@/components/catalog/product-form';
+import { BulkTierEditor } from '@/components/pricing/bulk-tier-editor';
 import { PageHeader } from '@/components/ui/page-header';
 import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
@@ -163,14 +164,17 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
     <>
       <PageHeader title="Edit product" description="SKU cannot be changed after creation." />
       {initial ? (
-        <ProductForm
-          mode="edit"
-          initial={initial}
-          supplierLocked={supplierLocked}
-          error={error}
-          submitting={submitting}
-          onSubmit={onSubmit}
-        />
+        <>
+          <ProductForm
+            mode="edit"
+            initial={initial}
+            supplierLocked={supplierLocked}
+            error={error}
+            submitting={submitting}
+            onSubmit={onSubmit}
+          />
+          <BulkTierEditor endpoint={API_ROUTES.productTiers(params.productId)} productTitle={initial.title} />
+        </>
       ) : (
         <p className="text-sm text-[var(--text-2)]">{error ?? 'Loading…'}</p>
       )}
