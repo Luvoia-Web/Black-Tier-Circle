@@ -79,6 +79,7 @@ const OWNER_GROUPS: ReadonlyArray<NavGroup> = [
       { href: ROUTES.owner.supplier, label: 'Supplier', icon: Truck },
       { href: ROUTES.owner.fulfillment, label: 'Fulfillment', icon: PackageCheck },
       { href: ROUTES.owner.bots, label: 'Bots', icon: Bot },
+      { href: ROUTES.owner.botStudio, label: 'Bot Studio', icon: Bot },
       { href: ROUTES.owner.launch, label: 'Launch', icon: Rocket },
     ],
   },
@@ -106,6 +107,7 @@ const RESELLER_GROUPS: ReadonlyArray<NavGroup> = [
       { href: ROUTES.reseller.customers, label: 'Customers', icon: UserCircle },
       { href: ROUTES.reseller.bills, label: 'My Bills', icon: Receipt },
       { href: ROUTES.reseller.bot, label: 'My Bot', icon: Bot },
+      { href: ROUTES.reseller.botStudio, label: 'Bot Studio', icon: Bot },
     ],
   },
   {

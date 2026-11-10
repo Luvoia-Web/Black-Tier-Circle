@@ -29,6 +29,7 @@ const OWNER_COMMANDS: ReadonlyArray<Command> = [
   { label: 'Payments', href: ROUTES.owner.payments },
   { label: 'Tokens', href: ROUTES.owner.tokens },
   { label: 'Settings', href: ROUTES.owner.settings },
+  { label: 'Bot Studio', href: ROUTES.owner.botStudio },
   { label: 'Launch', href: ROUTES.owner.launch },
   { label: 'Intelligence', href: ROUTES.owner.intelligence },
 ];
@@ -40,6 +41,7 @@ const RESELLER_COMMANDS: ReadonlyArray<Command> = [
   { label: 'My Store', href: ROUTES.reseller.products },
   { label: 'Wallet & Deposits', href: ROUTES.reseller.deposits },
   { label: 'My Bot', href: ROUTES.reseller.bot },
+  { label: 'Bot Studio', href: ROUTES.reseller.botStudio },
   { label: 'Settings', href: ROUTES.reseller.settings },
 ];
 
