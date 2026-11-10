@@ -7,6 +7,9 @@ export type CatalogSupplierProduct = {
   readonly category?: string;
   readonly imageUrl?: string;
   readonly deliveryType: 'instant' | 'email_activation' | 'manual';
+  readonly durationText?: string | null;
+  readonly warrantyText?: string | null;
+  readonly typeLabel?: string | null;
 };
 
 export type CatalogOrderResult = {

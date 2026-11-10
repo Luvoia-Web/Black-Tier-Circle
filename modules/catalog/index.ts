@@ -11,9 +11,10 @@
 
 import { AppError, NotFoundError, ValidationError } from '@/lib/errors';
 import { invalidateCache, withCache } from '@/lib/cache';
-import { PRODUCT_LIST_COLUMNS } from '@/lib/lookups';
+import { PRODUCT_COLUMNS_FULL, productColumnsAfterError } from '@/lib/lookups';
 import { usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult, StorageAdapter } from '@/lib/supabase/query';
+import { normalizeCardText } from './card-text';
 import { mapProductAssetRow, mapProductRow, toPublicAsset } from './map';
 import type {
   CreateProductInput,
@@ -64,12 +65,33 @@ const SANDBOX_PRODUCTS: readonly Product[] = [
     supplierSku: null,
     supplierId: null,
     requiresEmailActivation: false,
+    durationText: null,
+    warrantyText: null,
+    typeLabel: null,
     supplierMetadata: {},
     version: 1,
     createdAt: SANDBOX_NOW,
     updatedAt: SANDBOX_NOW,
   },
 ];
+
+function cardColumnPatch(input: {
+  readonly durationText?: string | null;
+  readonly warrantyText?: string | null;
+  readonly typeLabel?: string | null;
+}): Record<string, string | null> {
+  const patch: Record<string, string | null> = {};
+  if (input.durationText !== undefined) {
+    patch.duration_text = normalizeCardText(input.durationText);
+  }
+  if (input.warrantyText !== undefined) {
+    patch.warranty_text = normalizeCardText(input.warrantyText);
+  }
+  if (input.typeLabel !== undefined) {
+    patch.type_label = normalizeCardText(input.typeLabel);
+  }
+  return patch;
+}
 
 function asProductRow(data: unknown): ProductRow {
   return data as ProductRow;
@@ -160,6 +182,7 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
       estimated_delivery_minutes: input.estimatedDeliveryMinutes ?? null,
       supplier_sku: input.deliveryType === 'supplier_api' ? (input.supplierSku ?? null) : (input.supplierSku ?? null),
       supplier_metadata: input.supplierMetadata ?? {},
+      ...cardColumnPatch(input),
       version: 1,
     })
     .select('*')
@@ -242,9 +265,13 @@ export async function listProducts(
   supabase: DbClient,
   filters?: { status?: ProductStatus; category?: string },
 ): Promise<Product[]> {
-  let result = await queryProducts(supabase, `${PRODUCT_LIST_COLUMNS}, buyer_category`, filters);
-  if (result.error && /buyer_category/i.test(result.error.message)) {
-    result = await queryProducts(supabase, PRODUCT_LIST_COLUMNS, filters);
+  let columns = PRODUCT_COLUMNS_FULL;
+  let result = await queryProducts(supabase, columns, filters);
+  let nextColumns = result.error ? productColumnsAfterError(columns, result.error.message) : null;
+  while (nextColumns) {
+    columns = nextColumns;
+    result = await queryProducts(supabase, columns, filters);
+    nextColumns = result.error ? productColumnsAfterError(columns, result.error.message) : null;
   }
   if (result.error) {
     throw new AppError('PRODUCT_LIST_FAILED', result.error.message, 500);
@@ -339,6 +366,7 @@ export async function updateProduct(
   if (input.supplierMetadata !== undefined) {
     patch.supplier_metadata = input.supplierMetadata;
   }
+  Object.assign(patch, cardColumnPatch(input));
   if (input.status !== undefined) {
     patch.status = input.status;
   }

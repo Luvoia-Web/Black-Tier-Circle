@@ -1,5 +1,6 @@
 import { BaseSupplierAdapter } from '@/integrations/supplier/adapters/base-adapter';
 import type { CatalogBalance, CatalogOrderResult, CatalogSupplierProduct, ConnectionTest } from '@/integrations/supplier/adapter-types';
+import { readCardHints } from '@/modules/catalog/card-text';
 
 const DEFAULT_BASE = 'https://canboso.com';
 const PRODUCTS = '/api/v2/telegram-buyer/products';
@@ -124,6 +125,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
     return raw.map((product) => {
       const picture = imageUrl(product.image);
       const available = product.availability?.available;
+      const hints = readCardHints(product);
       return {
         externalId: String(product.productId ?? ''),
         title: product.name ?? 'Product',
@@ -132,6 +134,9 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
         stock: typeof available === 'number' ? available : 'unlimited',
         ...(picture ? { imageUrl: picture } : {}),
         deliveryType: deliveryOf(product),
+        ...(hints.durationText ? { durationText: hints.durationText } : {}),
+        ...(hints.warrantyText ? { warrantyText: hints.warrantyText } : {}),
+        ...(hints.typeLabel ? { typeLabel: hints.typeLabel } : {}),
       };
     });
   }

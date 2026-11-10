@@ -26,6 +26,27 @@ const minorPriceString = z
   .regex(/^\d+$/, 'Price must be a numeric string in USDT minor units')
   .transform((value) => BigInt(value));
 
+const cardText = z
+  .union([
+    z.null(),
+    z
+      .string()
+      .trim()
+      .max(60)
+      .refine((value) => value.length === 0 || !/[<>]/.test(value), 'Use plain text'),
+  ])
+  .optional()
+  .transform((value) => {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    const trimmed = value.replace(/[\r\n\t]+/g, ' ').trim();
+    return trimmed.length === 0 ? null : trimmed;
+  });
+
 export const CreateProductSchema = z
   .object({
     sku: skuSchema,
@@ -42,6 +63,9 @@ export const CreateProductSchema = z
     estimatedDeliveryMinutes: z.number().int().positive().optional(),
     supplierSku: z.string().min(1).max(120).optional(),
     supplierMetadata: z.record(z.unknown()).optional(),
+    durationText: cardText,
+    warrantyText: cardText,
+    typeLabel: cardText,
   })
   .superRefine((value, ctx) => {
     if (value.wholesalePriceStr <= 0n) {
@@ -90,6 +114,9 @@ export const UpdateProductSchema = z
     status: z.enum(PRODUCT_STATUSES).optional(),
     supplierSku: z.string().min(1).max(120).nullable().optional(),
     supplierMetadata: z.record(z.unknown()).nullable().optional(),
+    durationText: cardText,
+    warrantyText: cardText,
+    typeLabel: cardText,
   })
   .superRefine((value, ctx) => {
     if (

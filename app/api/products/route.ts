@@ -105,6 +105,9 @@ export async function POST(request: Request): Promise<Response> {
         : {}),
       ...(parsed.supplierSku !== undefined ? { supplierSku: parsed.supplierSku } : {}),
       ...(parsed.supplierMetadata !== undefined ? { supplierMetadata: parsed.supplierMetadata } : {}),
+      ...(parsed.durationText !== undefined ? { durationText: parsed.durationText } : {}),
+      ...(parsed.warrantyText !== undefined ? { warrantyText: parsed.warrantyText } : {}),
+      ...(parsed.typeLabel !== undefined ? { typeLabel: parsed.typeLabel } : {}),
     });
     const db = asDbClient(session.admin);
     await notifyResellersOfProduct(db, 'New product', `${product.title} was added to the catalog.`, {

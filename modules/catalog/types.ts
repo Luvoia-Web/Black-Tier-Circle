@@ -34,6 +34,12 @@ export type Product = {
   supplierSku: string | null;
   supplierId: string | null;
   requiresEmailActivation: boolean;
+  /** Owner override. Null uses a supplier hint when one was stored. */
+  durationText: string | null;
+  /** Owner override. Null uses a supplier hint when one was stored. */
+  warrantyText: string | null;
+  /** Owner override for the buyer-facing type line. */
+  typeLabel: string | null;
   /** Arbitrary supplier-specific metadata. */
   supplierMetadata: Record<string, unknown>;
   version: number;
@@ -69,6 +75,9 @@ export type CreateProductInput = {
   estimatedDeliveryMinutes?: number;
   supplierSku?: string | null;
   supplierMetadata?: Record<string, unknown>;
+  durationText?: string | null;
+  warrantyText?: string | null;
+  typeLabel?: string | null;
 };
 
 export type UpdateProductInput = {
@@ -86,6 +95,9 @@ export type UpdateProductInput = {
   status?: ProductStatus;
   supplierSku?: string | null;
   supplierMetadata?: Record<string, unknown>;
+  durationText?: string | null;
+  warrantyText?: string | null;
+  typeLabel?: string | null;
 };
 
 export type ProductWithAssets = Product & {
@@ -111,6 +123,9 @@ export type ProductRow = {
   readonly supplier_sku?: string | null;
   readonly supplier_id?: string | null;
   readonly requires_email_activation?: boolean | null;
+  readonly duration_text?: string | null;
+  readonly warranty_text?: string | null;
+  readonly type_label?: string | null;
   readonly supplier_metadata?: Record<string, unknown> | null;
   readonly version: number;
   readonly created_at: string;

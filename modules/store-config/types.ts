@@ -62,6 +62,27 @@ export type StoreMessages = {
   readonly orderDelivered: string;
 };
 
+export type CatalogCategorySetting = {
+  readonly emoji: string;
+  readonly displayName: string;
+  readonly description: string;
+  readonly sortOrder: number;
+  readonly hidden: boolean;
+};
+
+export type CatalogTemplates = {
+  readonly categoriesHeader: string;
+  readonly productListHeader: string;
+  readonly productFooterInstant: string;
+  readonly productFooterManual: string;
+  readonly checkoutShortfall: string;
+};
+
+export type CatalogConfig = {
+  readonly categories: Readonly<Record<string, CatalogCategorySetting>>;
+  readonly templates: CatalogTemplates;
+};
+
 export type StoreConfig = {
   readonly welcome: string;
   readonly buttons: Record<ButtonKey, StoreButton>;
@@ -72,6 +93,7 @@ export type StoreConfig = {
     readonly website: StoreLink;
   };
   readonly messages: StoreMessages;
+  readonly catalog: CatalogConfig;
 };
 
 export type StoredStoreConfig = {

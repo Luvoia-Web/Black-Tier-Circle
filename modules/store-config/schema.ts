@@ -33,6 +33,22 @@ const buttonsSchema = z.object(
   >,
 );
 
+export const categorySettingSchema = z.object({
+  emoji: z.string().trim().max(8),
+  displayName: z.string().trim().max(40),
+  description: z.string().trim().max(120),
+  sortOrder: z.number().int().min(0).max(999),
+  hidden: z.boolean(),
+});
+
+export const catalogTemplatesSchema = z.object({
+  categoriesHeader: z.string().trim().min(1).max(1000),
+  productListHeader: z.string().trim().min(1).max(1000),
+  productFooterInstant: z.string().trim().min(1).max(300),
+  productFooterManual: z.string().trim().min(1).max(300),
+  checkoutShortfall: z.string().trim().min(1).max(300),
+});
+
 export const customLinksSchema = z
   .array(
     z.object({
@@ -58,6 +74,10 @@ export const StoreConfigSchema = z
       checkoutHeader: z.string().trim().min(1).max(2000),
       orderProcessing: z.string().trim().min(1).max(2000),
       orderDelivered: z.string().trim().min(1).max(2000),
+    }),
+    catalog: z.object({
+      categories: z.record(z.string().trim().min(1).max(50), categorySettingSchema),
+      templates: catalogTemplatesSchema,
     }),
   })
   .strict()

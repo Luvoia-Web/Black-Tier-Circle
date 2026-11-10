@@ -6,6 +6,7 @@
  * @module Catalog
  */
 
+import { hintCardText } from '@/modules/catalog/card-text';
 import type { Product, ProductAsset, ProductAssetRow, ProductRow } from './types';
 
 /**
@@ -45,6 +46,9 @@ export function mapProductRow(row: ProductRow): Product {
     supplierSku: row.supplier_sku ?? null,
     supplierId: row.supplier_id ?? null,
     requiresEmailActivation: row.requires_email_activation === true || row.supplier_metadata?.requiresEmailActivation === true,
+    durationText: hintCardText(row.duration_text),
+    warrantyText: hintCardText(row.warranty_text),
+    typeLabel: hintCardText(row.type_label),
     supplierMetadata: row.supplier_metadata ?? {},
     version: row.version,
     createdAt: new Date(row.created_at),

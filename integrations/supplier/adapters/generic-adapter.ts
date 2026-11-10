@@ -1,5 +1,6 @@
 import { BaseSupplierAdapter } from '@/integrations/supplier/adapters/base-adapter';
 import type { CatalogBalance, CatalogOrderResult, CatalogSupplierProduct, ConnectionTest } from '@/integrations/supplier/adapter-types';
+import { readCardHints } from '@/modules/catalog/card-text';
 
 const AUTH_ATTEMPTS: ReadonlyArray<{ name: string; format: 'bare' | 'bearer'; headers: (key: string) => Record<string, string> }> = [
   { name: 'Authorization', format: 'bearer', headers: (key) => ({ Authorization: `Bearer ${key}` }) },
@@ -94,12 +95,16 @@ export class GenericAdapter extends BaseSupplierAdapter {
     const json = (await response.json()) as unknown;
     return productList(json).map((item, index) => {
       const row = item as Record<string, unknown>;
+      const hints = readCardHints(row);
       return {
         externalId: String(row.id ?? row.product_id ?? row.productId ?? index),
         title: String(row.name ?? row.title ?? 'Product'),
         price: Number(row.price ?? 0),
         stock: 'unlimited' as const,
         deliveryType: 'instant' as const,
+        ...(hints.durationText ? { durationText: hints.durationText } : {}),
+        ...(hints.warrantyText ? { warrantyText: hints.warrantyText } : {}),
+        ...(hints.typeLabel ? { typeLabel: hints.typeLabel } : {}),
       };
     });
   }

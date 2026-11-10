@@ -2,6 +2,7 @@ import { SupplierError, createProdSellerClient } from '@/integrations/prodseller
 import { BaseSupplierAdapter } from '@/integrations/supplier/adapters/base-adapter';
 import { isLowBalanceMessage } from '@/lib/supplier-errors';
 import type { CatalogBalance, CatalogOrderResult, CatalogSupplierProduct, ConnectionTest } from '@/integrations/supplier/adapter-types';
+import { readCardHints } from '@/modules/catalog/card-text';
 
 const DEFAULT_BASE = 'https://prodseller.com/v1';
 
@@ -60,15 +61,21 @@ export class ProdSellerAdapter extends BaseSupplierAdapter {
 
   async getProducts(apiKey: string, endpoint?: string): Promise<CatalogSupplierProduct[]> {
     const products = await this.client(apiKey, endpoint).listProducts();
-    return products.map((product) => ({
-      externalId: product.id,
-      title: product.name,
-      description: product.description,
-      price: product.price,
-      stock: product.inStock ? 'unlimited' : 0,
-      ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
-      deliveryType: product.requiresEmailActivation ? 'email_activation' : 'instant',
-    }));
+    return products.map((product) => {
+      const hints = readCardHints(product);
+      return {
+        externalId: product.id,
+        title: product.name,
+        description: product.description,
+        price: product.price,
+        stock: product.inStock ? 'unlimited' : 0,
+        ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
+        deliveryType: product.requiresEmailActivation ? 'email_activation' as const : 'instant' as const,
+        ...(hints.durationText ? { durationText: hints.durationText } : {}),
+        ...(hints.warrantyText ? { warrantyText: hints.warrantyText } : {}),
+        ...(hints.typeLabel ? { typeLabel: hints.typeLabel } : {}),
+      };
+    });
   }
 
   async createOrder(

@@ -1,4 +1,4 @@
-import type { ButtonKey, StoreButton, StoreConfig } from '@/modules/store-config/types';
+import type { ButtonKey, CatalogTemplates, StoreButton, StoreConfig } from '@/modules/store-config/types';
 import { BUTTON_KEYS } from '@/modules/store-config/types';
 
 const DEFAULT_WELCOME =
@@ -37,6 +37,16 @@ const BUTTONS: Record<ButtonKey, StoreButton> = {
   api: button('My API', '🔑', 'half', 11, false),
 };
 
+export const DEFAULT_CATALOG_TEMPLATES: CatalogTemplates = {
+  categoriesHeader: '<b>Categories</b>\nPick a category to browse.',
+  productListHeader: '{emoji} <b>{name}</b>\n{description}\n{count} products - tap one to see the details.',
+  productFooterInstant: 'Automatic delivery after payment.',
+  productFooterManual: 'The store delivers this after payment.',
+  checkoutShortfall: 'You need {shortfall} more to pay from your balance.',
+};
+
+export const LEGACY_CHECKOUT_HEADER = '✅ <b>Order Summary</b>';
+
 export const DEFAULT_STORE_CONFIG: StoreConfig = {
   welcome: DEFAULT_WELCOME,
   buttons: BUTTONS,
@@ -52,6 +62,10 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
     orderProcessing: '⏳ <b>Processing your order...</b>\n\nPlease wait a few seconds. Do not tap again.',
     orderDelivered:
       '✅ <b>Your order is delivered</b>\n\n📦 {product}\n🔢 Quantity: {quantity}\n💵 Paid: {total}\n💰 Remaining balance: <b>{balance}</b>\n🔖 Order: <code>{order}</code>\n\n<code>{content}</code>',
+  },
+  catalog: {
+    categories: {},
+    templates: DEFAULT_CATALOG_TEMPLATES,
   },
 };
 

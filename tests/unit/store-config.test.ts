@@ -99,6 +99,25 @@ describe('store config', () => {
     expect(merged.messages.supportIntro).toBe(DEFAULT_STORE_CONFIG.messages.supportIntro);
   });
 
+  it('fills catalog defaults for an old row and keeps a valid category', () => {
+    const merged = mergeStoreConfig({
+      welcome: 'Hello {name}',
+      catalog: {
+        categories: {
+          Games: { emoji: '🎮', displayName: 'Games', description: 'Keys', sortOrder: 2, hidden: false },
+          Bad: { emoji: 'x'.repeat(20), sortOrder: 1, hidden: false, displayName: '', description: '' },
+        },
+        templates: { categoriesHeader: '   ', productFooterInstant: 'Ships itself.' },
+      },
+    });
+    expect(merged.catalog.templates.categoriesHeader).toBe(DEFAULT_STORE_CONFIG.catalog.templates.categoriesHeader);
+    expect(merged.catalog.templates.productFooterInstant).toBe('Ships itself.');
+    expect(merged.catalog.templates.checkoutShortfall).toBe(DEFAULT_STORE_CONFIG.catalog.templates.checkoutShortfall);
+    expect(merged.catalog.categories.Games).toMatchObject({ emoji: '🎮', sortOrder: 2, hidden: false });
+    expect(merged.catalog.categories.Bad).toBeUndefined();
+    expect(mergeStoreConfig({ welcome: 'Hello' }).catalog.categories).toEqual({});
+  });
+
   it('returns defaults when no row exists and rejects a stale version', async () => {
     const db = createMemoryDb();
     const first = await getStoreConfig(db, null);

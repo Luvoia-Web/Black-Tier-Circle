@@ -13,6 +13,28 @@ import type { Product } from '@/modules/catalog/types';
 export const PRODUCT_LIST_COLUMNS =
   'id, sku, title, description, category, delivery_type, status, wholesale_price, retail_price, stock_unlimited, stock_count, reseller_eligible, max_purchase_qty, estimated_delivery_minutes, supplier_sku, supplier_id, supplier_price_minor, requires_email_activation, supplier_metadata, version, created_at, updated_at';
 
+export const PRODUCT_COLUMNS_BUYER = `${PRODUCT_LIST_COLUMNS}, buyer_category`;
+
+export const PRODUCT_COLUMNS_FULL = `${PRODUCT_COLUMNS_BUYER}, duration_text, warranty_text, type_label`;
+
+/**
+ * Picks the next column list when a migration has not been applied yet.
+ * Card columns are dropped first so buyer_category still loads.
+ */
+export function productColumnsAfterError(previous: string, message: string): string | null {
+  if (
+    /duration_text|warranty_text|type_label/i.test(message) &&
+    previous !== PRODUCT_COLUMNS_BUYER &&
+    previous !== PRODUCT_LIST_COLUMNS
+  ) {
+    return PRODUCT_COLUMNS_BUYER;
+  }
+  if (/buyer_category/i.test(message) && previous !== PRODUCT_LIST_COLUMNS) {
+    return PRODUCT_LIST_COLUMNS;
+  }
+  return null;
+}
+
 export type CustomerLookup = {
   readonly id: string;
   readonly username: string | null;
@@ -29,10 +51,14 @@ export async function listProductsByIds(supabase: DbClient, ids: ReadonlyArray<s
   if (unique.length === 0) {
     return map;
   }
-  const result = (await supabase
-    .from('products')
-    .select(PRODUCT_LIST_COLUMNS)
-    .in('id', unique)) as QueryResult<unknown[] | null>;
+  let columns = PRODUCT_COLUMNS_FULL;
+  let result = (await supabase.from('products').select(columns).in('id', unique)) as QueryResult<unknown[] | null>;
+  let nextColumns = result.error ? productColumnsAfterError(columns, result.error.message) : null;
+  while (nextColumns) {
+    columns = nextColumns;
+    result = (await supabase.from('products').select(columns).in('id', unique)) as QueryResult<unknown[] | null>;
+    nextColumns = result.error ? productColumnsAfterError(columns, result.error.message) : null;
+  }
   if (!Array.isArray(result.data)) {
     return map;
   }

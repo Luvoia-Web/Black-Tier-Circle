@@ -9,6 +9,7 @@ import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient } from '@/lib/supabase/query';
 import type { CatalogSupplierProduct } from '@/integrations/supplier/adapter-types';
+import { readCardHints } from '@/modules/catalog/card-text';
 import { adapterByName, detectAdapter, testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { createProdSellerClient } from '@/integrations/prodseller/client';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
@@ -85,6 +86,9 @@ type CatalogRow = {
   readonly wholesale_price_minor: string | number | null;
   readonly retail_price_minor: string | number | null;
   readonly product_id: string | null;
+  readonly duration_text?: string | null;
+  readonly warranty_text?: string | null;
+  readonly type_label?: string | null;
 };
 
 function mapSupplier(row: SupplierDbRow): SupplierRecord {
@@ -270,6 +274,9 @@ type RemoteCatalogItem = {
   readonly requiresEmailActivation: boolean;
   readonly inStock: boolean;
   readonly sold: number;
+  readonly durationText: string | null;
+  readonly warrantyText: string | null;
+  readonly typeLabel: string | null;
 };
 
 type ExistingSupplierProduct = {
@@ -336,7 +343,50 @@ function mapAdapterProduct(item: CatalogSupplierProduct): RemoteCatalogItem {
     requiresEmailActivation: item.deliveryType === 'email_activation',
     inStock: item.stock === 'unlimited' || item.stock > 0,
     sold: 0,
+    durationText: item.durationText ?? null,
+    warrantyText: item.warrantyText ?? null,
+    typeLabel: item.typeLabel ?? null,
   };
+}
+
+function cardFields(item: object): Pick<RemoteCatalogItem, 'durationText' | 'warrantyText' | 'typeLabel'> {
+  const hints = readCardHints(item);
+  const row = item as { durationText?: string | null; warrantyText?: string | null; typeLabel?: string | null };
+  return {
+    durationText: row.durationText ?? hints.durationText,
+    warrantyText: row.warrantyText ?? hints.warrantyText,
+    typeLabel: row.typeLabel ?? hints.typeLabel,
+  };
+}
+
+function stripCardColumns(patch: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...patch };
+  delete next.duration_text;
+  delete next.warranty_text;
+  delete next.type_label;
+  return next;
+}
+
+function cardColumnMissing(message: string): boolean {
+  return /duration_text|warranty_text|type_label/i.test(message);
+}
+
+async function insertSupplierChunk(supabase: DbClient, rows: Record<string, unknown>[]): Promise<string | null> {
+  const first = asWrite(await supabase.from('supplier_products').insert(rows));
+  if (first.error && cardColumnMissing(first.error.message)) {
+    const second = asWrite(await supabase.from('supplier_products').insert(rows.map((row) => stripCardColumns(row))));
+    return second.error ? safeSupplierSyncMessage(second.error.message) : null;
+  }
+  return first.error ? safeSupplierSyncMessage(first.error.message) : null;
+}
+
+async function updateSupplierRow(supabase: DbClient, id: string, patch: Record<string, unknown>): Promise<string | null> {
+  const first = asWrite(await supabase.from('supplier_products').update(patch).eq('id', id));
+  if (first.error && cardColumnMissing(first.error.message)) {
+    const second = asWrite(await supabase.from('supplier_products').update(stripCardColumns(patch)).eq('id', id));
+    return second.error ? safeSupplierSyncMessage(second.error.message) : null;
+  }
+  return first.error ? safeSupplierSyncMessage(first.error.message) : null;
 }
 
 function catalogPatch(item: RemoteCatalogItem, now: string): Record<string, unknown> {
@@ -350,6 +400,9 @@ function catalogPatch(item: RemoteCatalogItem, now: string): Record<string, unkn
     requires_email_activation: item.requiresEmailActivation,
     in_stock: item.inStock,
     sold_count: item.sold,
+    ...(item.durationText ? { duration_text: item.durationText } : {}),
+    ...(item.warrantyText ? { warranty_text: item.warrantyText } : {}),
+    ...(item.typeLabel ? { type_label: item.typeLabel } : {}),
     last_seen_at: now,
     last_synced_at: now,
   };
@@ -378,6 +431,7 @@ async function loadRemoteCatalog(
           requiresEmailActivation: item.requiresEmailActivation,
           inStock: item.inStock,
           sold: item.sold,
+          ...cardFields(item),
         })),
       };
     }
@@ -398,6 +452,7 @@ async function loadRemoteCatalog(
         requiresEmailActivation: item.requiresEmailActivation,
         inStock: item.inStock,
         sold: item.sold,
+        ...cardFields(item),
       })),
     };
   }
@@ -514,19 +569,18 @@ export async function syncSupplierProducts(
   // a payload that sets review_status for new rows would also reset it on existing rows.
   for (const chunk of chunkList(toInsert, INSERT_CHUNK)) {
     try {
-      const inserted = asWrite(
-        await supabase.from('supplier_products').insert(
-          chunk.map((item) => ({
-            ...catalogPatch(item, now),
-            supplier_id: supplierId,
-            supplier_sku: item.id,
-            review_status: 'pending_review',
-            first_seen_at: now,
-          })),
-        ),
+      const inserted = await insertSupplierChunk(
+        supabase,
+        chunk.map((item) => ({
+          ...catalogPatch(item, now),
+          supplier_id: supplierId,
+          supplier_sku: item.id,
+          review_status: 'pending_review',
+          first_seen_at: now,
+        })),
       );
-      if (inserted.error) {
-        errors.push(safeSupplierSyncMessage(inserted.error.message));
+      if (inserted) {
+        errors.push(inserted);
       } else {
         newProducts += chunk.length;
       }
@@ -543,10 +597,7 @@ export async function syncSupplierProducts(
           return 'Missing supplier product row';
         }
         try {
-          const updated = asWrite(
-            await supabase.from('supplier_products').update(catalogPatch(item, now)).eq('id', row.id),
-          );
-          return updated.error ? safeSupplierSyncMessage(updated.error.message) : null;
+          return await updateSupplierRow(supabase, row.id, catalogPatch(item, now));
         } catch (error: unknown) {
           return safeSupplierSyncMessage(error);
         }
@@ -657,7 +708,12 @@ export async function publishSupplierProduct(
     supplier_sku: row.supplier_sku,
     supplier_price_minor: cost.toString(),
     requires_email_activation: row.requires_email_activation,
-    supplier_metadata: { requiresEmailActivation: row.requires_email_activation },
+    supplier_metadata: {
+      requiresEmailActivation: row.requires_email_activation,
+      ...(row.duration_text ? { duration: row.duration_text } : {}),
+      ...(row.warranty_text ? { warranty: row.warranty_text } : {}),
+      ...(row.type_label ? { typeLabel: row.type_label } : {}),
+    },
     updated_at: now,
   };
   if (!productId) {

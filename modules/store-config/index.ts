@@ -6,8 +6,8 @@ import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { ZodError } from 'zod';
 import { DEFAULT_STORE_CONFIG } from '@/modules/store-config/defaults';
-import { StoreConfigSchema, buttonSchema, customLinksSchema, linkSchema } from '@/modules/store-config/schema';
-import type { ButtonKey, StoreConfig, StoredStoreConfig } from '@/modules/store-config/types';
+import { StoreConfigSchema, buttonSchema, categorySettingSchema, customLinksSchema, linkSchema } from '@/modules/store-config/schema';
+import type { ButtonKey, CatalogCategorySetting, CatalogTemplates, StoreConfig, StoredStoreConfig } from '@/modules/store-config/types';
 import { BUTTON_KEYS } from '@/modules/store-config/types';
 
 const CONFIG_CACHE = new Map<string, { data: StoredStoreConfig; expiresAt: number }>();
@@ -65,6 +65,66 @@ function mergeLink(stored: unknown, fallback: StoreConfig['links']['channel']): 
   return parsed.success ? parsed.data : fallback;
 }
 
+const TEMPLATE_LIMITS: Record<keyof CatalogTemplates, number> = {
+  categoriesHeader: 1000,
+  productListHeader: 1000,
+  productFooterInstant: 300,
+  productFooterManual: 300,
+  checkoutShortfall: 300,
+};
+
+function mergeTemplates(stored: unknown): CatalogTemplates {
+  const row = asObject(stored);
+  const pick = (key: keyof CatalogTemplates): string => {
+    const value = row?.[key];
+    const fallback = DEFAULT_STORE_CONFIG.catalog.templates[key];
+    if (typeof value !== 'string') {
+      return fallback;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || trimmed.length > TEMPLATE_LIMITS[key]) {
+      return fallback;
+    }
+    return trimmed;
+  };
+  return {
+    categoriesHeader: pick('categoriesHeader'),
+    productListHeader: pick('productListHeader'),
+    productFooterInstant: pick('productFooterInstant'),
+    productFooterManual: pick('productFooterManual'),
+    checkoutShortfall: pick('checkoutShortfall'),
+  };
+}
+
+function mergeCategories(stored: unknown): Record<string, CatalogCategorySetting> {
+  const source = asObject(stored);
+  if (!source) {
+    return {};
+  }
+  const next: Record<string, CatalogCategorySetting> = {};
+  for (const [name, value] of Object.entries(source)) {
+    const key = name.trim();
+    if (key.length === 0 || key.length > 50) {
+      continue;
+    }
+    const row = asObject(value);
+    if (!row) {
+      continue;
+    }
+    const parsed = categorySettingSchema.safeParse({
+      emoji: typeof row.emoji === 'string' ? row.emoji : '',
+      displayName: typeof row.displayName === 'string' ? row.displayName : '',
+      description: typeof row.description === 'string' ? row.description : '',
+      sortOrder: typeof row.sortOrder === 'number' && Number.isInteger(row.sortOrder) ? row.sortOrder : 0,
+      hidden: row.hidden === true,
+    });
+    if (parsed.success) {
+      next[key] = parsed.data;
+    }
+  }
+  return next;
+}
+
 /**
  * Merges a stored JSON object over the defaults. Invalid pieces are dropped.
  */
@@ -75,6 +135,7 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
   }
   const links = asObject(source.links);
   const messages = asObject(source.messages);
+  const catalog = asObject(source.catalog);
   const custom = Array.isArray(source.customLinks) ? source.customLinks : [];
   const parsedLinks = customLinksSchema.safeParse(custom);
   const welcome = typeof source.welcome === 'string' ? source.welcome.trim() : '';
@@ -96,6 +157,10 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
       checkoutHeader: message('checkoutHeader'),
       orderProcessing: message('orderProcessing'),
       orderDelivered: message('orderDelivered'),
+    },
+    catalog: {
+      categories: mergeCategories(catalog?.categories),
+      templates: mergeTemplates(catalog?.templates),
     },
   };
 }

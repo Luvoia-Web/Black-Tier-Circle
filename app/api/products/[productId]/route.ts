@@ -95,6 +95,9 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       ...(parsed.supplierMetadata !== undefined
         ? { supplierMetadata: parsed.supplierMetadata ?? {} }
         : {}),
+      ...(parsed.durationText !== undefined ? { durationText: parsed.durationText } : {}),
+      ...(parsed.warrantyText !== undefined ? { warrantyText: parsed.warrantyText } : {}),
+      ...(parsed.typeLabel !== undefined ? { typeLabel: parsed.typeLabel } : {}),
     });
     return jsonSuccess(product);
   } catch (error: unknown) {
