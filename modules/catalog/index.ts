@@ -223,18 +223,29 @@ export async function getProductWithAssets(
  * @param supabase - Database client
  * @param filters - Optional status and category filters
  */
-export async function listProducts(
+async function queryProducts(
   supabase: DbClient,
+  columns: string,
   filters?: { status?: ProductStatus; category?: string },
-): Promise<Product[]> {
-  let query = supabase.from('products').select(PRODUCT_LIST_COLUMNS).order('created_at', { ascending: false });
+): Promise<QueryResult<unknown[] | null>> {
+  let query = supabase.from('products').select(columns).order('created_at', { ascending: false });
   if (filters?.status !== undefined) {
     query = query.eq('status', filters.status);
   }
   if (filters?.category !== undefined) {
     query = query.eq('category', filters.category);
   }
-  const result = (await query) as QueryResult<unknown[] | null>;
+  return (await query) as QueryResult<unknown[] | null>;
+}
+
+export async function listProducts(
+  supabase: DbClient,
+  filters?: { status?: ProductStatus; category?: string },
+): Promise<Product[]> {
+  let result = await queryProducts(supabase, `${PRODUCT_LIST_COLUMNS}, buyer_category`, filters);
+  if (result.error && /buyer_category/i.test(result.error.message)) {
+    result = await queryProducts(supabase, PRODUCT_LIST_COLUMNS, filters);
+  }
   if (result.error) {
     throw new AppError('PRODUCT_LIST_FAILED', result.error.message, 500);
   }
@@ -296,6 +307,7 @@ export async function updateProduct(
   }
   if (input.category !== undefined) {
     patch.category = input.category;
+    patch.buyer_category = input.category;
   }
   if (input.deliveryType !== undefined) {
     patch.delivery_type = input.deliveryType;
@@ -346,12 +358,13 @@ export async function updateProduct(
     throw new ValidationError('SUPPLIER_SKU_REQUIRED', 'Supplier SKU is required for supplier API products');
   }
 
-  const { data, error } = await supabase
-    .from('products')
-    .update(patch)
-    .eq('id', productId)
-    .select('*')
-    .single();
+  let updated = await supabase.from('products').update(patch).eq('id', productId).select('*').single();
+  if (updated.error && /buyer_category/i.test(updated.error.message)) {
+    const { buyer_category: _ignored, ...withoutBuyer } = patch;
+    void _ignored;
+    updated = await supabase.from('products').update(withoutBuyer).eq('id', productId).select('*').single();
+  }
+  const { data, error } = updated;
   if (error || data === null) {
     throw new AppError('PRODUCT_UPDATE_FAILED', error?.message ?? 'Unable to update product', 500);
   }

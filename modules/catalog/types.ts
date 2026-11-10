@@ -17,6 +17,8 @@ export type Product = {
   title: string;
   description: string | null;
   category: string | null;
+  /** Owner-assigned shop category. Null when the stored category came from a supplier. */
+  buyerCategory?: string | null;
   deliveryType: DeliveryType;
   status: ProductStatus;
   /** Wholesale price in USDT minor units — what resellers pay per sale */
@@ -96,6 +98,7 @@ export type ProductRow = {
   readonly title: string;
   readonly description: string | null;
   readonly category: string | null;
+  readonly buyer_category?: string | null;
   readonly delivery_type: DeliveryType;
   readonly status: ProductStatus;
   readonly wholesale_price: string | number | bigint;

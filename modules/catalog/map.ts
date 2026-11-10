@@ -32,6 +32,7 @@ export function mapProductRow(row: ProductRow): Product {
     title: row.title,
     description: row.description,
     category: row.category,
+    buyerCategory: row.buyer_category ?? null,
     deliveryType: row.delivery_type,
     status: row.status,
     wholesalePriceMinor: asMinorUnits(row.wholesale_price),

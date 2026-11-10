@@ -26,6 +26,7 @@ import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations
 import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
+import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
 import type { Product } from '@/modules/catalog/types';
 import { cancelOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
 import { CHECKOUT_WINDOW_MS, expireCheckout, isCheckoutExpired, maxOrderQuantity, openCheckoutOrder } from '@/modules/orders/checkout';
@@ -235,11 +236,7 @@ function homeKeyboard(store: BotContext): InlineKeyboard {
   if (store.resellerSignupEnabled) {
     keyboard.text('🤝 Become a Reseller', 'reseller_signup:').row();
   }
-  keyboard
-    .text('🎁 Refer & Earn', 'refer:')
-    .text('🔑 My API', 'api_info:')
-    .row()
-    .text('📜 Terms & Policies', 'terms:');
+  keyboard.text('🎁 Refer & Earn', 'refer:').row().text('📜 Terms & Policies', 'terms:');
   return keyboard;
 }
 
@@ -397,7 +394,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, welcomeText(current, balance), homeKeyboard(current), 'HTML');
   }
 
-  async function showShop(screen: Screen, categoryToken?: string, showAll = false): Promise<void> {
+  async function showShop(screen: Screen, categoryToken?: string, page = 0, showAll = false): Promise<void> {
     if (await maintenanceBlock(screen)) {
       return;
     }
@@ -412,40 +409,65 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       );
       return;
     }
-    const categories = [...new Set(catalog.map((item) => item.product.category).filter((value): value is string => Boolean(value)))];
-    if (!showAll && !categoryToken && categories.length > 1) {
-      const keyboard = new InlineKeyboard();
-      for (const category of categories) {
-        keyboard.text(clip(category, 40), `cat:${categoryKey(category)}`).row();
-      }
-      keyboard.text('📦 All Products', 'shop_all:').row();
-      keyboard.text('🏠 Home', 'home:');
-      await show(
-        bot,
-        screen,
-        `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${catalog.length} products\n\nChoose a category:`,
-        keyboard,
-      );
-      return;
-    }
-    const visible =
-      categoryToken === undefined
-        ? catalog
-        : catalog.filter((item) => item.product.category !== null && categoryKey(item.product.category) === categoryToken);
-    const keyboard = new InlineKeyboard();
-    for (const item of visible) {
+    const shopCategory = (item: CatalogItem): string | null => buyerFacingCategory(item.product);
+    const categories = [...new Set(catalog.map(shopCategory).filter((value): value is string => value !== null))];
+    type ShopButton = { readonly label: string; readonly data: string };
+    const productButton = (item: CatalogItem): ShopButton => {
       const stock = item.product.stockUnlimited ? '∞' : soldOut(item.product) ? 'sold out' : `${item.product.stockCount ?? 0} left`;
-      const label = clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${formatUsdt(item.priceMinor)} (${stock})`, 64);
-      keyboard.text(label, soldOut(item.product) ? 'soldout:' : `product:${item.product.id}`).row();
+      return {
+        label: clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${formatUsdt(item.priceMinor)} (${stock})`, 64),
+        data: soldOut(item.product) ? 'soldout:' : `product:${item.product.id}`,
+      };
+    };
+    const buttons: ShopButton[] = [];
+    let heading = 'Select a product:';
+    if (!showAll && categoryToken === undefined && categories.length > 0) {
+      for (const category of categories) {
+        buttons.push({ label: clip(`📂 ${category}`, 40), data: `cat:${categoryKey(category)}:0` });
+      }
+      for (const item of catalog) {
+        if (shopCategory(item) === null) {
+          buttons.push(productButton(item));
+        }
+      }
+      heading = 'Choose a category or a product:';
+    } else {
+      const visible =
+        categoryToken === undefined
+          ? catalog
+          : catalog.filter((item) => {
+              const category = shopCategory(item);
+              return category !== null && categoryKey(category) === categoryToken;
+            });
+      for (const item of visible) {
+        buttons.push(productButton(item));
+      }
     }
-    if (categories.length > 1) {
+    const pageSize = 8;
+    const pages = Math.max(1, Math.ceil(buttons.length / pageSize));
+    const safePage = Math.min(Math.max(page, 0), pages - 1);
+    const slice = buttons.slice(safePage * pageSize, safePage * pageSize + pageSize);
+    const keyboard = new InlineKeyboard();
+    for (const button of slice) {
+      keyboard.text(button.label, button.data).row();
+    }
+    if (pages > 1) {
+      if (safePage > 0) {
+        keyboard.text('⬅ Prev', categoryToken ? `cat:${categoryToken}:${safePage - 1}` : `pg:${safePage - 1}`);
+      }
+      if (safePage < pages - 1) {
+        keyboard.text('Next ➡', categoryToken ? `cat:${categoryToken}:${safePage + 1}` : `pg:${safePage + 1}`);
+      }
+      keyboard.row();
+    }
+    if (categoryToken) {
       keyboard.text('⬅ Categories', 'shop:');
     }
-    keyboard.text('🏠 Main Menu', 'start:').text('🔄 Refresh', 'shop:');
+    keyboard.text('🏠 Main Menu', 'start:');
     await show(
       bot,
       screen,
-      `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${visible.length} products\n\nSelect a product:`,
+      `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${catalog.length} products\n\n${heading}`,
       keyboard,
     );
   }
@@ -1542,15 +1564,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     if (data === 'shop_all:') {
-      await showShop(screen, undefined, true);
+      await showShop(screen, undefined, 0, true);
       return;
     }
     if (data === 'shop:' || data === 'shop') {
       await showShop(screen);
       return;
     }
+    if (data.startsWith('pg:')) {
+      await showShop(screen, undefined, Number(data.slice(3)) || 0);
+      return;
+    }
     if (data.startsWith('cat:')) {
-      await showShop(screen, data.slice(4));
+      const rest = data.slice(4);
+      const [token, rawPage] = rest.split(':');
+      if (token) {
+        await showShop(screen, token, Number(rawPage) || 0);
+      }
       return;
     }
     if (data.startsWith('product:')) {

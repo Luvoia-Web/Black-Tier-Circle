@@ -668,7 +668,7 @@ export async function publishSupplierProduct(
       sku,
       title: row.name,
       description: row.description,
-      category: row.category ?? 'Supplier',
+      category: null,
       max_purchase_qty: 1,
       version: 1,
       created_at: now,
