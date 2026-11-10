@@ -27,6 +27,9 @@ import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
+import { layoutHomeButtons } from '@/modules/store-config/keyboard';
+import { renderTemplate } from '@/modules/store-config/template';
+import { normalizeBotUrl } from '@/modules/store-config/urls';
 import type { Product } from '@/modules/catalog/types';
 import { cancelOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
 import { CHECKOUT_WINDOW_MS, expireCheckout, isCheckoutExpired, maxOrderQuantity, openCheckoutOrder } from '@/modules/orders/checkout';
@@ -222,7 +225,7 @@ function statusEmoji(status: string): string {
   return '⏳';
 }
 
-function homeKeyboard(store: BotContext): InlineKeyboard {
+function legacyHomeKeyboard(store: BotContext): InlineKeyboard {
   const keyboard = new InlineKeyboard()
     .text('🛍 Browse Shop', 'shop:')
     .text('💰 My Wallet', 'wallet:')
@@ -238,6 +241,56 @@ function homeKeyboard(store: BotContext): InlineKeyboard {
   }
   keyboard.text('🎁 Refer & Earn', 'refer:').row().text('📜 Terms & Policies', 'terms:');
   return keyboard;
+}
+
+function homeKeyboard(store: BotContext): InlineKeyboard {
+  if (!store.studio) {
+    return legacyHomeKeyboard(store);
+  }
+  const keyboard = new InlineKeyboard();
+  for (const row of layoutHomeButtons(store.studio.config, { resellerSignupEnabled: store.resellerSignupEnabled })) {
+    for (const button of row) {
+      const label = clip(button.text, 64);
+      if (button.kind === 'url') {
+        keyboard.url(label, button.url);
+      } else {
+        keyboard.text(label, button.data);
+      }
+    }
+    keyboard.row();
+  }
+  return keyboard;
+}
+
+function linkLine(label: string, url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return `${label}: ${normalizeBotUrl(trimmed)}`;
+}
+
+function templateVars(
+  store: BotContext,
+  balanceMinor: bigint,
+  firstName: string | null | undefined,
+  extra: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  const links = store.studio?.config.links;
+  return {
+    name: firstName?.trim() || 'there',
+    store: store.storeName,
+    balance: formatUsdt(balanceMinor),
+    channel: links ? linkLine(links.channel.label, links.channel.url) : '',
+    group: links ? linkLine(links.group.label, links.group.url) : '',
+    website: links ? linkLine(links.website.label, links.website.url) : '',
+    ...extra,
+  };
+}
+
+function renderStoreTemplate(template: string, vars: Record<string, string>, fallback: string): string {
+  const rendered = renderTemplate(template, vars).replace(/\n{3,}/g, '\n\n').trim();
+  return rendered.length > 0 ? rendered : fallback;
 }
 
 function navRow(keyboard: InlineKeyboard, backData?: string): InlineKeyboard {
@@ -274,12 +327,23 @@ async function show(
   await bot.api.sendMessage(screen.chatId, text, extra);
 }
 
-function welcomeText(store: BotContext, balanceMinor: bigint): string {
+function legacyWelcome(store: BotContext, balanceMinor: bigint): string {
   return (
     `👋 <b>Welcome to ${escHtml(store.storeName)}!</b>\n\n` +
     `Tap below to browse products, use /deposit to top up your wallet,\n` +
     `/profile to see your orders, or /support if you need help.\n\n` +
     `💰 Balance: <b>${escHtml(formatUsdt(balanceMinor))}</b>`
+  );
+}
+
+function welcomeText(store: BotContext, balanceMinor: bigint, firstName?: string | null): string {
+  if (!store.studio) {
+    return legacyWelcome(store, balanceMinor);
+  }
+  return renderStoreTemplate(
+    store.studio.config.welcome,
+    templateVars(store, balanceMinor, firstName),
+    legacyWelcome(store, balanceMinor),
   );
 }
 
@@ -391,7 +455,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     clearPending(screen.chatId);
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
-    await show(bot, screen, welcomeText(current, balance), homeKeyboard(current), 'HTML');
+    await show(bot, screen, welcomeText(current, balance, customer?.firstName), homeKeyboard(current), 'HTML');
   }
 
   async function showShop(screen: Screen, categoryToken?: string, page = 0, showAll = false): Promise<void> {
@@ -541,6 +605,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (customer !== null) {
       customer = await getCustomerById(context.supabase, customer.id);
     }
+    const current = await storeContext();
     const config = await loadPaymentConfig(
       context.supabase,
       customer?.creditBalanceMinor ?? 0n,
@@ -551,8 +616,20 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     const unit = order.quantity > 0 ? order.quotedRetailPriceMinor / BigInt(order.quantity) : order.quotedRetailPriceMinor;
+    const checkoutHeader = current.studio
+      ? renderStoreTemplate(
+          current.studio.config.messages.checkoutHeader,
+          templateVars(current, customer?.creditBalanceMinor ?? 0n, customer?.firstName, {
+            product: productTitle,
+            quantity: String(order.quantity),
+            total: formatUsdt(order.quotedRetailPriceMinor),
+            order: orderRef(order.id),
+          }),
+          '✅ <b>Order Summary</b>',
+        )
+      : '✅ <b>Order Summary</b>';
     const text =
-      `✅ <b>Order Summary</b>\n\n` +
+      `${checkoutHeader}\n\n` +
       `📦 ${escHtml(productTitle)}\n` +
       `💵 Unit price: ${escHtml(formatUsdt(unit))}\n` +
       `🔢 Quantity: ${order.quantity}\n` +
@@ -949,13 +1026,15 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       logger.info('wallet pay stage', { stage: name, orderId, ms: Date.now() - started });
     };
     stage('start');
-    await show(
-      bot,
-      screen,
-      '⏳ <b>Processing your order...</b>\n\nPlease wait a few seconds. Do not tap again.',
-      new InlineKeyboard(),
-      'HTML',
-    );
+    const processingStore = await storeContext();
+    const processingText = processingStore.studio
+      ? renderStoreTemplate(
+          processingStore.studio.config.messages.orderProcessing,
+          templateVars(processingStore, customer?.creditBalanceMinor ?? 0n, customer?.firstName),
+          '⏳ <b>Processing your order...</b>\n\nPlease wait a few seconds. Do not tap again.',
+        )
+      : '⏳ <b>Processing your order...</b>\n\nPlease wait a few seconds. Do not tap again.';
+    await show(bot, screen, processingText, new InlineKeyboard(), 'HTML');
     stage('processing_shown');
     const current = await storeContext();
     if (customer === null) {
@@ -1077,19 +1156,20 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         );
         return;
       }
-      const { deliveredOrderText } = await import('@/modules/fulfillment/customer-message');
+      const { deliveryTextForOrder } = await import('@/modules/fulfillment/customer-message');
+      const deliveredStore = await storeContext();
       await show(
         bot,
         screen,
         inlineText ??
-          deliveredOrderText({
+          (await deliveryTextForOrder(context.supabase, deliveredStore.tenantId, {
             title: product.title,
             quantity: latest.quantity,
             amountMinor: paid.amount,
             balanceMinor: paid.newBalance,
             orderId: order.id,
             content: 'Your product is in this chat.',
-          }),
+          })),
         homeKeys,
         'HTML',
       );
@@ -1487,10 +1567,19 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const current = await storeContext();
     const contact = current.supportContact ? `Contact: ${escHtml(current.supportContact)}\n` : '';
     const telegram = current.supportTelegramUrl ? `Telegram: ${escHtml(current.supportTelegramUrl)}\n` : '';
+    const legacySupport =
+      `❓ <b>Support</b>\n\n${contact}${telegram}\nInclude your <b>Order ID</b> when asking about an order.\nUse /orders to find it.`;
+    const intro = current.studio
+      ? renderStoreTemplate(
+          current.studio.config.messages.supportIntro,
+          templateVars(current, customer?.creditBalanceMinor ?? 0n, customer?.firstName),
+          '❓ <b>Support</b>',
+        )
+      : '';
     await show(
       bot,
       screen,
-      `❓ <b>Support</b>\n\n${contact}${telegram}\nInclude your <b>Order ID</b> when asking about an order.\nUse /orders to find it.`,
+      current.studio ? `${intro}\n\n${contact}${telegram}`.trim() : legacySupport,
       new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
     );
   }

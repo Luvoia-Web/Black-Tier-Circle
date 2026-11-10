@@ -11,7 +11,7 @@ import { getSupplierConnector } from '@/integrations/supplier/connector';
 import { SupplierError } from '@/integrations/prodseller/client';
 import { sendHtmlNotice, sendTextDelivery } from '@/integrations/telegram/delivery';
 import {
-  deliveredOrderText,
+  deliveryTextForOrder,
   isInlineDelivery,
   noteInlineMessage,
   saveDeliveryContent,
@@ -320,7 +320,7 @@ export async function deliverSupplierContent(
     const customer = order.customerId ? await getCustomerById(supabase, order.customerId) : null;
     noteInlineMessage(
       order.id,
-      deliveredOrderText({
+      await deliveryTextForOrder(supabase, order.tenantId, {
         title: product.title,
         quantity: order.quantity,
         amountMinor: order.quotedRetailPriceMinor,
@@ -375,7 +375,7 @@ export async function deliverSupplierContent(
     await sendTextDelivery(
       token,
       customer.telegramChatId,
-      deliveredOrderText({
+      await deliveryTextForOrder(supabase, order.tenantId, {
         title: product.title,
         quantity: order.quantity,
         amountMinor: order.quotedRetailPriceMinor,

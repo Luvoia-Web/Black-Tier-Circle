@@ -20,7 +20,7 @@
  */
 
 import { sendFileDelivery, sendTextDelivery } from '@/integrations/telegram/delivery';
-import { deliveredOrderText, markCustomerNotified } from '@/modules/fulfillment/customer-message';
+import { deliveryTextForOrder, markCustomerNotified } from '@/modules/fulfillment/customer-message';
 import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import {
   fulfillSupplier as fulfillSupplierOrder,
@@ -1030,7 +1030,7 @@ async function deliverSavedContent(supabase: DbClient, order: Order): Promise<bo
   await sendTextDelivery(
     token,
     customer.telegramChatId,
-    deliveredOrderText({
+    await deliveryTextForOrder(supabase, order.tenantId, {
       title: product.title,
       quantity: order.quantity,
       amountMinor: order.quotedRetailPriceMinor,

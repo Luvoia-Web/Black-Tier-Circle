@@ -6,11 +6,42 @@ import { tenantIdForStudio, writeStudio } from '@/modules/store-config/access';
 import { AuthError } from '@/lib/errors';
 import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import { renderTemplate } from '@/modules/store-config/template';
+import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const ACTOR = '00000000-0000-4000-8000-000000000002';
 const TENANT = '00000000-0000-4000-8000-000000000010';
+
+describe('home keyboard', () => {
+  it('orders buttons, pairs half widths, and hides coming-soon and disabled keys', () => {
+    const rows = layoutHomeButtons(
+      {
+        ...DEFAULT_STORE_CONFIG,
+        buttons: {
+          ...DEFAULT_STORE_CONFIG.buttons,
+          api: { ...DEFAULT_STORE_CONFIG.buttons.api, enabled: true },
+          terms: { ...DEFAULT_STORE_CONFIG.buttons.terms, enabled: false },
+        },
+        customLinks: [{ label: 'Want a bot like this?', url: 't.me/rentals', emoji: '🤖' }],
+      },
+      { resellerSignupEnabled: false },
+    );
+    const flat = rows.flat();
+    expect(flat.map((button) => button.text)).toEqual([
+      '🛍 Browse Shop',
+      '💳 Deposit',
+      '👤 Profile',
+      '❓ Support',
+      '🔑 My API',
+      '🤖 Want a bot like this?',
+    ]);
+    expect(rows[0]).toHaveLength(1);
+    expect(rows[1]?.map((button) => button.text)).toEqual(['💳 Deposit', '👤 Profile']);
+    expect(flat.some((button) => button.text.includes('Freebies') || button.text.includes('Referral'))).toBe(false);
+    expect(flat.at(-1)).toMatchObject({ kind: 'url', url: 'https://t.me/rentals' });
+  });
+});
 
 describe('bot html sanitizer', () => {
   it('keeps allowed tags and strips scripts, handlers, and javascript links', () => {

@@ -7,6 +7,8 @@
 import { formatUsdt } from '@/lib/money';
 import { logger } from '@/lib/logger';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
+import { getStoreConfig } from '@/modules/store-config';
+import { renderTemplate } from '@/modules/store-config/template';
 
 const inlineOrders = new Set<string>();
 const inlineMessages = new Map<string, string>();
@@ -34,6 +36,39 @@ export function deliveredOrderText(input: {
     `🔖 Order: <code>${esc(input.orderId.slice(0, 8).toUpperCase())}</code>` +
     body
   );
+}
+
+export async function deliveryTextForOrder(
+  supabase: DbClient,
+  tenantId: string | null,
+  input: Parameters<typeof deliveredOrderText>[0],
+): Promise<string> {
+  const fallback = deliveredOrderText(input);
+  try {
+    const stored = await getStoreConfig(supabase, tenantId);
+    if (stored.source !== 'stored') {
+      return fallback;
+    }
+    const rendered = renderTemplate(stored.config.messages.orderDelivered, {
+      product: input.title,
+      quantity: String(input.quantity),
+      total: formatUsdt(input.amountMinor),
+      balance: formatUsdt(input.balanceMinor),
+      order: input.orderId.slice(0, 8).toUpperCase(),
+      content: input.content,
+      name: '',
+      store: '',
+      channel: '',
+      group: '',
+      website: '',
+    }).trim();
+    return rendered.length > 0 ? rendered : fallback;
+  } catch (error: unknown) {
+    logger.info('delivery template skipped', {
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+    return fallback;
+  }
 }
 
 export function startInlineDelivery(orderId: string): void {

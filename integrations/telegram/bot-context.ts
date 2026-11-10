@@ -11,6 +11,8 @@ import type { DbClient } from '@/lib/supabase/query';
 import { getPlatformSettings } from '@/modules/platform';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
 import { getTenantSettings } from '@/modules/tenant-settings';
+import { getStoreConfig } from '@/modules/store-config';
+import type { StoredStoreConfig } from '@/modules/store-config/types';
 
 export type BotContext = {
   readonly isOwnerBot: boolean;
@@ -33,6 +35,8 @@ export type BotContext = {
   readonly termsOfService: string | null;
   readonly botConnectionId: string | null;
   readonly binanceMerchantId: string | null;
+  /** Null when the owner has not saved Bot Studio yet. */
+  readonly studio: StoredStoreConfig | null;
 };
 
 /**
@@ -45,7 +49,9 @@ export type BotContext = {
 const CONTEXT_CACHE = new Map<string, { data: BotContext; expiresAt: number }>();
 
 /**
- * Returns store settings, reusing a 120 second cache per bot.
+ * Returns store settings, reusing a 30 second cache per bot.
+ * The cache lives in one serverless instance, so a shorter TTL is the safe way
+ * for a dashboard save to show up without a shared cache flush.
  */
 export async function resolveBotContextCached(
   supabase: DbClient,
@@ -58,7 +64,7 @@ export async function resolveBotContextCached(
     return hit.data;
   }
   const data = await resolveBotContext(supabase, botConnectionId, tenantId);
-  CONTEXT_CACHE.set(key, { data, expiresAt: Date.now() + 120_000 });
+  CONTEXT_CACHE.set(key, { data, expiresAt: Date.now() + 30_000 });
   return data;
 }
 
@@ -70,6 +76,7 @@ export async function resolveBotContext(
   const platform = await getPlatformSettings(supabase);
   const tenant = tenantId ? await getTenantSettings(supabase, tenantId) : null;
   const payments = await resolveOrderPayments(supabase, tenantId);
+  const studio = await getStoreConfig(supabase, tenantId);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
 
@@ -94,5 +101,6 @@ export async function resolveBotContext(
     termsOfService: tenant?.termsOfService ?? null,
     botConnectionId,
     binanceMerchantId: payments.binance?.merchantId.trim() || null,
+    studio: studio.source === 'stored' ? studio : null,
   };
 }
