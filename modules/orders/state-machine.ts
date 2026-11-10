@@ -15,7 +15,7 @@
  */
 
 import { AppError } from '@/lib/errors';
-import type { DbClient } from '@/lib/supabase/query';
+import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import type {
   DeliveryStatus,
   FulfillmentStatus,
@@ -47,7 +47,8 @@ const FUNDING_TRANSITIONS: Readonly<Record<FundingStatus, readonly FundingStatus
 };
 
 const FULFILLMENT_TRANSITIONS: Readonly<Record<FulfillmentStatus, readonly FulfillmentStatus[]>> = {
-  queued: ['manual_pending', 'supplier_pending', 'ready', 'canceled', 'failed'],
+  queued: ['processing', 'manual_pending', 'supplier_pending', 'ready', 'canceled', 'failed'],
+  processing: ['manual_pending', 'supplier_pending', 'outcome_unknown', 'ready', 'failed', 'canceled'],
   manual_pending: ['ready', 'failed', 'canceled'],
   supplier_pending: ['outcome_unknown', 'ready', 'failed', 'canceled'],
   outcome_unknown: ['ready', 'failed', 'manual_pending', 'supplier_pending'],
@@ -173,15 +174,43 @@ export function transitionDelivery(fromStatus: DeliveryStatus, toStatus: Deliver
  * @param toStatus - Requested status
  * @param options - Optional actor, trigger, and note
  */
-export async function recordTransition(
+function updatedRowCount(data: unknown): number {
+  if (Array.isArray(data)) {
+    return data.length;
+  }
+  if (data && typeof data === 'object') {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Compare-and-set one status column.
+ * Returns true only when this caller changed the row.
+ * Losers must stop without side effects.
+ */
+export async function claimTransition(
   supabase: DbClient,
   orderId: string,
   track: OrderTrack,
   fromStatus: string,
   toStatus: string,
   options?: RecordTransitionOptions,
-): Promise<void> {
+): Promise<boolean> {
   assertAllowed(track, fromStatus, toStatus);
+  const column = ORDER_STATUS_COLUMNS[track];
+  const updated = (await supabase
+    .from('orders')
+    .update({ [column]: toStatus, updated_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .eq(column, fromStatus)
+    .select('id')) as QueryResult<unknown>;
+  if (updated.error) {
+    throw new AppError('ORDER_UPDATE_FAILED', updated.error.message, 500);
+  }
+  if (updatedRowCount(updated.data) !== 1) {
+    return false;
+  }
   const { error: eventError } = await supabase.from('order_events').insert({
     order_id: orderId,
     track,
@@ -194,13 +223,24 @@ export async function recordTransition(
   if (eventError) {
     throw new AppError('ORDER_EVENT_WRITE_FAILED', eventError.message, 500);
   }
-  const column = ORDER_STATUS_COLUMNS[track];
-  const { error: updateError } = await supabase
-    .from('orders')
-    .update({ [column]: toStatus, updated_at: new Date().toISOString() })
-    .eq('id', orderId);
-  if (updateError) {
-    throw new AppError('ORDER_UPDATE_FAILED', updateError.message, 500);
+  return true;
+}
+
+export async function recordTransition(
+  supabase: DbClient,
+  orderId: string,
+  track: OrderTrack,
+  fromStatus: string,
+  toStatus: string,
+  options?: RecordTransitionOptions,
+): Promise<void> {
+  const won = await claimTransition(supabase, orderId, track, fromStatus, toStatus, options);
+  if (!won) {
+    throw new AppError(
+      'TRANSITION_CONFLICT',
+      `Lost ${track} race from ${fromStatus} to ${toStatus}`,
+      409,
+    );
   }
 }
 

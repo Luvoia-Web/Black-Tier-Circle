@@ -38,7 +38,7 @@ import type { CustomerRecord, CustomerRow } from '@/modules/bots/types';
 import { generateDownloadUrl, getProduct, getProductWithAssets, PRODUCT_FILES_BUCKET } from '@/modules/catalog';
 import type { DeliveryType } from '@/modules/catalog/types';
 import { scheduleFulfilledOrderMemory } from '@/lib/order-memory';
-import { getOrder, listOrders, recordTransition, type Order } from '@/modules/orders';
+import { claimTransition, getOrder, listOrders, recordTransition, type Order } from '@/modules/orders';
 import { consumeReservation, releaseReservation } from '@/modules/wallet';
 import { mapDeliveryAttemptRow, mapFulfillmentAttemptRow } from './map';
 import type {
@@ -365,14 +365,14 @@ export function canAutoRetryDelivery(lastAttemptedAt: Date): boolean {
 async function ensureDeliveryQueued(supabase: DbClient, orderId: string): Promise<Order> {
   const latest = await getOrder(supabase, orderId);
   if (latest.deliveryStatus === 'not_ready') {
-    await recordTransition(supabase, orderId, 'delivery', 'not_ready', 'queued', {
+    await claimTransition(supabase, orderId, 'delivery', 'not_ready', 'queued', {
       trigger: 'worker',
       note: 'queued for delivery',
     });
     return getOrder(supabase, orderId);
   }
   if (latest.deliveryStatus === 'retry_pending' || latest.deliveryStatus === 'unreachable') {
-    await recordTransition(supabase, orderId, 'delivery', latest.deliveryStatus, 'queued', {
+    await claimTransition(supabase, orderId, 'delivery', latest.deliveryStatus, 'queued', {
       trigger: 'worker',
       note: 'requeued for delivery retry',
     });
@@ -439,11 +439,20 @@ export async function deliverViaBot(supabase: DbClient, order: Order, signedUrl:
   }
 
   let current = await ensureDeliveryQueued(supabase, order.id);
+  if (current.deliveryStatus === 'sent') {
+    return;
+  }
   if (current.deliveryStatus === 'queued') {
-    await recordTransition(supabase, order.id, 'delivery', 'queued', 'sending', {
+    const won = await claimTransition(supabase, order.id, 'delivery', 'queued', 'sending', {
       trigger: 'worker',
       note: 'sending via telegram',
     });
+    if (!won) {
+      const latest = await getOrder(supabase, order.id);
+      if (latest.deliveryStatus === 'sending' || latest.deliveryStatus === 'sent') {
+        return;
+      }
+    }
     current = await getOrder(supabase, order.id);
   }
 
@@ -598,8 +607,8 @@ export async function fulfillFile(
   const latest = await getOrder(supabase, order.id);
   await consumeIfReserved(supabase, latest);
   const afterConsume = await getOrder(supabase, order.id);
-  if (afterConsume.fulfillmentStatus === 'queued') {
-    await recordTransition(supabase, afterConsume.id, 'fulfillment', 'queued', 'ready', {
+  if (afterConsume.fulfillmentStatus === 'queued' || afterConsume.fulfillmentStatus === 'processing') {
+    await recordTransition(supabase, afterConsume.id, 'fulfillment', afterConsume.fulfillmentStatus, 'ready', {
       trigger: 'worker',
       note: 'file ready for delivery',
     });
@@ -621,8 +630,9 @@ export async function fulfillManual(
   fulfillmentAttempt: FulfillmentAttempt,
 ): Promise<void> {
   const product = await getProduct(supabase, order.productId);
-  if (order.fulfillmentStatus === 'queued') {
-    await recordTransition(supabase, order.id, 'fulfillment', 'queued', 'manual_pending', {
+  const current = await getOrder(supabase, order.id);
+  if (current.fulfillmentStatus === 'queued' || current.fulfillmentStatus === 'processing') {
+    await recordTransition(supabase, order.id, 'fulfillment', current.fulfillmentStatus, 'manual_pending', {
       trigger: 'worker',
       note: 'awaiting owner fulfillment',
     });
@@ -657,15 +667,57 @@ export async function fulfillManual(
  * @param supabase - Service-role database client
  * @param orderId - Order UUID
  */
+function paidForFulfillment(order: Order): boolean {
+  return order.paymentStatus === 'verified' || order.paymentStatus === 'not_required';
+}
+
 export async function processQueuedOrder(supabase: DbClient, orderId: string): Promise<FulfillmentResult> {
   const order = await getOrder(supabase, orderId);
-  if (order.fulfillmentStatus !== 'queued') {
-    throw new AppError('ORDER_NOT_QUEUED', 'Order is not queued for fulfillment', 400);
-  }
-
   const product = await getProduct(supabase, order.productId);
   const method = methodForDeliveryType(product.deliveryType);
+  if (!paidForFulfillment(order)) {
+    return {
+      success: false,
+      method,
+      fulfillmentAttemptId: '',
+      error: 'ORDER_NOT_PAID',
+    };
+  }
+  const claimed = await claimTransition(supabase, order.id, 'fulfillment', 'queued', 'processing', {
+    trigger: 'worker',
+    note: 'claimed for fulfillment',
+  });
+  if (!claimed) {
+    const latest = await getOrder(supabase, orderId);
+    const attempts = await listFulfillmentAttempts(supabase, orderId);
+    const stale =
+      latest.fulfillmentStatus === 'processing' &&
+      attempts.length === 0 &&
+      Date.now() - latest.updatedAt.getTime() > 15_000;
+    if (!stale) {
+      const failed = latest.fulfillmentStatus === 'failed';
+      return {
+        success:
+          latest.fulfillmentStatus === 'ready' ||
+          latest.deliveryStatus === 'sent' ||
+          latest.fulfillmentStatus === 'manual_pending',
+        method,
+        fulfillmentAttemptId: attempts[0]?.id ?? '',
+        ...(failed ? { error: 'FULFILLMENT_FAILED' } : {}),
+      };
+    }
+  }
   const attempt = await createFulfillmentAttempt(supabase, order.id, method);
+  const attemptsNow = await listFulfillmentAttempts(supabase, order.id);
+  const earliest = [...attemptsNow].sort((left, right) => left.startedAt.getTime() - right.startedAt.getTime())[0];
+  if (earliest && earliest.id !== attempt.id) {
+    return {
+      success: false,
+      method,
+      fulfillmentAttemptId: earliest.id,
+      error: 'FULFILLMENT_CLAIMED',
+    };
+  }
 
   try {
     if (product.deliveryType === 'file_reusable' || product.deliveryType === 'inventory_unit') {
@@ -686,6 +738,10 @@ export async function processQueuedOrder(supabase: DbClient, orderId: string): P
       };
     }
     const latest = await getOrder(supabase, order.id);
+    if (latest.fulfillmentStatus === 'failed' && latest.paymentMethod === 'wallet' && latest.customerId) {
+      const { refundWalletPaymentOnce } = await import('@/modules/payments');
+      await refundWalletPaymentOnce(supabase, latest.id, latest.customerId);
+    }
     if (latest.fulfillmentStatus !== 'failed' && order.tenantId) {
       const tenant = await supabase.from('tenants').select('owner_user_id').eq('id', order.tenantId).maybeSingle();
       const resellerId = (tenant.data as { owner_user_id?: string } | null)?.owner_user_id;
@@ -715,6 +771,10 @@ export async function processQueuedOrder(supabase: DbClient, orderId: string): P
       error: GENERIC_FULFILLMENT_ERROR,
     });
     await markFulfillmentFailed(supabase, order, GENERIC_FULFILLMENT_ERROR);
+    if (order.paymentMethod === 'wallet' && order.customerId) {
+      const { refundWalletPaymentOnce } = await import('@/modules/payments');
+      await refundWalletPaymentOnce(supabase, order.id, order.customerId);
+    }
     return {
       success: false,
       method,
@@ -932,7 +992,11 @@ export function matchesOwnerOrderTab(order: Order, tab: OwnerOrderTab): boolean 
     return order.paymentStatus === 'awaiting' || order.paymentStatus === 'pending_verification';
   }
   if (tab === 'pending_fulfillment') {
-    return order.fulfillmentStatus === 'queued' || order.fulfillmentStatus === 'supplier_pending';
+    return (
+      order.fulfillmentStatus === 'queued' ||
+      order.fulfillmentStatus === 'processing' ||
+      order.fulfillmentStatus === 'supplier_pending'
+    );
   }
   if (tab === 'manual_pending') {
     return order.fulfillmentStatus === 'manual_pending';

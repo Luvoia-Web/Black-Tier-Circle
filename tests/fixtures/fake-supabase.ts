@@ -342,6 +342,30 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ success: true, new_balance: newBalance.toString(), error_code: null }], error: null };
     }
 
+    if (fn === 'adjust_customer_credit') {
+      const customerId = String(args.p_customer_id);
+      const delta = asMinor(args.p_delta);
+      const customers = tableOf('customers');
+      const customer = customers.find((row) => String(row.id) === customerId);
+      if (!customer) {
+        return {
+          data: [{ success: false, new_balance: '0', error_code: 'INSUFFICIENT_CREDIT_OR_NOT_FOUND' }],
+          error: null,
+        };
+      }
+      const current = asMinor(customer.credit_balance ?? 0);
+      const next = current + delta;
+      if (next < 0n) {
+        return {
+          data: [{ success: false, new_balance: current.toString(), error_code: 'INSUFFICIENT_CREDIT_OR_NOT_FOUND' }],
+          error: null,
+        };
+      }
+      customer.credit_balance = next.toString();
+      customer.updated_at = nowIso();
+      return { data: [{ success: true, new_balance: next.toString(), error_code: null }], error: null };
+    }
+
     return { data: null, error: { message: `unknown rpc ${fn}` } };
   }
 

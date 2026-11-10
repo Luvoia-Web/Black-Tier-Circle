@@ -33,6 +33,7 @@ export type FundingStatus =
 
 export type FulfillmentStatus =
   | 'queued'
+  | 'processing'
   | 'manual_pending'
   | 'supplier_pending'
   | 'outcome_unknown'

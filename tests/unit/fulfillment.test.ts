@@ -120,6 +120,18 @@ function seedDb() {
   });
 }
 
+async function createPaidOrder(
+  db: ReturnType<typeof createMemoryDb>,
+  input: Parameters<typeof createOrder>[1],
+) {
+  const order = await createOrder(db, input);
+  const row = db.tables.orders?.find((item) => item.id === order.id);
+  if (row) {
+    row.payment_status = 'verified';
+  }
+  return getOrder(db, order.id);
+}
+
 async function attachMainFile(db: ReturnType<typeof createMemoryDb>, productId: string): Promise<void> {
   await attachAsset(db, productId, {
     storagePath: `products/${productId}/file.pdf`,
@@ -146,7 +158,7 @@ describe('routing', () => {
     const db = seedDb();
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -162,7 +174,7 @@ describe('routing', () => {
 
   it("processQueuedOrder with delivery_type='manual' calls fulfillManual", async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -177,7 +189,7 @@ describe('routing', () => {
 
   it("processQueuedOrder with delivery_type='supplier_api' calls fulfillSupplier", async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -192,7 +204,7 @@ describe('routing', () => {
 
   it('processQueuedOrder with fulfillment_status != queued throws AppError', async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -200,7 +212,10 @@ describe('routing', () => {
       idempotencyKey: 'not-queued',
     });
     await fulfillment.processQueuedOrder(db, order.id);
-    await expect(fulfillment.processQueuedOrder(db, order.id)).rejects.toBeInstanceOf(AppError);
+    const attemptsBefore = db.tables.fulfillment_attempts?.length ?? 0;
+    const second = await fulfillment.processQueuedOrder(db, order.id);
+    expect(second.error === 'FULFILLMENT_CLAIMED' || second.fulfillmentAttemptId.length > 0).toBe(true);
+    expect(db.tables.fulfillment_attempts?.length ?? 0).toBe(attemptsBefore);
   });
 });
 
@@ -209,7 +224,7 @@ describe('file fulfillment', () => {
     const db = seedDb();
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -227,7 +242,7 @@ describe('file fulfillment', () => {
     const db = seedDb();
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -244,7 +259,7 @@ describe('file fulfillment', () => {
   it('On successful delivery: fulfillment → ready, delivery → sent', async () => {
     const db = seedDb();
     await attachMainFile(db, FILE_PRODUCT_ID);
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -262,7 +277,7 @@ describe('file fulfillment', () => {
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
     vi.mocked(delivery.sendFileDelivery).mockRejectedValue(new Error('telegram down'));
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -279,7 +294,7 @@ describe('file fulfillment', () => {
 describe('manual fulfillment', () => {
   it('fulfillManual transitions fulfillment → manual_pending', async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -293,7 +308,7 @@ describe('manual fulfillment', () => {
 
   it('markManualFulfilled transitions fulfillment → ready and consumes reservation', async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'reseller_bot',
       tenantId: TENANT_ID,
       botId: BOT_ID,
@@ -317,7 +332,7 @@ describe('retry', () => {
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
     vi.mocked(delivery.sendFileDelivery).mockRejectedValue(new Error('telegram down'));
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -337,7 +352,7 @@ describe('retry', () => {
     await attachMainFile(db, FILE_PRODUCT_ID);
     const delivery = await import('@/integrations/telegram/delivery');
     vi.mocked(delivery.sendFileDelivery).mockRejectedValue(new Error('telegram down'));
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -355,7 +370,7 @@ describe('cancellation', () => {
   it('cancelOrder with fulfilled order throws AppError (cannot cancel)', async () => {
     const db = seedDb();
     await attachMainFile(db, FILE_PRODUCT_ID);
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'owner_store',
       botId: 'owner',
       customerId: CUSTOMER_ID,
@@ -368,7 +383,7 @@ describe('cancellation', () => {
 
   it('cancelOrder with unfulfilled order releases reservation', async () => {
     const db = seedDb();
-    const order = await createOrder(db, {
+    const order = await createPaidOrder(db, {
       channel: 'reseller_bot',
       tenantId: TENANT_ID,
       botId: BOT_ID,

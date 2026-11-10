@@ -121,7 +121,7 @@ function seedDb() {
 }
 
 async function resellerOrder(db: ReturnType<typeof createMemoryDb>, key: string) {
-  return createOrder(db, {
+  const order = await createOrder(db, {
     channel: 'reseller_bot',
     tenantId: TENANT_ID,
     botId: BOT_ID,
@@ -129,6 +129,11 @@ async function resellerOrder(db: ReturnType<typeof createMemoryDb>, key: string)
     productId: SUPPLIER_PRODUCT_ID,
     idempotencyKey: key,
   });
+  const row = db.tables.orders?.find((item) => item.id === order.id);
+  if (row) {
+    row.payment_status = 'verified';
+  }
+  return getOrder(db, order.id);
 }
 
 beforeEach(() => {

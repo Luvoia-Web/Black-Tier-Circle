@@ -31,7 +31,7 @@ import {
   supplierOrderIdFromArtifact,
 } from '@/modules/supplier/place';
 import { scheduleFulfilledOrderMemory } from '@/lib/order-memory';
-import { getOrder, getOrderEvents, recordTransition, type Order } from '@/modules/orders';
+import { claimTransition, getOrder, getOrderEvents, recordTransition, type Order } from '@/modules/orders';
 import { consumeReservation, releaseReservation } from '@/modules/wallet';
 import { mapDeliveryAttemptRow, mapFulfillmentAttemptRow } from './map';
 import type {
@@ -245,14 +245,14 @@ async function releaseIfReserved(supabase: DbClient, order: Order, reason: strin
 async function ensureDeliveryQueued(supabase: DbClient, orderId: string): Promise<Order> {
   const latest = await getOrder(supabase, orderId);
   if (latest.deliveryStatus === 'not_ready') {
-    await recordTransition(supabase, orderId, 'delivery', 'not_ready', 'queued', {
+    await claimTransition(supabase, orderId, 'delivery', 'not_ready', 'queued', {
       trigger: 'worker',
       note: 'queued for delivery',
     });
     return getOrder(supabase, orderId);
   }
   if (latest.deliveryStatus === 'retry_pending' || latest.deliveryStatus === 'unreachable') {
-    await recordTransition(supabase, orderId, 'delivery', latest.deliveryStatus, 'queued', {
+    await claimTransition(supabase, orderId, 'delivery', latest.deliveryStatus, 'queued', {
       trigger: 'worker',
       note: 'requeued for delivery retry',
     });
@@ -323,11 +323,20 @@ export async function deliverSupplierContent(
   }
 
   let current = await ensureDeliveryQueued(supabase, order.id);
+  if (current.deliveryStatus === 'sent') {
+    return;
+  }
   if (current.deliveryStatus === 'queued') {
-    await recordTransition(supabase, order.id, 'delivery', 'queued', 'sending', {
+    const won = await claimTransition(supabase, order.id, 'delivery', 'queued', 'sending', {
       trigger: 'worker',
       note: 'sending supplier content',
     });
+    if (!won) {
+      const latest = await getOrder(supabase, order.id);
+      if (latest.deliveryStatus === 'sending' || latest.deliveryStatus === 'sent') {
+        return;
+      }
+    }
     current = await getOrder(supabase, order.id);
   }
 
@@ -496,8 +505,8 @@ export async function fulfillSupplier(
   fulfillmentAttempt: FulfillmentAttempt,
 ): Promise<void> {
   const current = await getOrder(supabase, order.id);
-  if (current.fulfillmentStatus === 'queued') {
-    await recordTransition(supabase, current.id, 'fulfillment', 'queued', 'supplier_pending', {
+  if (current.fulfillmentStatus === 'queued' || current.fulfillmentStatus === 'processing') {
+    await recordTransition(supabase, current.id, 'fulfillment', current.fulfillmentStatus, 'supplier_pending', {
       trigger: 'worker',
       note: 'submitted to supplier',
     });

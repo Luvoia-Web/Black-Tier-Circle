@@ -15,7 +15,7 @@ import { getListing } from '@/modules/pricing';
 import { getTenantById } from '@/modules/tenants';
 import { getWallet, releaseReservation, reserveFunds } from '@/modules/wallet';
 import { mapOrderEventRow, mapOrderRow } from './map';
-import { recordInitialStatuses, recordTransition } from './state-machine';
+import { claimTransition, recordInitialStatuses, recordTransition } from './state-machine';
 import type {
   CreateOrderInput,
   ListOrdersFilters,
@@ -46,6 +46,7 @@ export {
   canTransitionFulfillment,
   canTransitionFunding,
   canTransitionPayment,
+  claimTransition,
   recordTransition,
   transitionDelivery,
   transitionFulfillment,
@@ -176,6 +177,17 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
     .select('*')
     .single();
   if (error || data === null) {
+    const duplicate = error?.code === '23505' || /duplicate key|idempotency_key/i.test(error?.message ?? '');
+    if (duplicate) {
+      const again = await supabase
+        .from('orders')
+        .select('*')
+        .eq('idempotency_key', input.idempotencyKey)
+        .maybeSingle();
+      if (!again.error && again.data !== null) {
+        return mapOrderRow(asOrderRow(again.data));
+      }
+    }
     throw new AppError('ORDER_CREATE_FAILED', error?.message ?? 'Unable to create order', 500);
   }
 
@@ -239,15 +251,27 @@ export async function updateOrderQuantity(supabase: DbClient, orderId: string, q
     order.tenantId !== null
       ? (await getListing(supabase, order.tenantId, order.productId)).retailPriceMinor
       : product.retailPriceMinor;
+  const { checkoutIdempotencyKey } = await import('@/modules/orders/checkout');
+  const nextKey =
+    order.customerId === null
+      ? order.idempotencyKey
+      : checkoutIdempotencyKey({
+          botId: order.botId ?? 'owner',
+          customerId: order.customerId,
+          productId: order.productId,
+          quantity,
+        });
   const { data, error } = await supabase
     .from('orders')
     .update({
       quantity,
       quoted_retail_price: (unitRetail * BigInt(quantity)).toString(),
       quoted_wholesale_price: (product.wholesalePriceMinor * BigInt(quantity)).toString(),
+      idempotency_key: nextKey,
       updated_at: new Date().toISOString(),
     })
     .eq('id', orderId)
+    .eq('payment_status', order.paymentStatus)
     .select('*')
     .single();
   if (error || data === null) {
@@ -275,7 +299,7 @@ export async function getOrder(supabase: DbClient, orderId: string): Promise<Ord
  */
 export async function listOrders(supabase: DbClient, filters: ListOrdersFilters = {}): Promise<Order[]> {
   let query = supabase.from('orders').select(
-    'id, channel, tenant_id, bot_id, customer_id, product_id, product_version, quoted_retail_price, quoted_wholesale_price, currency, payment_method, external_order_ref, payment_status, funding_status, fulfillment_status, delivery_status, idempotency_key, created_at, updated_at',
+    'id, channel, tenant_id, bot_id, customer_id, product_id, product_version, quoted_retail_price, quoted_wholesale_price, currency, payment_method, external_order_ref, payment_status, funding_status, fulfillment_status, delivery_status, idempotency_key, quantity, created_at, updated_at',
   ).order('created_at', { ascending: false });
   if (filters.tenantId !== undefined) {
     query = query.eq('tenant_id', filters.tenantId);
@@ -382,4 +406,6 @@ export async function cancelOrder(supabase: DbClient, orderId: string, reason: s
       note: reason,
     });
   }
+  const { releaseCheckoutKey } = await import('@/modules/orders/checkout');
+  await releaseCheckoutKey(supabase, orderId);
 }

@@ -27,7 +27,8 @@ import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import type { Product } from '@/modules/catalog/types';
-import { cancelOrder, createOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
+import { cancelOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
+import { openCheckoutOrder } from '@/modules/orders/checkout';
 import type { Order } from '@/modules/orders/types';
 import {
   confirmDemoOrderPayment,
@@ -533,7 +534,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
 
-  async function handleBuy(screen: Screen, productId: string, updateId: number): Promise<void> {
+  async function handleBuy(screen: Screen, productId: string): Promise<void> {
     if (await maintenanceBlock(screen)) {
       return;
     }
@@ -573,14 +574,14 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         );
         return;
       }
-      const order = await createOrder(context.supabase, {
+      const order = await openCheckoutOrder(context.supabase, {
         channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
         ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
         botId: context.botConnection.id,
         customerId: customer.id,
         productId,
         quantity: 1,
-        idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}`,
+        idempotencyKey: 'checkout',
       });
       if (item.product.requiresEmailActivation) {
         awaitingEmail.set(emailKey(context.botConnection.id, screen.chatId), {
@@ -945,6 +946,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       );
     } catch (error: unknown) {
       const code = error instanceof AppError ? error.code : '';
+      if (code === 'PAYMENT_IN_PROGRESS' || code === 'ORDER_ALREADY_PAID') {
+        await show(
+          bot,
+          screen,
+          '⏳ <b>Already processing your order.</b>\n\nPlease wait a few seconds.',
+          new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+          'HTML',
+        );
+        return;
+      }
       if (code === 'INSUFFICIENT_BALANCE') {
         await show(
           bot,
@@ -1384,7 +1395,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
   }
 
-  async function onCallback(screen: Screen, data: string, updateId: number): Promise<void> {
+  async function onCallback(screen: Screen, data: string, _updateId: number): Promise<void> {
     if (data === 'home:' || data === 'home' || data === 'start:' || data === 'start') {
       await showHome(screen);
       return;
@@ -1410,7 +1421,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     if (data.startsWith('buy:')) {
-      await handleBuy(screen, data.slice('buy:'.length), updateId);
+      await handleBuy(screen, data.slice('buy:'.length));
       return;
     }
     if (data.startsWith('qp:')) {
@@ -1423,14 +1434,14 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       if (customer === null) {
         throw new Error('missing customer');
       }
-      const order = await createOrder(context.supabase, {
+      const order = await openCheckoutOrder(context.supabase, {
         channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
         ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
         botId: context.botConnection.id,
         customerId: customer.id,
         productId,
         quantity,
-        idempotencyKey: `tg:${context.botConnection.id}:${updateId}:${productId}:${quantity}`,
+        idempotencyKey: 'checkout',
       });
       const title = (await loadCatalog()).find((entry) => entry.product.id === productId)?.product.title ?? 'Product';
       await showPaymentOptions(screen, order, title);
