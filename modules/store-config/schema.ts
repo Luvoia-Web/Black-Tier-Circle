@@ -47,6 +47,10 @@ export const catalogTemplatesSchema = z.object({
   productFooterInstant: z.string().trim().min(1).max(300),
   productFooterManual: z.string().trim().min(1).max(300),
   checkoutShortfall: z.string().trim().min(1).max(300),
+  bulkDiscountHeading: z.string().trim().min(1).max(300),
+  bulkQuantityHeading: z.string().trim().min(1).max(300),
+  bulkTierLine: z.string().trim().min(1).max(300),
+  bulkSavingsLine: z.string().trim().min(1).max(300),
 });
 
 export const customLinksSchema = z

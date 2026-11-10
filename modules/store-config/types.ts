@@ -76,6 +76,10 @@ export type CatalogTemplates = {
   readonly productFooterInstant: string;
   readonly productFooterManual: string;
   readonly checkoutShortfall: string;
+  readonly bulkDiscountHeading: string;
+  readonly bulkQuantityHeading: string;
+  readonly bulkTierLine: string;
+  readonly bulkSavingsLine: string;
 };
 
 export type CatalogConfig = {

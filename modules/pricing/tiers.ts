@@ -130,6 +130,12 @@ function tierAllowed(baseUnit: bigint, floorMinor: bigint | null, tier: BulkTier
   return true;
 }
 
+export function visibleTiers(baseUnit: bigint, tiers: readonly BulkTier[], floorMinor: bigint | null = null): BulkTier[] {
+  return [...tiers]
+    .filter((tier) => tierAllowed(baseUnit, floorMinor, tier))
+    .sort((left, right) => left.minQty - right.minQty);
+}
+
 /**
  * Highest valid tier with min_qty <= quantity, otherwise the base unit.
  */

@@ -5,6 +5,7 @@
  */
 
 import { formatUsdt } from '@/lib/money';
+import { chargedQuoteDisplay, orderTotals, visibleTiers, type BulkTier } from '@/modules/pricing/tiers';
 import { sha256Hex } from '@/modules/catalog/sha256';
 import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
 import { readCardHints } from '@/modules/catalog/card-text';
@@ -63,10 +64,119 @@ export function topUpAmount(total: bigint, balance: bigint, minimum: bigint | nu
 }
 
 /**
- * Later task: return the bulk-discount tier lines. Empty until that task ships.
+ * Kept for the quantity-screen hook. Real copy is bulkOfferText.
  */
 export function bulkDiscountLines(): string {
   return '';
+}
+
+export function buyerDollars(minor: bigint): string {
+  const label = formatUsdt(minor).replace(/ USDT$/, '');
+  return label.startsWith('-') ? `-$${label.slice(1)}` : `$${label}`;
+}
+
+/**
+ * Buyer copy for bulk tiers. Prices come from the same helpers createOrder uses.
+ * An empty string means there is nothing to show.
+ */
+export function bulkOfferText(input: {
+  readonly baseUnit: bigint;
+  readonly tiers: readonly BulkTier[];
+  readonly floorMinor?: bigint | null;
+  readonly templates?: Partial<CatalogTemplates>;
+  readonly heading: 'card' | 'quantity';
+  readonly quantity?: number;
+  readonly quotedRetailMinor?: bigint;
+}): string {
+  const floor = input.floorMinor ?? null;
+  const tiers = visibleTiers(input.baseUnit, input.tiers, floor);
+  if (tiers.length === 0) {
+    return '';
+  }
+  const templates = input.templates;
+  const headingTemplate =
+    input.heading === 'card'
+      ? templates?.bulkDiscountHeading ?? DEFAULT_CATALOG_TEMPLATES.bulkDiscountHeading
+      : templates?.bulkQuantityHeading ?? DEFAULT_CATALOG_TEMPLATES.bulkQuantityHeading;
+  const heading = templateText(headingTemplate, input.heading === 'card' ? DEFAULT_CATALOG_TEMPLATES.bulkDiscountHeading : DEFAULT_CATALOG_TEMPLATES.bulkQuantityHeading, {});
+  const lines = [heading];
+  for (const tier of tiers) {
+    lines.push(
+      templateText(templates?.bulkTierLine, DEFAULT_CATALOG_TEMPLATES.bulkTierLine, {
+        min: String(tier.minQty),
+        price: buyerDollars(tier.unitPriceMinor),
+      }),
+    );
+  }
+  if (input.quantity !== undefined && input.quantity > 0) {
+    const quote =
+      input.quotedRetailMinor === undefined
+        ? orderTotals({
+            baseUnit: input.baseUnit,
+            tiers,
+            quantity: input.quantity,
+            wholesaleUnit: 0n,
+            floorMinor: floor,
+          })
+        : chargedQuoteDisplay({
+            baseUnit: input.baseUnit,
+            tiers,
+            quantity: input.quantity,
+            quotedRetailMinor: input.quotedRetailMinor,
+            floorMinor: floor,
+          });
+    if (quote.tierApplied && quote.savingsMinor > 0n) {
+      lines.push(
+        templateText(templates?.bulkSavingsLine, DEFAULT_CATALOG_TEMPLATES.bulkSavingsLine, {
+          qty: String(input.quantity),
+          unit: buyerDollars(quote.unitRetailMinor),
+          total: buyerDollars(quote.quotedRetailMinor),
+          savings: buyerDollars(quote.savingsMinor),
+        }),
+      );
+    }
+  }
+  return lines.filter((line) => line.trim().length > 0).join('\n');
+}
+
+export function bulkSavingsSentence(input: {
+  readonly baseUnit: bigint;
+  readonly tiers: readonly BulkTier[];
+  readonly floorMinor?: bigint | null;
+  readonly templates?: Partial<CatalogTemplates>;
+  readonly quantity: number;
+  readonly quotedRetailMinor?: bigint;
+}): string {
+  if (!Number.isInteger(input.quantity) || input.quantity < 1) {
+    return '';
+  }
+  const floor = input.floorMinor ?? null;
+  const tiers = visibleTiers(input.baseUnit, input.tiers, floor);
+  const quote =
+    input.quotedRetailMinor === undefined
+      ? orderTotals({
+          baseUnit: input.baseUnit,
+          tiers,
+          quantity: input.quantity,
+          wholesaleUnit: 0n,
+          floorMinor: floor,
+        })
+      : chargedQuoteDisplay({
+          baseUnit: input.baseUnit,
+          tiers,
+          quantity: input.quantity,
+          quotedRetailMinor: input.quotedRetailMinor,
+          floorMinor: floor,
+        });
+  if (!quote.tierApplied || quote.savingsMinor <= 0n) {
+    return '';
+  }
+  return templateText(input.templates?.bulkSavingsLine, DEFAULT_CATALOG_TEMPLATES.bulkSavingsLine, {
+    qty: String(input.quantity),
+    unit: buyerDollars(quote.unitRetailMinor),
+    total: buyerDollars(quote.quotedRetailMinor),
+    savings: buyerDollars(quote.savingsMinor),
+  });
 }
 
 export function layoutScreenButtons(buttons: readonly ScreenButton[]): ScreenButton[][] {
@@ -310,6 +420,7 @@ function descriptionBlock(description: string | null): string | null {
 export function productCardText(
   product: ShopProduct & { supplierMetadata?: Record<string, unknown> },
   templates?: Partial<CatalogTemplates>,
+  bulk?: string,
 ): string {
   const hints = hintsOf(product);
   const lines = [`<b>${escapeHtml(product.title)}</b>`];
@@ -333,6 +444,10 @@ export function productCardText(
   const description = descriptionBlock(product.description);
   if (description) {
     lines.push('', description);
+  }
+  const offer = present(bulk);
+  if (offer) {
+    lines.push('', offer);
   }
   const footer = templateText(
     needsManualFooter(product) ? templates?.productFooterManual : templates?.productFooterInstant,
@@ -386,6 +501,8 @@ export function checkoutText(input: {
   readonly quantity: number;
   readonly warranty: string | null;
   readonly totalMinor: bigint;
+  readonly unitMinor?: bigint;
+  readonly confirmation?: string;
   readonly balanceMinor: bigint;
   readonly windowLine: string;
   readonly shortfallTemplate?: string;
@@ -400,7 +517,15 @@ export function checkoutText(input: {
   if (warranty) {
     lines.push(`Warranty: ${escapeHtml(warranty)}`);
   }
+  if (input.unitMinor !== undefined) {
+    lines.push(`Unit price: <b>${escapeHtml(buyerDollars(input.unitMinor))}</b>`);
+  }
+  lines.push(`Quantity: ${input.quantity}`);
   lines.push(`Total: <b>${escapeHtml(formatUsdt(input.totalMinor))}</b>`);
+  const confirmation = present(input.confirmation);
+  if (confirmation) {
+    lines.push(confirmation);
+  }
   lines.push(`Balance: ${escapeHtml(formatUsdt(input.balanceMinor))}`);
   const windowLine = present(input.windowLine);
   if (windowLine) {

@@ -33,6 +33,26 @@ const TEMPLATE_FIELDS: ReadonlyArray<{
     label: 'Checkout shortfall',
     helper: 'Placeholder: {shortfall}',
   },
+  {
+    key: 'bulkDiscountHeading',
+    label: 'Bulk discount heading',
+    helper: 'Shown on the product card when tiers exist.',
+  },
+  {
+    key: 'bulkQuantityHeading',
+    label: 'Quantity discount heading',
+    helper: 'Shown on the quantity screen when tiers exist.',
+  },
+  {
+    key: 'bulkTierLine',
+    label: 'Bulk tier line',
+    helper: 'Placeholders: {min} {price}. Price is filled by the pricing function.',
+  },
+  {
+    key: 'bulkSavingsLine',
+    label: 'Bulk savings line',
+    helper: 'Placeholders: {qty} {unit} {total} {savings}. Shown only when a tier applies.',
+  },
 ];
 
 const EMPTY_CATEGORY: CatalogCategorySetting = {

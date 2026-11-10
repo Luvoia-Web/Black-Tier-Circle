@@ -37,6 +37,8 @@ import {
   productCardButtons,
   productCardText,
   quantityText,
+  bulkOfferText,
+  bulkSavingsSentence,
   renderShop,
   resolvedWarranty,
   shopProductFrom,
@@ -45,6 +47,8 @@ import {
 import { claimCheckoutResume, markResumeAfterTopup } from '@/modules/orders/balance-notice';
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { renderTemplate } from '@/modules/store-config/template';
+import { chargedQuoteDisplay } from '@/modules/pricing/tiers';
+import { listBulkTiers, readCostFloor } from '@/modules/pricing/tier-store';
 import { normalizeBotUrl } from '@/modules/store-config/urls';
 import type { Product } from '@/modules/catalog/types';
 import { cancelOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
@@ -504,6 +508,15 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, view.text, paint(view.rows.flat()), 'HTML');
   }
 
+  async function priceOffer(product: Product): Promise<{ tiers: Awaited<ReturnType<typeof listBulkTiers>>; floorMinor: bigint | null }> {
+    const tenantId = context.tenantId;
+    const [tiers, floor] = await Promise.all([
+      listBulkTiers(context.supabase, product.id, tenantId),
+      readCostFloor(context.supabase, product, tenantId === null ? 'owner' : 'reseller'),
+    ]);
+    return { tiers, floorMinor: floor.minor };
+  }
+
   async function showProduct(screen: Screen, productId: string): Promise<void> {
     if (await maintenanceBlock(screen)) {
       return;
@@ -515,8 +528,17 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     const current = await storeContext();
+    const templates = current.studio?.config.catalog.templates;
     const view = shopProductFrom(item.product, item.priceMinor, item.soldCount);
-    const text = productCardText(view, current.studio?.config.catalog.templates);
+    const offer = await priceOffer(item.product);
+    const bulk = bulkOfferText({
+      baseUnit: item.priceMinor,
+      tiers: offer.tiers,
+      floorMinor: offer.floorMinor,
+      ...(templates ? { templates } : {}),
+      heading: 'card',
+    });
+    const text = productCardText(view, templates, bulk);
     await show(
       bot,
       screen,
@@ -561,12 +583,35 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const catalog = await loadCatalog();
     const item = catalog.find((entry) => entry.product.id === order.productId);
     const view = item ? shopProductFrom(item.product, item.priceMinor, item.soldCount) : null;
+    const offer = item ? await priceOffer(item.product) : null;
+    const priced = item && offer
+      ? chargedQuoteDisplay({
+          baseUnit: item.priceMinor,
+          tiers: offer.tiers,
+          quantity: order.quantity,
+          quotedRetailMinor: order.quotedRetailPriceMinor,
+          floorMinor: offer.floorMinor,
+        })
+      : null;
+    const templates = current.studio?.config.catalog.templates;
+    const confirmation = item && offer
+      ? bulkSavingsSentence({
+          baseUnit: item.priceMinor,
+          tiers: offer.tiers,
+          floorMinor: offer.floorMinor,
+          ...(templates ? { templates } : {}),
+          quantity: order.quantity,
+          quotedRetailMinor: order.quotedRetailPriceMinor,
+        })
+      : '';
     const text = checkoutText({
       title: current.studio?.config.messages.checkoutHeader ?? '',
       productTitle,
       quantity: order.quantity,
       warranty: view ? resolvedWarranty(view) : null,
       totalMinor: order.quotedRetailPriceMinor,
+      ...(priced ? { unitMinor: priced.unitRetailMinor } : {}),
+      ...(confirmation.length > 0 ? { confirmation } : {}),
       balanceMinor: customer?.creditBalanceMinor ?? 0n,
       windowLine: paymentWindowLine(order),
       ...(current.studio ? { shortfallTemplate: current.studio.config.catalog.templates.checkoutShortfall } : {}),
@@ -639,11 +684,21 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     keyboard.row().text('✏️ Type a number', `qty_type:${item.product.id}`);
     keyboard.row().text('❌ Cancel', 'shop:').danger();
+    const current = await storeContext();
+    const templates = current.studio?.config.catalog.templates;
+    const offer = await priceOffer(item.product);
+    const bulk = bulkOfferText({
+      baseUnit: item.priceMinor,
+      tiers: offer.tiers,
+      floorMinor: offer.floorMinor,
+      ...(templates ? { templates } : {}),
+      heading: 'quantity',
+    });
     awaitingQty.set(emailKey(context.botConnection.id, screen.chatId), { productId: item.product.id, max: maxQty });
     await show(
       bot,
       screen,
-      quantityText(shopProductFrom(item.product, item.priceMinor, item.soldCount), item.priceMinor, maxQty),
+      quantityText(shopProductFrom(item.product, item.priceMinor, item.soldCount), item.priceMinor, maxQty, bulk),
       keyboard,
       'HTML',
     );

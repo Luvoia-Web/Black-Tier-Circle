@@ -11,6 +11,8 @@ import {
   productCardButtons,
   productCardText,
   quantityText,
+  bulkOfferText,
+  bulkSavingsSentence,
   renderShop,
   categoryToken,
   topUpAmount,
@@ -138,6 +140,47 @@ describe('shop screens', () => {
     const withHook = quantityText(product(), 5_000_000n, 4, 'BULK_DISCOUNT_HOOK');
     expect(withHook.indexOf('How many do you want?')).toBeLessThan(withHook.indexOf('BULK_DISCOUNT_HOOK'));
     assertClean(text);
+  });
+
+  it('shows bulk tiers from the shared pricing helpers and hides a tier under the floor', () => {
+    const shown = bulkOfferText({
+      baseUnit: 5_500_000n,
+      tiers: [
+        { minQty: 3, unitPriceMinor: 5_000_000n },
+        { minQty: 10, unitPriceMinor: 4_800_000n },
+      ],
+      floorMinor: 4_000_000n,
+      heading: 'card',
+    });
+    expect(shown).toContain('BULK DISCOUNT');
+    expect(shown).toContain('3+ pcs - $5.00 each');
+    expect(shown).toContain('10+ pcs - $4.80 each');
+    expect(shown).not.toMatch(/undefined|null/i);
+    const quantity = bulkOfferText({
+      baseUnit: 5_500_000n,
+      tiers: [{ minQty: 3, unitPriceMinor: 5_000_000n }],
+      floorMinor: 4_000_000n,
+      heading: 'quantity',
+      quantity: 5,
+    });
+    expect(quantity).toContain('BUY MORE, PAY LESS');
+    expect(quantity).toContain('5 x $5.00 = $25.00, you save $2.50');
+    const charged = bulkSavingsSentence({
+      baseUnit: 5_500_000n,
+      tiers: [{ minQty: 3, unitPriceMinor: 5_000_000n }],
+      floorMinor: 4_000_000n,
+      quantity: 5,
+      quotedRetailMinor: 25_000_000n,
+    });
+    expect(charged).toContain('$25.00');
+    expect(bulkOfferText({
+      baseUnit: 5_500_000n,
+      tiers: [{ minQty: 2, unitPriceMinor: 1n }],
+      floorMinor: 4_000_000n,
+      heading: 'card',
+    })).toBe('');
+    const card = productCardText(product(), undefined, shown);
+    expect(card).toContain('3+ pcs - $5.00 each');
   });
 
   it('rounds a shortfall up to the minimum and orders the pay buttons', () => {

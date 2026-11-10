@@ -43,6 +43,10 @@ export const DEFAULT_CATALOG_TEMPLATES: CatalogTemplates = {
   productFooterInstant: 'Automatic delivery after payment.',
   productFooterManual: 'The store delivers this after payment.',
   checkoutShortfall: 'You need {shortfall} more to pay from your balance.',
+  bulkDiscountHeading: '<b>BULK DISCOUNT</b>',
+  bulkQuantityHeading: '<b>BUY MORE, PAY LESS</b>',
+  bulkTierLine: '{min}+ pcs - {price} each',
+  bulkSavingsLine: '{qty} x {unit} = {total}, you save {savings}',
 };
 
 export const LEGACY_CHECKOUT_HEADER = '✅ <b>Order Summary</b>';

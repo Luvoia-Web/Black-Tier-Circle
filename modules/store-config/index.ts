@@ -71,6 +71,10 @@ const TEMPLATE_LIMITS: Record<keyof CatalogTemplates, number> = {
   productFooterInstant: 300,
   productFooterManual: 300,
   checkoutShortfall: 300,
+  bulkDiscountHeading: 300,
+  bulkQuantityHeading: 300,
+  bulkTierLine: 300,
+  bulkSavingsLine: 300,
 };
 
 function mergeTemplates(stored: unknown): CatalogTemplates {
@@ -93,6 +97,10 @@ function mergeTemplates(stored: unknown): CatalogTemplates {
     productFooterInstant: pick('productFooterInstant'),
     productFooterManual: pick('productFooterManual'),
     checkoutShortfall: pick('checkoutShortfall'),
+    bulkDiscountHeading: pick('bulkDiscountHeading'),
+    bulkQuantityHeading: pick('bulkQuantityHeading'),
+    bulkTierLine: pick('bulkTierLine'),
+    bulkSavingsLine: pick('bulkSavingsLine'),
   };
 }
 
