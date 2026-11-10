@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/lib/errors';
 import { createOrder, updateOrderQuantity } from '@/modules/orders';
+import { replaceBulkTiers } from '@/modules/pricing/tier-store';
 import { payOrderFromCustomerWallet } from '@/modules/payments';
 import {
   orderTotals,
@@ -269,6 +270,19 @@ describe('bulk tiers on orders', () => {
     }
     await expect(updateOrderQuantity(db, order.id, 3)).rejects.toMatchObject({ code: 'ORDER_NOT_PAYABLE' });
     expect(db.tables.orders?.find((item) => item.id === order.id)?.quoted_retail_price).toBe((TIER_10 * 10n).toString());
+  });
+
+  it('saves a store ladder and rejects a price under the floor', async () => {
+    const db = seed();
+    await expect(
+      replaceBulkTiers(db, PRODUCT_ID, null, [{ minQty: 3, unitPriceMinor: WHOLESALE - 1n }]),
+    ).rejects.toThrow(/cost floor/);
+    const saved = await replaceBulkTiers(db, PRODUCT_ID, TENANT_ID, [{ minQty: 4, unitPriceMinor: 9_500_000n }]);
+    expect(saved.map((tier) => tier.minQty)).toEqual([4]);
+    const owner = db.tables.product_bulk_tiers?.filter((row) => row.tenant_id === null) ?? [];
+    expect(owner).toHaveLength(2);
+    const other = db.tables.product_bulk_tiers?.filter((row) => row.tenant_id === OTHER_TENANT) ?? [];
+    expect(other).toHaveLength(1);
   });
 
   it('debits the customer wallet for the quoted total', async () => {

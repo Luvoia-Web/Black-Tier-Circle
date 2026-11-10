@@ -193,6 +193,14 @@ export async function listResellerListings(
   return listings;
 }
 
+export async function getOwnedListing(
+  supabase: DbClient,
+  listingId: string,
+  tenantId: string,
+): Promise<ResellerListing> {
+  return getListingByIdForTenant(supabase, listingId, tenantId);
+}
+
 async function getListingByIdForTenant(
   supabase: DbClient,
   listingId: string,
