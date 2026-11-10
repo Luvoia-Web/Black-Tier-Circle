@@ -17,6 +17,7 @@ import {
   type ShopProduct,
 } from '@/modules/catalog/shop-screen';
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
+import { freebieListText, referralHomeText } from '@/modules/referrals/screens';
 import { renderTemplate } from '@/modules/store-config/template';
 import { BUTTON_KEYS, COMING_SOON_BUTTONS, type ButtonKey, type StoreConfig } from '@/modules/store-config/types';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
@@ -395,7 +396,7 @@ function CustomLinks({
   );
 }
 
-const PREVIEW_SCREENS = ['Home', 'Shop', 'Category', 'Product', 'Checkout'] as const;
+const PREVIEW_SCREENS = ['Home', 'Shop', 'Category', 'Product', 'Checkout', 'Refer & Earn', 'Freebies'] as const;
 
 function sampleProduct(id: string, category: string | null, soldOut = false): ShopProduct {
   return {
@@ -476,6 +477,24 @@ function TelegramPreview({
     const sample = sampleProduct('card', firstName);
     html = productCardText(sample, config.catalog.templates);
     rows = layoutScreenButtons(productCardButtons(sample));
+  } else if (screen === 'Refer & Earn') {
+    html = referralHomeText({
+      template: config.referrals.templates.home,
+      link: 'https://t.me/store_bot?start=ref_abcdefghjkmn',
+      invited: 3,
+      pending: 1,
+      qualified: 2,
+      points: 2,
+      walletMinor: 400_000n,
+      nextLine: '1 more qualified friend to unlock Bonus guide',
+    });
+    rows = config.referrals.enabled ? [[{ text: 'Share' }], [{ text: 'Redeem' }], [{ text: 'Freebies' }], [{ text: 'Home' }]] : [[{ text: 'Home' }]];
+  } else if (screen === 'Freebies') {
+    html = freebieListText(config.referrals.templates.freebies, [
+      { id: 'sample-locked', title: 'Bonus guide', required: 2, unlocked: false },
+      { id: 'sample-open', title: 'Welcome link', required: 0, unlocked: true },
+    ]);
+    rows = [[{ text: 'Welcome link' }], [{ text: 'Back' }, { text: 'Home' }]];
   } else {
     html = checkoutText({
       title: config.messages.checkoutHeader,

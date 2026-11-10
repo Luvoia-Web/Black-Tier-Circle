@@ -18,6 +18,7 @@ import {
   Code2,
   CreditCard,
   DollarSign,
+  Gift,
   Key,
   LayoutDashboard,
   Package,
@@ -80,6 +81,7 @@ const OWNER_GROUPS: ReadonlyArray<NavGroup> = [
       { href: ROUTES.owner.fulfillment, label: 'Fulfillment', icon: PackageCheck },
       { href: ROUTES.owner.bots, label: 'Bots', icon: Bot },
       { href: ROUTES.owner.botStudio, label: 'Bot Studio', icon: Bot },
+      { href: ROUTES.owner.growth, label: 'Growth', icon: Gift },
       { href: ROUTES.owner.launch, label: 'Launch', icon: Rocket },
     ],
   },
@@ -108,6 +110,7 @@ const RESELLER_GROUPS: ReadonlyArray<NavGroup> = [
       { href: ROUTES.reseller.bills, label: 'My Bills', icon: Receipt },
       { href: ROUTES.reseller.bot, label: 'My Bot', icon: Bot },
       { href: ROUTES.reseller.botStudio, label: 'Bot Studio', icon: Bot },
+      { href: ROUTES.reseller.growth, label: 'Growth', icon: Gift },
     ],
   },
   {
