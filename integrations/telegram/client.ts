@@ -21,8 +21,9 @@ import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
+import { checkRateLimit } from '@/lib/rate-limiter';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
-import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
+import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { loadSoldCounts } from '@/modules/catalog/sold-count';
@@ -47,6 +48,20 @@ import {
 import { claimCheckoutResume, markResumeAfterTopup } from '@/modules/orders/balance-notice';
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { renderTemplate } from '@/modules/store-config/template';
+import { claimFreebie, listFreebies } from '@/modules/referrals/freebies';
+import { isReferralCode } from '@/modules/referrals/codes';
+import {
+  freebieContentText,
+  freebieListText,
+  friendJoinedText,
+  nextFreebieLine,
+  redeemConfirmText,
+  redeemedText,
+  referralHomeText,
+  referralLink,
+  shareUrl,
+} from '@/modules/referrals/screens';
+import { attachReferral, ensureReferralCode, redeemPoints, referralSummary } from '@/modules/referrals/store';
 import { chargedQuoteDisplay } from '@/modules/pricing/tiers';
 import { listBulkTiers, readCostFloor } from '@/modules/pricing/tier-store';
 import { normalizeBotUrl } from '@/modules/store-config/urls';
@@ -236,7 +251,7 @@ function legacyHomeKeyboard(store: BotContext): InlineKeyboard {
   if (store.resellerSignupEnabled) {
     keyboard.text('🤝 Become a Reseller', 'reseller_signup:').row();
   }
-  keyboard.text('🎁 Refer & Earn', 'refer:').row().text('📜 Terms & Policies', 'terms:');
+  keyboard.text('📜 Terms & Policies', 'terms:');
   return keyboard;
 }
 
@@ -404,6 +419,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   const knownBot = knownInfo !== undefined;
   const bot = new Bot(botToken, knownInfo ? { botInfo: knownInfo } : undefined);
   let customer: CustomerRecord | null = null;
+  let customerJustCreated = false;
   let store: BotContext | null = null;
 
   async function storeContext(): Promise<BotContext> {
@@ -480,6 +496,194 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
     await show(bot, screen, welcomeText(current, balance, customer?.firstName), homeKeyboard(current), 'HTML');
+  }
+
+  function storeBotId(): string | null {
+    return context.botConnection.id === OWNER_STORE_BOT_ID ? null : context.botConnection.id;
+  }
+
+  async function showRefer(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!customer || !config?.enabled) {
+      await show(bot, screen, 'This store has not turned referrals on.', homeKeyboard(current), 'HTML');
+      return;
+    }
+    const code = await ensureReferralCode(context.supabase, customer.id);
+    const username = context.botConnection.username || bot.botInfo?.username || '';
+    const link = referralLink(username, code);
+    const summary = await referralSummary(context.supabase, customer.id);
+    const freebies = config.freebiesEnabled ? await listFreebies(context.supabase, current.tenantId, customer.id) : [];
+    const value = BigInt(config.pointValueMinor);
+    const text = referralHomeText({
+      template: config.templates.home,
+      link,
+      invited: summary.invited,
+      pending: summary.pending,
+      qualified: summary.qualified,
+      points: summary.points,
+      walletMinor: BigInt(summary.points) * value,
+      nextLine: config.freebiesEnabled ? nextFreebieLine(summary.qualified, freebies) : null,
+    });
+    const keyboard = new InlineKeyboard();
+    if (link) {
+      keyboard.url('Share', shareUrl(link)).row();
+    }
+    if (config.redeemEnabled && summary.points >= config.minRedeemPoints) {
+      keyboard.text('Redeem', 'redeem_ask:').row();
+    }
+    if (config.freebiesEnabled) {
+      keyboard.text('Freebies', 'freebies:').row();
+    }
+    keyboard.text('Home', 'home:');
+    await show(bot, screen, text, keyboard, 'HTML');
+  }
+
+  async function showRedeemConfirm(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!customer || !config?.enabled || !config.redeemEnabled) {
+      await showRefer(screen);
+      return;
+    }
+    const summary = await referralSummary(context.supabase, customer.id);
+    if (summary.points < config.minRedeemPoints) {
+      await showRefer(screen);
+      return;
+    }
+    const amount = BigInt(summary.points) * BigInt(config.pointValueMinor);
+    await show(
+      bot,
+      screen,
+      redeemConfirmText(summary.points, amount),
+      new InlineKeyboard().text('Confirm', 'redeem_go:').text('Back', 'refer:'),
+      'HTML',
+    );
+  }
+
+  async function confirmRedeem(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!customer || !config?.enabled || !config.redeemEnabled) {
+      await showRefer(screen);
+      return;
+    }
+    if (!checkRateLimit(`referral-redeem:${customer.id}`, 5).allowed) {
+      await show(bot, screen, 'Please wait a moment and try again.', new InlineKeyboard().text('Home', 'home:'), 'HTML');
+      return;
+    }
+    const summary = await referralSummary(context.supabase, customer.id);
+    if (summary.points < config.minRedeemPoints) {
+      await showRefer(screen);
+      return;
+    }
+    const amount = BigInt(summary.points) * BigInt(config.pointValueMinor);
+    const result = await redeemPoints(context.supabase, {
+      customerId: customer.id,
+      points: summary.points,
+      valuePerPointMinor: BigInt(config.pointValueMinor),
+      requestId: `${customer.id}:${screen.messageId ?? 'tap'}`,
+      minPoints: config.minRedeemPoints,
+    });
+    if (!result.success) {
+      await show(bot, screen, 'Those points could not be redeemed.', new InlineKeyboard().text('Back', 'refer:'), 'HTML');
+      return;
+    }
+    customer = { ...customer, creditBalanceMinor: result.newBalanceMinor };
+    await show(
+      bot,
+      screen,
+      redeemedText(config.templates.redeemed, summary.points, amount),
+      new InlineKeyboard().text('Home', 'home:'),
+      'HTML',
+    );
+  }
+
+  async function showFreebies(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!customer || !config?.freebiesEnabled) {
+      await show(bot, screen, 'This store has not turned freebies on.', homeKeyboard(current), 'HTML');
+      return;
+    }
+    const items = await listFreebies(context.supabase, current.tenantId, customer.id);
+    const keyboard = new InlineKeyboard();
+    for (const item of items) {
+      if (item.unlocked) {
+        keyboard.text(item.title.slice(0, 32), `freebie_claim:${item.id}`).row();
+      }
+    }
+    keyboard.text('Back', 'refer:').text('Home', 'home:');
+    await show(bot, screen, freebieListText(config.templates.freebies, items), keyboard, 'HTML');
+  }
+
+  async function claimOneFreebie(screen: Screen, freebieId: string): Promise<void> {
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!customer || !config?.freebiesEnabled) {
+      await showFreebies(screen);
+      return;
+    }
+    if (!checkRateLimit(`referral-claim:${customer.id}`, 10).allowed) {
+      await show(bot, screen, 'Please wait a moment and try again.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
+      return;
+    }
+    const result = await claimFreebie(context.supabase, {
+      tenantId: current.tenantId,
+      customerId: customer.id,
+      freebieId,
+    });
+    if (result.status !== 'ready' || !result.freebie) {
+      await show(bot, screen, 'That freebie is still locked.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
+      return;
+    }
+    await show(
+      bot,
+      screen,
+      freebieContentText(result.freebie.title, result.freebie.kind, result.freebie.content),
+      new InlineKeyboard().text('Back', 'freebies:').text('Home', 'home:'),
+      'HTML',
+    );
+  }
+
+  async function acceptStartReferral(payload: string): Promise<void> {
+    if (!customer || !customerJustCreated || !payload.startsWith('ref_')) {
+      return;
+    }
+    const current = await storeContext();
+    const config = current.studio?.config.referrals;
+    if (!config?.enabled) {
+      return;
+    }
+    if (!checkRateLimit(`referral-attach:${customer.id}`, 10).allowed) {
+      return;
+    }
+    const code = payload.slice('ref_'.length).trim().toLowerCase();
+    if (!isReferralCode(code)) {
+      return;
+    }
+    const attached = await attachReferral(context.supabase, {
+      botId: storeBotId(),
+      tenantId: current.tenantId,
+      code,
+      referredId: customer.id,
+      referredIsNew: true,
+    });
+    if (!attached.attached || !attached.referrerId) {
+      return;
+    }
+    try {
+      const referrer = await getCustomerById(context.supabase, attached.referrerId);
+      await bot.api.sendMessage(referrer.telegramChatId, friendJoinedText(config.templates.friendJoined, customer.firstName), {
+        parse_mode: 'HTML',
+      });
+      await context.supabase
+        .from('referrals')
+        .update({ joined_notified_at: new Date().toISOString() })
+        .eq('referred_customer_id', customer.id);
+    } catch {
+      // The sweep tells the referrer once if this send fails.
+    }
   }
 
   async function showShop(screen: Screen, categoryToken?: string, page = 0, showAll = false): Promise<void> {
@@ -1890,18 +2094,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     if (data === 'refer:') {
-      const username = context.botConnection.username || 'bot';
-      const referLink = `https://t.me/${username}?start=ref_${(customer?.id ?? 'guest').slice(0, 8)}`;
-      await show(
-        bot,
-        screen,
-        `🎁 <b>Refer & Earn</b>\n\n` +
-          `Share your link and earn when friends buy:\n\n` +
-          `<code>${escHtml(referLink)}</code>\n\n` +
-          `Tap to copy and share with friends!`,
-        new InlineKeyboard().text('📋 Copy Link', 'copy_ref:').text('⬅ Menu', 'start:'),
-        'HTML',
-      );
+      await showRefer(screen);
+      return;
+    }
+    if (data === 'redeem_ask:') {
+      await showRedeemConfirm(screen);
+      return;
+    }
+    if (data === 'redeem_go:') {
+      await confirmRedeem(screen);
+      return;
+    }
+    if (data === 'freebies:') {
+      await showFreebies(screen);
+      return;
+    }
+    if (data.startsWith('freebie_claim:')) {
+      await claimOneFreebie(screen, data.slice('freebie_claim:'.length));
       return;
     }
     if (data === 'copy_ref:') {
@@ -2017,6 +2226,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   bot.command('start', async (ctx) => {
+    const payload = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+    if (payload.startsWith('ref_')) {
+      await acceptStartReferral(payload);
+    }
     await showHome({ chatId: ctx.chat.id });
   });
   bot.command('shop', async (ctx) => {
@@ -2120,15 +2333,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         }
         const customerKey = `${context.botConnection.id}:${identity.user.id}`;
         const cachedCustomer = CUSTOMER_CACHE.get(customerKey);
-        const [loadedCustomer, loadedStore] = await Promise.all([
+        const [opened, loadedStore] = await Promise.all([
           cachedCustomer && Date.now() <= cachedCustomer.expiresAt
-            ? Promise.resolve(cachedCustomer.data)
-            : getOrCreateCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
+            ? Promise.resolve({ customer: cachedCustomer.data, created: false })
+            : openCustomer(context.supabase, context.botConnection.id, identity.user, identity.chatId),
           resolveBotContextCached(context.supabase, context.botConnection.id, context.tenantId),
           loadCatalog(),
         ]);
-        customer = loadedCustomer;
-        CUSTOMER_CACHE.set(customerKey, { data: loadedCustomer, expiresAt: Date.now() + CUSTOMER_CACHE_MS });
+        customer = opened.customer;
+        customerJustCreated = opened.created;
+        CUSTOMER_CACHE.set(customerKey, { data: opened.customer, expiresAt: Date.now() + CUSTOMER_CACHE_MS });
         store = loadedStore;
         const commandsAt = COMMANDS_REFRESH.get(context.botConnection.id) ?? 0;
         if (Date.now() > commandsAt) {

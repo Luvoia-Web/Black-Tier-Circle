@@ -364,12 +364,12 @@ function isOwnerStoreBot(botId: string): boolean {
  * @param telegramUser - Telegram from-user
  * @param chatId - Telegram chat id
  */
-export async function getOrCreateCustomer(
+export async function openCustomer(
   supabase: DbClient,
   botId: string,
   telegramUser: TelegramUser,
   chatId?: string,
-): Promise<CustomerRecord> {
+): Promise<{ readonly customer: CustomerRecord; readonly created: boolean }> {
   const telegramUserId = String(telegramUser.id);
   const telegramChatId = chatId ?? telegramUserId;
   const ownerStore = isOwnerStoreBot(botId);
@@ -392,7 +392,7 @@ export async function getOrCreateCustomer(
       current.first_name === firstName &&
       (current.username ?? null) === username
     ) {
-      return mapCustomerRow(current);
+      return { customer: mapCustomerRow(current), created: false };
     }
     const { data, error } = await supabase
       .from('customers')
@@ -408,7 +408,7 @@ export async function getOrCreateCustomer(
     if (error || data === null) {
       throw new AppError('CUSTOMER_UPDATE_FAILED', error?.message ?? 'Unable to update customer', 500);
     }
-    return mapCustomerRow(asCustomerRow(data));
+    return { customer: mapCustomerRow(asCustomerRow(data)), created: false };
   }
 
   const { data, error } = await supabase
@@ -426,7 +426,17 @@ export async function getOrCreateCustomer(
   if (error || data === null) {
     throw new AppError('CUSTOMER_CREATE_FAILED', error?.message ?? 'Unable to create customer', 500);
   }
-  return mapCustomerRow(asCustomerRow(data));
+  return { customer: mapCustomerRow(asCustomerRow(data)), created: true };
+}
+
+export async function getOrCreateCustomer(
+  supabase: DbClient,
+  botId: string,
+  telegramUser: TelegramUser,
+  chatId?: string,
+): Promise<CustomerRecord> {
+  const opened = await openCustomer(supabase, botId, telegramUser, chatId);
+  return opened.customer;
 }
 
 /**

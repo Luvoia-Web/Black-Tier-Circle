@@ -24,6 +24,7 @@ type ReferralRow = {
   readonly referred_customer_id: string;
   readonly status: string;
   readonly referrer_notified_at: string | null;
+  readonly joined_notified_at: string | null;
 };
 
 export type RedeemResult = {
@@ -238,11 +239,39 @@ export async function redeemPoints(
   };
 }
 
+export async function referralSummary(
+  supabase: DbClient,
+  customerId: string,
+): Promise<{ readonly invited: number; readonly pending: number; readonly qualified: number; readonly points: number }> {
+  const rows = (await supabase.from('referrals').select('status').eq('referrer_customer_id', customerId)) as QueryResult<
+    Array<{ status: string }>
+  >;
+  if (rows.error) {
+    throw new AppError('REFERRAL_READ_FAILED', rows.error.message, 500);
+  }
+  const list = rows.data ?? [];
+  return {
+    invited: list.length,
+    pending: list.filter((row) => row.status === 'pending').length,
+    qualified: list.filter((row) => row.status === 'qualified').length,
+    points: await pointsBalance(supabase, customerId),
+  };
+}
+
 export type QualifyNotifier = (input: {
   readonly referrerCustomerId: string;
   readonly points: number;
   readonly tenantId: string | null;
 }) => Promise<void>;
+
+export type ReferralSweepHooks = {
+  readonly qualified?: QualifyNotifier;
+  readonly joined?: (input: {
+    readonly referrerCustomerId: string;
+    readonly name: string;
+    readonly tenantId: string | null;
+  }) => Promise<void>;
+};
 
 /**
  * Qualifies pending referrals whose buyer has a verified paid product order.
@@ -251,8 +280,9 @@ export type QualifyNotifier = (input: {
 export async function qualifyPendingReferrals(
   supabase: DbClient,
   now: Date,
-  notify: QualifyNotifier = async () => undefined,
+  hooks: ReferralSweepHooks = {},
 ): Promise<{ readonly granted: number; readonly capped: number }> {
+  const notify = hooks.qualified ?? (async () => undefined);
   const pending = (await supabase.from('referrals').select('*').eq('status', 'pending')) as QueryResult<ReferralRow[]>;
   const unnotified = (await supabase
     .from('referrals')
@@ -265,6 +295,22 @@ export async function qualifyPendingReferrals(
   let granted = 0;
   let capped = 0;
   for (const referral of pending.data ?? []) {
+    if (!referral.joined_notified_at && hooks.joined) {
+      try {
+        const config = (await getStoreConfig(supabase, referral.tenant_id)).config.referrals;
+        if (config.enabled) {
+          const person = await readCustomer(supabase, referral.referred_customer_id);
+          await hooks.joined({
+            referrerCustomerId: referral.referrer_customer_id,
+            name: person.first_name ?? '',
+            tenantId: referral.tenant_id,
+          });
+          await supabase.from('referrals').update({ joined_notified_at: new Date().toISOString() }).eq('id', referral.id);
+        }
+      } catch {
+        // The next sweep can tell the referrer once.
+      }
+    }
     try {
       const outcome = await qualifyOne(supabase, referral, now, notify);
       granted += outcome === 'granted' ? 1 : 0;

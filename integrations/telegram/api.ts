@@ -120,3 +120,14 @@ export async function telegramDeleteWebhook(token: string): Promise<void> {
 export async function telegramGetWebhookInfo(token: string): Promise<TelegramWebhookInfo> {
   return callTelegramApi<TelegramWebhookInfo>(token, 'getWebhookInfo');
 }
+
+/**
+ * Sends one HTML message. The token stays in the request URL and is never logged.
+ */
+export async function telegramSendHtml(token: string, chatId: string, html: string): Promise<void> {
+  await callTelegramApi<unknown>(token, 'sendMessage', {
+    chat_id: chatId,
+    text: html,
+    parse_mode: 'HTML',
+  });
+}
