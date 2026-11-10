@@ -396,7 +396,7 @@ describe('RECONCILIATION', () => {
     expect(latest.fulfillmentStatus).toBe('ready');
     expect(latest.fundingStatus).toBe('debited');
     const delivery = await import('@/integrations/telegram/delivery');
-    expect(delivery.sendSupplierDelivery).toHaveBeenCalled();
+    expect(delivery.sendTextDelivery).toHaveBeenCalled();
   });
 
   it('reconcile failed order: releases reservation', async () => {

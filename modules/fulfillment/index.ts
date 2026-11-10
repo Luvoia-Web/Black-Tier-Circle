@@ -20,6 +20,7 @@
  */
 
 import { sendFileDelivery, sendTextDelivery } from '@/integrations/telegram/delivery';
+import { deliveredOrderText, markCustomerNotified } from '@/modules/fulfillment/customer-message';
 import { sanitizeForTelegram, sanitizeInput } from '@/lib/sanitize';
 import {
   fulfillSupplier as fulfillSupplierOrder,
@@ -964,7 +965,80 @@ export async function processQueuedFulfillments(
       failed += 1;
     }
   }
+  const ready = await listOrders(supabase, { fulfillmentStatus: 'ready', limit: 30 });
+  for (const order of ready) {
+    if (order.deliveryStatus === 'sent' || order.deliveryStatus === 'sending') {
+      continue;
+    }
+    const sent = await deliverSavedContent(supabase, order);
+    if (sent) {
+      processed += 1;
+    }
+  }
   return { processed, failed };
+}
+
+async function deliverSavedContent(supabase: DbClient, order: Order): Promise<boolean> {
+  if (!order.customerId || order.paymentStatus !== 'verified') {
+    return false;
+  }
+  const row = (await supabase.from('orders').select('metadata').eq('id', order.id).maybeSingle()) as QueryResult<{
+    metadata?: unknown;
+  } | null>;
+  const metadata =
+    row.data?.metadata && typeof row.data.metadata === 'object'
+      ? (row.data.metadata as { deliveryContent?: unknown })
+      : {};
+  const content = typeof metadata.deliveryContent === 'string' ? metadata.deliveryContent : '';
+  if (content.length === 0) {
+    return false;
+  }
+  const current = await getOrder(supabase, order.id);
+  if (current.deliveryStatus !== 'not_ready' && current.deliveryStatus !== 'queued') {
+    return false;
+  }
+  const claimed = await claimTransition(
+    supabase,
+    order.id,
+    'delivery',
+    current.deliveryStatus,
+    current.deliveryStatus === 'not_ready' ? 'queued' : 'sending',
+    { trigger: 'worker', note: 'cron delivery' },
+  );
+  if (!claimed) {
+    return false;
+  }
+  let sending = await getOrder(supabase, order.id);
+  if (sending.deliveryStatus === 'queued') {
+    const won = await claimTransition(supabase, order.id, 'delivery', 'queued', 'sending', {
+      trigger: 'worker',
+      note: 'cron delivery',
+    });
+    if (!won) {
+      return false;
+    }
+    sending = await getOrder(supabase, order.id);
+  }
+  const customer = await getCustomerById(supabase, order.customerId);
+  const token = await resolveBotToken(supabase, order);
+  if (!token) {
+    return false;
+  }
+  const product = await getProduct(supabase, order.productId);
+  await sendTextDelivery(
+    token,
+    customer.telegramChatId,
+    deliveredOrderText({
+      title: product.title,
+      quantity: order.quantity,
+      amountMinor: order.quotedRetailPriceMinor,
+      balanceMinor: customer.creditBalanceMinor,
+      orderId: order.id,
+      content,
+    }),
+  );
+  await markCustomerNotified(supabase, order.id);
+  return true;
 }
 
 /**

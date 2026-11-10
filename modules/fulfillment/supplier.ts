@@ -9,9 +9,14 @@
 
 import { getSupplierConnector } from '@/integrations/supplier/connector';
 import { SupplierError } from '@/integrations/prodseller/client';
-import { sendHtmlNotice } from '@/integrations/telegram/delivery';
+import { sendHtmlNotice, sendTextDelivery } from '@/integrations/telegram/delivery';
+import {
+  deliveredOrderText,
+  isInlineDelivery,
+  noteInlineMessage,
+  saveDeliveryContent,
+} from '@/modules/fulfillment/customer-message';
 import type { SupplierOrderResult, SupplierStatusResult } from '@/integrations/supplier/types';
-import { sendSupplierDelivery } from '@/integrations/telegram/delivery';
 import { decrypt } from '@/lib/encryption';
 import { AppError, FulfillmentError } from '@/lib/errors';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
@@ -311,6 +316,22 @@ export async function deliverSupplierContent(
   deliveryData: string,
 ): Promise<void> {
   const product = await getProduct(supabase, order.productId);
+  if (isInlineDelivery(order.id)) {
+    const customer = order.customerId ? await getCustomerById(supabase, order.customerId) : null;
+    noteInlineMessage(
+      order.id,
+      deliveredOrderText({
+        title: product.title,
+        quantity: order.quantity,
+        amountMinor: order.quotedRetailPriceMinor,
+        balanceMinor: customer?.creditBalanceMinor ?? 0n,
+        orderId: order.id,
+        content: deliveryData,
+      }),
+    );
+    await saveDeliveryContent(supabase, order.id, deliveryData);
+    return;
+  }
   const fulfillments = await listFulfillmentAttempts(supabase, order.id);
   const fulfillment = fulfillments[0];
   if (fulfillment === undefined) {
@@ -351,7 +372,18 @@ export async function deliverSupplierContent(
     if (!token) {
       throw new Error('bot unavailable');
     }
-    await sendSupplierDelivery(token, customer.telegramChatId, deliveryData, product.title, order.id);
+    await sendTextDelivery(
+      token,
+      customer.telegramChatId,
+      deliveredOrderText({
+        title: product.title,
+        quantity: order.quantity,
+        amountMinor: order.quotedRetailPriceMinor,
+        balanceMinor: customer.creditBalanceMinor,
+        orderId: order.id,
+        content: deliveryData,
+      }),
+    );
     await completeDeliveryAttempt(supabase, attempt.id, { status: 'success', result: 'supplier content sent' });
     const latest = await getOrder(supabase, order.id);
     if (latest.deliveryStatus === 'sending') {
@@ -519,7 +551,13 @@ export async function fulfillSupplier(
   try {
     if (product.supplierId) {
       const email = await orderCustomerEmail(supabase, order.id);
+      const supplierStarted = Date.now();
       const placed = await fulfillViaSupplier(supabase, order.id, product.id, email);
+      logger.info('supplier order placed', {
+        orderId: order.id,
+        ms: Date.now() - supplierStarted,
+        status: placed.status,
+      });
       result = {
         status: placed.status === 'delivered' ? 'completed' : placed.status === 'failed' ? 'failed' : 'unknown',
         supplierOrderId: supplierArtifact(placed.supplierOrderId),

@@ -36,6 +36,8 @@ import { PaymentError } from '@/lib/errors';
 import { openCheckoutOrder } from '@/modules/orders/checkout';
 import { payOrderFromCustomerWallet, refundWalletPaymentOnce } from '@/modules/payments';
 import { processQueuedOrder } from '@/modules/fulfillment';
+import { deliveredOrderText, startInlineDelivery, takeInlineMessage } from '@/modules/fulfillment/customer-message';
+import { sendTextDelivery } from '@/integrations/telegram/delivery';
 import { fulfillViaSupplier } from '@/modules/supplier/place';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
@@ -148,12 +150,34 @@ describe('wallet payment idempotency', () => {
     const debits = (db.tables.customer_credit_entries ?? []).filter((row) => row.entry_type === 'debit');
     expect(debits).toHaveLength(1);
 
+    startInlineDelivery(order.id);
     const fulfillments = await Promise.all(
       Array.from({ length: 5 }, () => processQueuedOrder(db, order.id)),
     );
     expect(vi.mocked(fulfillViaSupplier)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendTextDelivery)).not.toHaveBeenCalled();
     expect(db.tables.fulfillment_attempts).toHaveLength(1);
     expect(fulfillments.filter((result) => result.success)).not.toHaveLength(0);
+    const message = takeInlineMessage(order.id);
+    expect(message).toContain('Your order is delivered');
+    expect(message).toContain('KEY-1');
+    expect(message).toContain('Quantity: 1');
+  });
+
+  it('formats the delivered message once', () => {
+    const text = deliveredOrderText({
+      title: 'Instant Key',
+      quantity: 2,
+      amountMinor: 20000000n,
+      balanceMinor: 30000000n,
+      orderId: 'abcdef1234567890',
+      content: 'KEY-1',
+    });
+    expect(text).toContain('Your order is delivered');
+    expect(text).toContain('Instant Key');
+    expect(text).toContain('Quantity: 2');
+    expect(text).toContain('KEY-1');
+    expect(text).toContain('ABCDEF12');
   });
 
   it('reuses one open order when buy is tapped five times', async () => {

@@ -846,17 +846,37 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function payFromWallet(screen: Screen, orderId: string): Promise<void> {
+    const started = Date.now();
+    const stage = (name: string): void => {
+      logger.info('wallet pay stage', { stage: name, orderId, ms: Date.now() - started });
+    };
+    stage('start');
+    await show(
+      bot,
+      screen,
+      '⏳ <b>Processing your order...</b>\n\nPlease wait a few seconds. Do not tap again.',
+      new InlineKeyboard(),
+      'HTML',
+    );
+    stage('processing_shown');
     const current = await storeContext();
     if (customer === null) {
       throw new Error('missing customer');
     }
     const order = await ownedOrder(orderId);
+    stage('order_read');
     if (!order) {
       await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(current), 'HTML');
       return;
     }
-    if (order.paymentStatus === 'verified') {
-      await show(bot, screen, BOT_ERRORS.ORDER_ALREADY_PAID, homeKeyboard(current), 'HTML');
+    if (order.paymentStatus === 'verified' || order.paymentStatus === 'pending_verification') {
+      await show(
+        bot,
+        screen,
+        '⏳ <b>Already processing your order.</b>\n\nPlease wait a few seconds.',
+        new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
+        'HTML',
+      );
       return;
     }
     const balance = (await getCustomerById(context.supabase, customer.id)).creditBalanceMinor;
@@ -877,13 +897,22 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     try {
       const paid = await payOrderFromCustomerWallet(context.supabase, order.id, customer.id);
+      stage('debited');
       customer = { ...customer, creditBalanceMinor: paid.newBalance };
       CUSTOMER_CACHE.delete(`${context.botConnection.id}:${customer.telegramUserId}`);
       const product = (await loadCatalog()).find((entry) => entry.product.id === order.productId)?.product
         ?? (await getProduct(context.supabase, order.productId));
+      const { startInlineDelivery, takeInlineMessage, markCustomerNotified } = await import(
+        '@/modules/fulfillment/customer-message'
+      );
+      startInlineDelivery(order.id);
+      stage('fulfillment_start');
+      let fulfilled = false;
       try {
         const { processQueuedOrder } = await import('@/modules/fulfillment');
-        await processQueuedOrder(context.supabase, order.id);
+        const result = await processQueuedOrder(context.supabase, order.id);
+        fulfilled = result.success;
+        stage('fulfillment_done');
       } catch (error: unknown) {
         logger.error('wallet fulfillment failed', {
           orderId: order.id,
@@ -900,9 +929,25 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         return;
       }
       const latest = await getOrder(context.supabase, order.id);
+      const inlineText = takeInlineMessage(order.id);
       const manual = product.deliveryType === 'manual' || latest.fulfillmentStatus === 'manual_pending';
-      const activating = product.requiresEmailActivation || latest.fulfillmentStatus === 'supplier_pending';
+      const activating =
+        product.requiresEmailActivation ||
+        latest.fulfillmentStatus === 'supplier_pending' ||
+        latest.fulfillmentStatus === 'outcome_unknown' ||
+        latest.fulfillmentStatus === 'processing';
       const homeKeys = new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:');
+      if (!fulfilled && latest.paymentStatus !== 'verified') {
+        await show(
+          bot,
+          screen,
+          '❌ <b>Payment could not be completed</b>\n\nYour balance was refunded. Please start the order again.',
+          homeKeys,
+          'HTML',
+        );
+        stage('refund_shown');
+        return;
+      }
       if (manual) {
         await show(
           bot,
@@ -931,19 +976,26 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         );
         return;
       }
+      const { deliveredOrderText } = await import('@/modules/fulfillment/customer-message');
       await show(
         bot,
         screen,
-        `✅ <b>Delivered!</b>\n\n` +
-          `📦 ${escHtml(product.title)}\n` +
-          `🔢 Quantity: ${latest.quantity}\n` +
-          `💵 Paid: ${escHtml(formatUsdt(paid.amount))} from wallet\n` +
-          `💰 Remaining balance: <b>${escHtml(formatUsdt(paid.newBalance))}</b>\n` +
-          `Order: <code>${orderRef(order.id)}</code>\n\n` +
-          `Your product is in this chat.`,
+        inlineText ??
+          deliveredOrderText({
+            title: product.title,
+            quantity: latest.quantity,
+            amountMinor: paid.amount,
+            balanceMinor: paid.newBalance,
+            orderId: order.id,
+            content: 'Your product is in this chat.',
+          }),
         homeKeys,
         'HTML',
       );
+      if (latest.deliveryStatus !== 'sent') {
+        await markCustomerNotified(context.supabase, order.id);
+      }
+      stage('delivered_shown');
     } catch (error: unknown) {
       const code = error instanceof AppError ? error.code : '';
       if (code === 'PAYMENT_IN_PROGRESS' || code === 'ORDER_ALREADY_PAID') {
@@ -1773,7 +1825,18 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         }
         if (update.callback_query) {
           try {
-            await bot.api.answerCallbackQuery(update.callback_query.id);
+            const callbackData = update.callback_query.data ?? '';
+            await bot.api.answerCallbackQuery(
+              update.callback_query.id,
+              callbackData.startsWith('pay_wallet:') ? { text: 'Processing your payment...' } : {},
+            );
+            if (callbackData.startsWith('pay_wallet:')) {
+              logger.info('wallet pay stage', {
+                stage: 'callback_answer',
+                orderId: callbackData.slice('pay_wallet:'.length),
+                ms: 0,
+              });
+            }
           } catch (error: unknown) {
             logger.info('telegram callback answer skipped', {
               botId: context.botConnection.id,
