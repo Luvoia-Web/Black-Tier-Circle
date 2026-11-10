@@ -34,3 +34,23 @@ export function isLowBalanceMessage(message: string): boolean {
   const msg = message.toLowerCase();
   return msg.includes('solde insuffisant') || msg.includes('insufficient');
 }
+
+/**
+ * Short message safe to store or return from a sync.
+ * Drops API keys, request URLs, and raw upstream bodies.
+ */
+export function safeSupplierSyncMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (
+    raw.length === 0 ||
+    raw.length > 180 ||
+    raw.includes('{') ||
+    raw.includes('<') ||
+    /https?:\/\//i.test(raw) ||
+    /[?&]key=/i.test(raw) ||
+    /\b(?:psk_|tgb_)/.test(raw)
+  ) {
+    return 'Supplier sync failed';
+  }
+  return raw.replace(/\s+/g, ' ').trim() || 'Supplier sync failed';
+}

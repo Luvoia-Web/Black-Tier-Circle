@@ -2,12 +2,14 @@
  * @file app/api/supplier/sync/route.ts
  *
  * Syncs active suppliers. Cron secret or an owner session.
+ * One supplier failing does not stop the others.
  */
 
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { listSuppliers, syncSupplierProducts } from '@/modules/supplier';
 
@@ -29,8 +31,45 @@ export async function POST(req: NextRequest): Promise<Response> {
     const targets = suppliers.filter((supplier) => supplier.status === 'active' && supplier.hasApiKey && (!supplierId || supplier.id === supplierId));
     const results = [];
     for (const supplier of targets) {
-      const summary = await syncSupplierProducts(db, supplier.id);
-      results.push({ supplierId: supplier.id, supplierName: supplier.name, ...summary });
+      const started = Date.now();
+      try {
+        const summary = await syncSupplierProducts(db, supplier.id);
+        results.push({
+          supplierId: supplier.id,
+          name: supplier.name,
+          ok: summary.errors.length === 0,
+          synced: summary.synced,
+          newProducts: summary.newProducts,
+          updatedProducts: summary.updatedProducts,
+          outOfStock: summary.outOfStock,
+          errors: summary.errors,
+          durationMs: Date.now() - started,
+        });
+      } catch (error: unknown) {
+        const message = safeSupplierSyncMessage(error);
+        try {
+          await db
+            .from('suppliers')
+            .update({
+              last_sync_error: message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', supplier.id);
+        } catch {
+          // Keep going so the next supplier still syncs.
+        }
+        results.push({
+          supplierId: supplier.id,
+          name: supplier.name,
+          ok: false,
+          synced: 0,
+          newProducts: 0,
+          updatedProducts: 0,
+          outOfStock: 0,
+          errors: [message],
+          durationMs: Date.now() - started,
+        });
+      }
     }
     return jsonSuccess({ results });
   } catch (error: unknown) {

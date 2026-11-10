@@ -8,8 +8,10 @@ import { randomUUID } from 'node:crypto';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient } from '@/lib/supabase/query';
-import { adapterByName, testSupplierConnection } from '@/integrations/supplier/supplier-client';
+import type { CatalogSupplierProduct } from '@/integrations/supplier/adapter-types';
+import { adapterByName, detectAdapter, testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { createProdSellerClient } from '@/integrations/prodseller/client';
+import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
 export { fulfillViaSupplier, mapSupplierOrder, supplierArtifact, supplierCostMinor, supplierOrderIdFromArtifact } from './place';
@@ -252,24 +254,141 @@ function catalogDelivery(product: { readonly requiresEmailActivation: boolean })
   return product.requiresEmailActivation ? 'email_activation' : 'instant';
 }
 
-export async function syncSupplierProducts(
-  supabase: DbClient,
-  supplierId: string,
-): Promise<{
+const EXISTING_PAGE = 1000;
+const INSERT_CHUNK = 100;
+const UPDATE_BATCH = 20;
+const OUT_OF_STOCK_CHUNK = 200;
+const EMPTY_CATALOG_ERROR = 'Supplier returned no products';
+
+type RemoteCatalogItem = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly imageUrl: string | null;
+  readonly price: number;
+  readonly publicPrice: number;
+  readonly requiresEmailActivation: boolean;
+  readonly inStock: boolean;
+  readonly sold: number;
+};
+
+type ExistingSupplierProduct = {
+  readonly id: string;
+  readonly supplier_sku: string;
+  readonly review_status: string;
+  readonly in_stock: boolean;
+};
+
+type SyncSummary = {
   synced: number;
   newProducts: number;
   updatedProducts: number;
   outOfStock: number;
   errors: string[];
-}> {
-  const supplier = await getSupplierRow(supabase, supplierId);
-  if (!supplier.api_key_encrypted) {
-    throw new AppError('SUPPLIER_NOT_CONFIGURED', 'Save an API key before syncing', 400);
+};
+
+function chunkList<T>(items: readonly T[], size: number): T[][] {
+  const pages: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    pages.push(items.slice(index, index + size));
   }
-  const adapterName = (supplier as { adapter_name?: string }).adapter_name;
-  const useLegacy = !adapterName || adapterName === 'prodseller' || adapterName === 'generic' && supplier.base_url.includes('prodseller');
-  const remote = useLegacy
-    ? (await createProdSellerClient(decrypt(supplier.api_key_encrypted), supplier.base_url, supplier.auth_header_name).listProducts()).map((item) => ({
+  return pages;
+}
+
+function asRows<T>(result: unknown): { readonly data: T[]; readonly error: { message: string } | null } {
+  const record = result as { data?: T[] | null; error?: { message: string } | null };
+  return { data: record.data ?? [], error: record.error ?? null };
+}
+
+function asWrite(result: unknown): { readonly error: { message: string } | null } {
+  const record = result as { error?: { message: string } | null };
+  return { error: record.error ?? null };
+}
+
+function storedAdapterName(adapter: { readonly keyPrefix: string | null }): string {
+  if (adapter.keyPrefix === 'psk_') {
+    return 'prodseller';
+  }
+  if (adapter.keyPrefix === 'tgb_') {
+    return 'canboso';
+  }
+  return 'generic';
+}
+
+function prefersProdSeller(adapterName: string, baseUrl: string, apiKey: string): boolean {
+  if (apiKey.startsWith('psk_')) {
+    return true;
+  }
+  if (adapterName === 'prodseller') {
+    return true;
+  }
+  return adapterName === 'generic' && baseUrl.includes('prodseller');
+}
+
+function mapAdapterProduct(item: CatalogSupplierProduct): RemoteCatalogItem {
+  return {
+    id: item.externalId,
+    name: item.title,
+    description: item.description ?? '',
+    imageUrl: item.imageUrl ?? null,
+    price: item.price,
+    publicPrice: item.price,
+    requiresEmailActivation: item.deliveryType === 'email_activation',
+    inStock: item.stock === 'unlimited' || item.stock > 0,
+    sold: 0,
+  };
+}
+
+function catalogPatch(item: RemoteCatalogItem, now: string): Record<string, unknown> {
+  return {
+    name: item.name,
+    description: item.description,
+    image_url: item.imageUrl,
+    supplier_price: item.price,
+    supplier_public_price: item.publicPrice,
+    delivery_type: catalogDelivery(item),
+    requires_email_activation: item.requiresEmailActivation,
+    in_stock: item.inStock,
+    sold_count: item.sold,
+    last_seen_at: now,
+    last_synced_at: now,
+  };
+}
+
+async function loadRemoteCatalog(
+  supplier: SupplierDbRow,
+  apiKey: string,
+): Promise<{ readonly items: RemoteCatalogItem[]; readonly detectedName: string | null }> {
+  const rawName = (supplier as { adapter_name?: string | null }).adapter_name;
+  const adapterName = typeof rawName === 'string' ? rawName.trim() : '';
+  if (adapterName === '') {
+    const detected = detectAdapter(apiKey);
+    const detectedName = storedAdapterName(detected);
+    if (prefersProdSeller(detectedName, supplier.base_url, apiKey)) {
+      const listed = await createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name).listProducts();
+      return {
+        detectedName,
+        items: listed.map((item) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          imageUrl: item.imageUrl,
+          price: item.price,
+          publicPrice: item.publicPrice,
+          requiresEmailActivation: item.requiresEmailActivation,
+          inStock: item.inStock,
+          sold: item.sold,
+        })),
+      };
+    }
+    const products = await detected.getProducts(apiKey, supplier.base_url);
+    return { detectedName, items: products.map(mapAdapterProduct) };
+  }
+  if (prefersProdSeller(adapterName, supplier.base_url, apiKey)) {
+    const listed = await createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name).listProducts();
+    return {
+      detectedName: null,
+      items: listed.map((item) => ({
         id: item.id,
         name: item.name,
         description: item.description,
@@ -279,92 +398,211 @@ export async function syncSupplierProducts(
         requiresEmailActivation: item.requiresEmailActivation,
         inStock: item.inStock,
         sold: item.sold,
-      }))
-    : (await adapterByName(adapterName).getProducts(decrypt(supplier.api_key_encrypted), supplier.base_url)).map((item) => ({
-        id: item.externalId,
-        name: item.title,
-        description: item.description ?? '',
-        imageUrl: item.imageUrl ?? null,
-        price: item.price,
-        publicPrice: item.price,
-        requiresEmailActivation: item.deliveryType === 'email_activation',
-        inStock: item.stock === 'unlimited' || item.stock > 0,
-        sold: 0,
-      }));
+      })),
+    };
+  }
+  const products = await adapterByName(adapterName).getProducts(apiKey, supplier.base_url);
+  return { detectedName: null, items: products.map(mapAdapterProduct) };
+}
+
+async function loadExistingProducts(
+  supabase: DbClient,
+  supplierId: string,
+): Promise<Map<string, ExistingSupplierProduct>> {
+  const found = new Map<string, ExistingSupplierProduct>();
+  let offset = 0;
+  let previousFirstId = '';
+  for (;;) {
+    const page = asRows<ExistingSupplierProduct>(
+      await supabase
+        .from('supplier_products')
+        .select('id, supplier_sku, review_status, in_stock')
+        .eq('supplier_id', supplierId)
+        .order('id')
+        .range(offset, offset + EXISTING_PAGE - 1),
+    );
+    if (page.error) {
+      throw new AppError('SUPPLIER_SYNC_FAILED', safeSupplierSyncMessage(page.error.message), 500);
+    }
+    const first = page.data[0];
+    if (page.data.length === EXISTING_PAGE && first && first.id === previousFirstId) {
+      break;
+    }
+    for (const row of page.data) {
+      found.set(row.supplier_sku, row);
+    }
+    if (page.data.length < EXISTING_PAGE) {
+      break;
+    }
+    previousFirstId = first?.id ?? '';
+    offset += EXISTING_PAGE;
+  }
+  return found;
+}
+
+async function rememberDetectedAdapter(
+  supabase: DbClient,
+  supplierId: string,
+  detectedName: string,
+  now: string,
+  errors: string[],
+): Promise<void> {
+  try {
+    const saved = asWrite(
+      await supabase.from('suppliers').update({ adapter_name: detectedName, updated_at: now }).eq('id', supplierId),
+    );
+    if (saved.error && !/adapter_name/i.test(saved.error.message)) {
+      errors.push(safeSupplierSyncMessage(saved.error.message));
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    if (!/adapter_name/i.test(message)) {
+      errors.push(safeSupplierSyncMessage(error));
+    }
+  }
+}
+
+export async function syncSupplierProducts(
+  supabase: DbClient,
+  supplierId: string,
+): Promise<SyncSummary> {
+  const supplier = await getSupplierRow(supabase, supplierId);
+  if (!supplier.api_key_encrypted) {
+    throw new AppError('SUPPLIER_NOT_CONFIGURED', 'Save an API key before syncing', 400);
+  }
+  const apiKey = decrypt(supplier.api_key_encrypted);
+  const loaded = await loadRemoteCatalog(supplier, apiKey);
+  const now = new Date().toISOString();
   const seen = new Set<string>();
+  const remote: RemoteCatalogItem[] = [];
+  for (const item of loaded.items) {
+    if (item.id.trim().length === 0 || seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    remote.push(item);
+  }
+
+  if (remote.length === 0) {
+    try {
+      await supabase
+        .from('suppliers')
+        .update({ last_sync_error: EMPTY_CATALOG_ERROR, updated_at: now })
+        .eq('id', supplierId);
+    } catch {
+      // The empty catalog is still reported below. Nothing is marked out of stock.
+    }
+    return { synced: 0, newProducts: 0, updatedProducts: 0, outOfStock: 0, errors: [EMPTY_CATALOG_ERROR] };
+  }
+
+  const existing = await loadExistingProducts(supabase, supplierId);
+  const toInsert: RemoteCatalogItem[] = [];
+  const toUpdate: RemoteCatalogItem[] = [];
+  for (const item of remote) {
+    if (existing.has(item.id)) {
+      toUpdate.push(item);
+    } else {
+      toInsert.push(item);
+    }
+  }
+
   let newProducts = 0;
   let updatedProducts = 0;
   const errors: string[] = [];
-  const now = new Date().toISOString();
 
-  for (const item of remote) {
-    seen.add(item.id);
-    const existing = await supabase
-      .from('supplier_products')
-      .select('id, review_status')
-      .eq('supplier_id', supplierId)
-      .eq('supplier_sku', item.id)
-      .maybeSingle();
-    if (existing.error) {
-      errors.push(existing.error.message);
-      continue;
+  // The table has unique (supplier_id, supplier_sku). Upsert is not used:
+  // a payload that sets review_status for new rows would also reset it on existing rows.
+  for (const chunk of chunkList(toInsert, INSERT_CHUNK)) {
+    try {
+      const inserted = asWrite(
+        await supabase.from('supplier_products').insert(
+          chunk.map((item) => ({
+            ...catalogPatch(item, now),
+            supplier_id: supplierId,
+            supplier_sku: item.id,
+            review_status: 'pending_review',
+            first_seen_at: now,
+          })),
+        ),
+      );
+      if (inserted.error) {
+        errors.push(safeSupplierSyncMessage(inserted.error.message));
+      } else {
+        newProducts += chunk.length;
+      }
+    } catch (error: unknown) {
+      errors.push(safeSupplierSyncMessage(error));
     }
-    const patch = {
-      name: item.name,
-      description: item.description,
-      image_url: item.imageUrl,
-      supplier_price: item.price,
-      supplier_public_price: item.publicPrice,
-      delivery_type: catalogDelivery(item),
-      requires_email_activation: item.requiresEmailActivation,
-      in_stock: item.inStock,
-      sold_count: item.sold,
-      last_seen_at: now,
-      last_synced_at: now,
-    };
-    if (existing.data) {
-      const updated = await supabase.from('supplier_products').update(patch).eq('id', (existing.data as { id: string }).id);
-      if (updated.error) {
-        errors.push(updated.error.message);
+  }
+
+  for (const batch of chunkList(toUpdate, UPDATE_BATCH)) {
+    const outcomes = await Promise.all(
+      batch.map(async (item) => {
+        const row = existing.get(item.id);
+        if (!row) {
+          return 'Missing supplier product row';
+        }
+        try {
+          const updated = asWrite(
+            await supabase.from('supplier_products').update(catalogPatch(item, now)).eq('id', row.id),
+          );
+          return updated.error ? safeSupplierSyncMessage(updated.error.message) : null;
+        } catch (error: unknown) {
+          return safeSupplierSyncMessage(error);
+        }
+      }),
+    );
+    for (const outcome of outcomes) {
+      if (outcome) {
+        errors.push(outcome);
       } else {
         updatedProducts += 1;
       }
-    } else {
-      const inserted = await supabase.from('supplier_products').insert({
-        ...patch,
-        supplier_id: supplierId,
-        supplier_sku: item.id,
-        review_status: 'pending_review',
-        first_seen_at: now,
-      });
-      if (inserted.error) {
-        errors.push(inserted.error.message);
-      } else {
-        newProducts += 1;
-      }
     }
   }
 
-  const current = await supabase.from('supplier_products').select('id, supplier_sku').eq('supplier_id', supplierId);
+  const staleIds: string[] = [];
+  for (const row of existing.values()) {
+    if (row.in_stock === true && !seen.has(row.supplier_sku)) {
+      staleIds.push(row.id);
+    }
+  }
   let outOfStock = 0;
-  for (const row of (current.data ?? []) as Array<{ id: string; supplier_sku: string }>) {
-    if (!seen.has(row.supplier_sku)) {
-      const hidden = await supabase.from('supplier_products').update({ in_stock: false, last_synced_at: now }).eq('id', row.id);
-      if (!hidden.error) {
-        outOfStock += 1;
+  for (const chunk of chunkList(staleIds, OUT_OF_STOCK_CHUNK)) {
+    try {
+      const hidden = asWrite(
+        await supabase
+          .from('supplier_products')
+          .update({ in_stock: false, last_synced_at: now })
+          .in('id', chunk),
+      );
+      if (hidden.error) {
+        errors.push(safeSupplierSyncMessage(hidden.error.message));
+      } else {
+        outOfStock += chunk.length;
       }
+    } catch (error: unknown) {
+      errors.push(safeSupplierSyncMessage(error));
     }
   }
 
-  await supabase
-    .from('suppliers')
-    .update({
-      last_sync_at: now,
-      last_sync_error: errors[0] ?? null,
-      product_count: seen.size,
-      updated_at: now,
-    })
-    .eq('id', supplierId);
+  if (loaded.detectedName) {
+    await rememberDetectedAdapter(supabase, supplierId, loaded.detectedName, now, errors);
+  }
+
+  try {
+    await supabase
+      .from('suppliers')
+      .update({
+        last_sync_at: now,
+        last_sync_error: errors[0] ?? null,
+        product_count: seen.size,
+        updated_at: now,
+      })
+      .eq('id', supplierId);
+  } catch (error: unknown) {
+    errors.push(safeSupplierSyncMessage(error));
+  }
 
   return { synced: seen.size, newProducts, updatedProducts, outOfStock, errors };
 }

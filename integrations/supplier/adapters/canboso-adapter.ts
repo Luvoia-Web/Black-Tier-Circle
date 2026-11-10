@@ -34,6 +34,18 @@ function deliveryOf(product: CanbosoProduct): CatalogSupplierProduct['deliveryTy
   return product.productType === 'slot' || product.productType === 'upgrade_account' ? 'email_activation' : 'instant';
 }
 
+/**
+ * Network failures from fetch can include the full URL, and this API puts the key in that URL.
+ * Replace them with a short message that does not contain the request.
+ */
+async function requestCanboso(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error('Cannot reach the supplier.');
+  }
+}
+
 function accountsText(delivery: unknown): string | undefined {
   if (!delivery || typeof delivery !== 'object' || !('accounts' in delivery)) {
     return undefined;
@@ -75,7 +87,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
       apiVersion: 'v2',
     };
     try {
-      const productsResponse = await fetch(`${baseUrl}${PRODUCTS}?key=${encodeURIComponent(apiKey)}`);
+      const productsResponse = await requestCanboso(`${baseUrl}${PRODUCTS}?key=${encodeURIComponent(apiKey)}`);
       const productsBody = await this.readJson(productsResponse);
       if (productsResponse.status === 401 || productsResponse.status === 403) {
         return { ...shared, success: false, error: 'Invalid API key. Double-check and try again.' };
@@ -103,7 +115,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
   }
 
   async getProducts(apiKey: string, endpoint?: string): Promise<CatalogSupplierProduct[]> {
-    const response = await fetch(`${baseOf(endpoint)}${PRODUCTS}?key=${encodeURIComponent(apiKey)}`);
+    const response = await requestCanboso(`${baseOf(endpoint)}${PRODUCTS}?key=${encodeURIComponent(apiKey)}`);
     if (!response.ok) {
       throw new Error('Could not load supplier products.');
     }
@@ -132,7 +144,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
     idempotencyKey?: string,
     endpoint?: string,
   ): Promise<CatalogOrderResult> {
-    const response = await fetch(`${baseOf(endpoint)}${PURCHASE}`, {
+    const response = await requestCanboso(`${baseOf(endpoint)}${PURCHASE}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -172,7 +184,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
 
   async getBalance(apiKey: string, endpoint?: string): Promise<CatalogBalance | null> {
     try {
-      const response = await fetch(`${baseOf(endpoint)}${BALANCE}?key=${encodeURIComponent(apiKey)}`);
+      const response = await requestCanboso(`${baseOf(endpoint)}${BALANCE}?key=${encodeURIComponent(apiKey)}`);
       if (!response.ok) {
         return null;
       }
