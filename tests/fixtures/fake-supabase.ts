@@ -366,6 +366,122 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ success: true, new_balance: next.toString(), error_code: null }], error: null };
     }
 
+    if (fn === 'redeem_points_to_wallet') {
+      const customerId = String(args.p_customer_id);
+      const points = Number(args.p_points);
+      const value = asMinor(args.p_value_per_point);
+      const requestId = String(args.p_request_id ?? '');
+      const minimum = Number(args.p_min_points);
+      const customer = tableOf('customers').find((row) => String(row.id) === customerId);
+      if (!customer) {
+        return { data: [{ success: false, new_points: 0, new_balance: '0', error_code: 'CUSTOMER_NOT_FOUND' }], error: null };
+      }
+      const ledger = tableOf('points_ledger');
+      const balanceOf = (): number =>
+        ledger
+          .filter((row) => String(row.customer_id) === customerId)
+          .reduce((sum, row) => sum + Number(row.delta), 0);
+      const existing = ledger.find(
+        (row) =>
+          String(row.customer_id) === customerId &&
+          String(row.reason) === 'redeem_to_wallet' &&
+          String(row.reference) === requestId,
+      );
+      const credit = asMinor(customer.credit_balance ?? 0);
+      if (existing) {
+        return {
+          data: [{ success: true, new_points: balanceOf(), new_balance: credit.toString(), error_code: null }],
+          error: null,
+        };
+      }
+      const held = balanceOf();
+      if (!requestId || !Number.isInteger(points) || points <= 0 || points < minimum) {
+        return { data: [{ success: false, new_points: held, new_balance: credit.toString(), error_code: 'BELOW_MINIMUM' }], error: null };
+      }
+      if (held < points || value <= 0n) {
+        return {
+          data: [
+            {
+              success: false,
+              new_points: held,
+              new_balance: credit.toString(),
+              error_code: held < points ? 'INSUFFICIENT_POINTS' : 'INVALID_VALUE',
+            },
+          ],
+          error: null,
+        };
+      }
+      ledger.push({
+        id: crypto.randomUUID(),
+        customer_id: customerId,
+        tenant_id: null,
+        delta: -points,
+        reason: 'redeem_to_wallet',
+        reference: requestId,
+        created_at: nowIso(),
+      });
+      const next = credit + BigInt(points) * value;
+      customer.credit_balance = next.toString();
+      return { data: [{ success: true, new_points: balanceOf(), new_balance: next.toString(), error_code: null }], error: null };
+    }
+
+    if (fn === 'grant_referral_reward') {
+      const referralId = String(args.p_referral_id);
+      const points = Number(args.p_points);
+      const cap = Number(args.p_daily_cap);
+      const dayStart = String(args.p_day_start);
+      const orderId = String(args.p_order_id);
+      const referrals = tableOf('referrals');
+      const referral = referrals.find((row) => String(row.id) === referralId);
+      if (!referral) {
+        return { data: [{ granted: false, capped: false, already: false }], error: null };
+      }
+      if (String(referral.status) === 'qualified') {
+        return { data: [{ granted: false, capped: false, already: true }], error: null };
+      }
+      if (String(referral.status) !== 'pending') {
+        return { data: [{ granted: false, capped: false, already: false }], error: null };
+      }
+      const dayEnd = new Date(new Date(dayStart).getTime() + 86_400_000).toISOString();
+      const today = referrals.filter((row) => {
+        if (String(row.referrer_customer_id) !== String(referral.referrer_customer_id)) {
+          return false;
+        }
+        if (String(row.status) !== 'qualified') {
+          return false;
+        }
+        const at = String(row.qualified_at ?? '');
+        return at >= dayStart && at < dayEnd;
+      }).length;
+      if (Number.isInteger(cap) && cap >= 0 && today >= cap) {
+        return { data: [{ granted: false, capped: true, already: false }], error: null };
+      }
+      referral.status = 'qualified';
+      referral.qualified_order_id = orderId;
+      referral.qualified_at = nowIso();
+      if (Number.isInteger(points) && points > 0) {
+        const ledger = tableOf('points_ledger');
+        const duplicate = ledger.some(
+          (row) =>
+            String(row.customer_id) === String(referral.referrer_customer_id) &&
+            String(row.reason) === 'referral_reward' &&
+            String(row.reference) === referralId,
+        );
+        if (!duplicate) {
+          ledger.push({
+            id: crypto.randomUUID(),
+            customer_id: referral.referrer_customer_id,
+            tenant_id: referral.tenant_id ?? null,
+            delta: points,
+            reason: 'referral_reward',
+            reference: referralId,
+            created_at: nowIso(),
+          });
+        }
+      }
+      return { data: [{ granted: true, capped: false, already: false }], error: null };
+    }
+
     return { data: null, error: { message: `unknown rpc ${fn}` } };
   }
 

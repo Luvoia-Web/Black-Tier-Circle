@@ -315,6 +315,9 @@ function ButtonEditor({
         />
         Show on the home screen
       </label>
+      {buttonKey === 'referrals' || buttonKey === 'freebies' ? (
+        <p className="mt-2 text-xs text-[var(--text-3)]">Shown after this store turns that feature on.</p>
+      ) : null}
       <FormField label="Label" value={button.label} onChange={(label) => patch({ label })} />
       <FormField label="Emoji" value={button.emoji} onChange={(emoji) => patch({ emoji })} />
       <label className="mt-3 block text-sm text-[var(--text-2)]">

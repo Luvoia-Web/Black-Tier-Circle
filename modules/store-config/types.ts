@@ -15,13 +15,27 @@ export const BUTTON_KEYS = [
 
 export type ButtonKey = (typeof BUTTON_KEYS)[number];
 
-export const COMING_SOON_BUTTONS: ReadonlySet<ButtonKey> = new Set([
-  'freebies',
-  'referrals',
-  'history',
-  'redeem',
-  'events',
-]);
+export const COMING_SOON_BUTTONS: ReadonlySet<ButtonKey> = new Set(['history', 'redeem', 'events']);
+
+export type ReferralTemplates = {
+  readonly home: string;
+  readonly freebies: string;
+  readonly friendJoined: string;
+  readonly qualified: string;
+  readonly redeemed: string;
+};
+
+export type ReferralConfig = {
+  readonly enabled: boolean;
+  readonly pointsPerReferral: number;
+  readonly pointValueMinor: string;
+  readonly minRedeemPoints: number;
+  readonly minQualifyingOrderMinor: string;
+  readonly dailyRewardCap: number;
+  readonly freebiesEnabled: boolean;
+  readonly redeemEnabled: boolean;
+  readonly templates: ReferralTemplates;
+};
 
 export const WELCOME_PLACEHOLDERS = ['name', 'store', 'balance', 'channel', 'group', 'website'] as const;
 
@@ -98,6 +112,7 @@ export type StoreConfig = {
   };
   readonly messages: StoreMessages;
   readonly catalog: CatalogConfig;
+  readonly referrals: ReferralConfig;
 };
 
 export type StoredStoreConfig = {

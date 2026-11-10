@@ -1,4 +1,4 @@
-import type { ButtonKey, CatalogTemplates, StoreButton, StoreConfig } from '@/modules/store-config/types';
+import type { ButtonKey, CatalogTemplates, ReferralConfig, StoreButton, StoreConfig } from '@/modules/store-config/types';
 import { BUTTON_KEYS } from '@/modules/store-config/types';
 
 const DEFAULT_WELCOME =
@@ -28,7 +28,7 @@ const BUTTONS: Record<ButtonKey, StoreButton> = {
   deposit: button('Deposit', '💳', 'half', 2, true),
   profile: button('Profile', '👤', 'half', 3, true),
   support: button('Support', '❓', 'full', 4, true),
-  referrals: button('Referrals', '🤝', 'full', 5, true),
+  referrals: button('Refer & Earn', '🎁', 'full', 5, true),
   history: button('History', '📦', 'half', 6, false),
   redeem: button('Redeem', '🔑', 'half', 7, false),
   events: button('Events', '🎉', 'full', 8, false),
@@ -47,6 +47,24 @@ export const DEFAULT_CATALOG_TEMPLATES: CatalogTemplates = {
   bulkQuantityHeading: '<b>BUY MORE, PAY LESS</b>',
   bulkTierLine: '{min}+ pcs - {price} each',
   bulkSavingsLine: '{qty} x {unit} = {total}, you save {savings}',
+};
+
+export const DEFAULT_REFERRAL_CONFIG: ReferralConfig = {
+  enabled: false,
+  pointsPerReferral: 1,
+  pointValueMinor: '200000',
+  minRedeemPoints: 5,
+  minQualifyingOrderMinor: '1',
+  dailyRewardCap: 20,
+  freebiesEnabled: false,
+  redeemEnabled: true,
+  templates: {
+    home: '<b>Refer & Earn</b>\nShare your link. You earn points when a new friend pays for a product.',
+    freebies: '<b>Freebies</b>\nRewards unlock as your friends pay.',
+    friendJoined: 'A friend joined. {name}',
+    qualified: 'Your referral qualified. You earned {points} points.',
+    redeemed: 'You redeemed {points} points for {amount}.',
+  },
 };
 
 export const LEGACY_CHECKOUT_HEADER = '✅ <b>Order Summary</b>';
@@ -71,6 +89,7 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
     categories: {},
     templates: DEFAULT_CATALOG_TEMPLATES,
   },
+  referrals: DEFAULT_REFERRAL_CONFIG,
 };
 
 export const BUTTON_KEY_LIST: readonly ButtonKey[] = BUTTON_KEYS;

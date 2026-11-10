@@ -47,6 +47,9 @@ export type CustomerRecord = {
   username: string | null;
   isBlocked: boolean;
   creditBalanceMinor: bigint;
+  referralCode: string | null;
+  referredByCustomerId: string | null;
+  referredAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -79,6 +82,9 @@ export type CustomerRow = {
   readonly username: string | null;
   readonly is_blocked: boolean;
   readonly credit_balance?: string | number | bigint | null;
+  readonly referral_code?: string | null;
+  readonly referred_by_customer_id?: string | null;
+  readonly referred_at?: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 };

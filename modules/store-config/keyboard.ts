@@ -9,9 +9,11 @@ export type HomeButton = {
 
 const CALLBACKS: Partial<Record<ButtonKey, string>> = {
   shop: 'shop:',
+  freebies: 'freebies:',
   deposit: 'deposit:',
   profile: 'profile:',
   support: 'support:',
+  referrals: 'refer:',
   terms: 'terms:',
   reseller_signup: 'reseller_signup:',
   api: 'api_info:',
@@ -23,6 +25,8 @@ export function layoutHomeButtons(
 ): HomeButton[][] {
   const ordered = (Object.keys(config.buttons) as ButtonKey[])
     .filter((key) => !COMING_SOON_BUTTONS.has(key))
+    .filter((key) => key !== 'referrals' || config.referrals.enabled)
+    .filter((key) => key !== 'freebies' || config.referrals.freebiesEnabled)
     .filter((key) => config.buttons[key].enabled)
     .filter((key) => key !== 'reseller_signup' || options.resellerSignupEnabled)
     .filter((key) => CALLBACKS[key] !== undefined)

@@ -70,6 +70,9 @@ export function mapCustomerRow(row: CustomerRow): CustomerRecord {
     isBlocked: row.is_blocked,
     creditBalanceMinor:
       row.credit_balance === undefined || row.credit_balance === null ? 0n : BigInt(row.credit_balance),
+    referralCode: row.referral_code ?? null,
+    referredByCustomerId: row.referred_by_customer_id ?? null,
+    referredAt: row.referred_at ? new Date(row.referred_at) : null,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };

@@ -6,8 +6,22 @@ import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { ZodError } from 'zod';
 import { DEFAULT_STORE_CONFIG } from '@/modules/store-config/defaults';
-import { StoreConfigSchema, buttonSchema, categorySettingSchema, customLinksSchema, linkSchema } from '@/modules/store-config/schema';
-import type { ButtonKey, CatalogCategorySetting, CatalogTemplates, StoreConfig, StoredStoreConfig } from '@/modules/store-config/types';
+import {
+  StoreConfigSchema,
+  buttonSchema,
+  categorySettingSchema,
+  customLinksSchema,
+  linkSchema,
+  referralConfigSchema,
+} from '@/modules/store-config/schema';
+import type {
+  ButtonKey,
+  CatalogCategorySetting,
+  CatalogTemplates,
+  ReferralConfig,
+  StoreConfig,
+  StoredStoreConfig,
+} from '@/modules/store-config/types';
 import { BUTTON_KEYS } from '@/modules/store-config/types';
 
 const CONFIG_CACHE = new Map<string, { data: StoredStoreConfig; expiresAt: number }>();
@@ -104,6 +118,35 @@ function mergeTemplates(stored: unknown): CatalogTemplates {
   };
 }
 
+function mergeReferrals(stored: unknown): ReferralConfig {
+  const row = asObject(stored);
+  const templates = asObject(row?.templates);
+  const fallback = DEFAULT_STORE_CONFIG.referrals;
+  const parsed = referralConfigSchema.safeParse({
+    enabled: row?.enabled === true,
+    pointsPerReferral:
+      typeof row?.pointsPerReferral === 'number' ? row.pointsPerReferral : fallback.pointsPerReferral,
+    pointValueMinor: typeof row?.pointValueMinor === 'string' ? row.pointValueMinor : fallback.pointValueMinor,
+    minRedeemPoints: typeof row?.minRedeemPoints === 'number' ? row.minRedeemPoints : fallback.minRedeemPoints,
+    minQualifyingOrderMinor:
+      typeof row?.minQualifyingOrderMinor === 'string'
+        ? row.minQualifyingOrderMinor
+        : fallback.minQualifyingOrderMinor,
+    dailyRewardCap: typeof row?.dailyRewardCap === 'number' ? row.dailyRewardCap : fallback.dailyRewardCap,
+    freebiesEnabled: row?.freebiesEnabled === true,
+    redeemEnabled: row?.redeemEnabled !== false,
+    templates: {
+      home: typeof templates?.home === 'string' ? templates.home : fallback.templates.home,
+      freebies: typeof templates?.freebies === 'string' ? templates.freebies : fallback.templates.freebies,
+      friendJoined:
+        typeof templates?.friendJoined === 'string' ? templates.friendJoined : fallback.templates.friendJoined,
+      qualified: typeof templates?.qualified === 'string' ? templates.qualified : fallback.templates.qualified,
+      redeemed: typeof templates?.redeemed === 'string' ? templates.redeemed : fallback.templates.redeemed,
+    },
+  });
+  return parsed.success ? parsed.data : fallback;
+}
+
 function mergeCategories(stored: unknown): Record<string, CatalogCategorySetting> {
   const source = asObject(stored);
   if (!source) {
@@ -170,6 +213,7 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
       categories: mergeCategories(catalog?.categories),
       templates: mergeTemplates(catalog?.templates),
     },
+    referrals: mergeReferrals(source.referrals),
   };
 }
 

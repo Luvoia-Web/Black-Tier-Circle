@@ -38,8 +38,21 @@ describe('home keyboard', () => {
     ]);
     expect(rows[0]).toHaveLength(1);
     expect(rows[1]?.map((button) => button.text)).toEqual(['💳 Deposit', '👤 Profile']);
-    expect(flat.some((button) => button.text.includes('Freebies') || button.text.includes('Referral'))).toBe(false);
+    expect(flat.some((button) => button.text.includes('Freebies') || button.text.includes('Referral') || button.text.includes('Refer &'))).toBe(false);
     expect(flat.at(-1)).toMatchObject({ kind: 'url', url: 'https://t.me/rentals' });
+  });
+
+  it('shows Refer and Freebies only when that store turned them on', () => {
+    const rows = layoutHomeButtons(
+      {
+        ...DEFAULT_STORE_CONFIG,
+        referrals: { ...DEFAULT_STORE_CONFIG.referrals, enabled: true, freebiesEnabled: true },
+      },
+      { resellerSignupEnabled: false },
+    );
+    const texts = rows.flat().map((button) => button.text);
+    expect(texts).toContain('🎁 Refer & Earn');
+    expect(texts).toContain('🎁 Freebies');
   });
 });
 
@@ -117,6 +130,8 @@ describe('store config', () => {
     expect(merged.catalog.categories.Games).toMatchObject({ emoji: '🎮', sortOrder: 2, hidden: false });
     expect(merged.catalog.categories.Bad).toBeUndefined();
     expect(mergeStoreConfig({ welcome: 'Hello' }).catalog.categories).toEqual({});
+    expect(mergeStoreConfig({ welcome: 'Hello' }).referrals).toEqual(DEFAULT_STORE_CONFIG.referrals);
+    expect(mergeStoreConfig({ welcome: 'Hello' }).referrals.enabled).toBe(false);
   });
 
   it('returns defaults when no row exists and rejects a stale version', async () => {

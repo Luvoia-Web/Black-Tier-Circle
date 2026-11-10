@@ -63,6 +63,29 @@ export const customLinksSchema = z
   )
   .max(3);
 
+const minorString = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, 'Use a whole number of minor units');
+
+export const referralConfigSchema = z.object({
+  enabled: z.boolean(),
+  pointsPerReferral: z.number().int().min(1).max(1000),
+  pointValueMinor: minorString,
+  minRedeemPoints: z.number().int().min(1).max(1_000_000),
+  minQualifyingOrderMinor: minorString,
+  dailyRewardCap: z.number().int().min(0).max(100_000),
+  freebiesEnabled: z.boolean(),
+  redeemEnabled: z.boolean(),
+  templates: z.object({
+    home: z.string().trim().min(1).max(1000),
+    freebies: z.string().trim().min(1).max(1000),
+    friendJoined: z.string().trim().min(1).max(300),
+    qualified: z.string().trim().min(1).max(300),
+    redeemed: z.string().trim().min(1).max(300),
+  }),
+});
+
 export const StoreConfigSchema = z
   .object({
     welcome: z.string().trim().min(1).max(2000),
@@ -83,6 +106,7 @@ export const StoreConfigSchema = z
       categories: z.record(z.string().trim().min(1).max(50), categorySettingSchema),
       templates: catalogTemplatesSchema,
     }),
+    referrals: referralConfigSchema,
   })
   .strict()
   .refine((value) => JSON.stringify(value).length < 60_000, 'Config is too large');
