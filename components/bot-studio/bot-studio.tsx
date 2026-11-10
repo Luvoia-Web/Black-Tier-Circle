@@ -1,10 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CatalogTab } from '@/components/bot-studio/catalog-tab';
 import { FormField } from '@/components/settings/FormField';
 import { PageHeader } from '@/components/ui/page-header';
 import { PreviewHtml } from '@/components/bot-studio/preview-html';
 import { API_ROUTES } from '@/lib/navigation';
+import {
+  categoryToken,
+  checkoutButtons,
+  checkoutText,
+  layoutScreenButtons,
+  productCardButtons,
+  productCardText,
+  renderShop,
+  type ShopProduct,
+} from '@/modules/catalog/shop-screen';
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { renderTemplate } from '@/modules/store-config/template';
 import { BUTTON_KEYS, COMING_SOON_BUTTONS, type ButtonKey, type StoreConfig } from '@/modules/store-config/types';
@@ -16,9 +27,10 @@ type StudioPayload = {
   readonly config: StoreConfig;
   readonly version: number;
   readonly defaults: StoreConfig;
+  readonly buyerCategories?: readonly string[];
 };
 
-const TABS = ['Home', 'Buttons', 'Links', 'Messages'] as const;
+const TABS = ['Home', 'Buttons', 'Links', 'Messages', 'Catalog'] as const;
 
 function cloneConfig(config: StoreConfig): StoreConfig {
   return JSON.parse(JSON.stringify(config)) as StoreConfig;
@@ -36,6 +48,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [conflict, setConflict] = useState(false);
+  const [buyerCategories, setBuyerCategories] = useState<readonly string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,6 +64,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
       setSaved(cloneConfig(body.data.config));
       setDefaults(body.data.defaults);
       setVersion(body.data.version);
+      setBuyerCategories(body.data.buyerCategories ?? []);
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load Bot Studio');
     } finally {
@@ -130,7 +144,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
     <div>
       <PageHeader
         title="Bot Studio"
-        description="Edit the welcome message, buttons, links, and key replies. Changes go live within about 30 seconds."
+        description="Edit the welcome message, buttons, links, catalog, and key replies. Changes go live within about 30 seconds."
         actions={
           <button type="button" className="btc-btn-primary" disabled={saving || !dirty} onClick={() => void save()}>
             {saving ? 'Saving…' : 'Save'}
@@ -257,8 +271,11 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
               ))}
             </div>
           ) : null}
+          {tab === 'Catalog' ? (
+            <CatalogTab draft={draft} defaults={defaults} categories={buyerCategories} onChange={setDraft} />
+          ) : null}
         </section>
-        <TelegramPreview config={draft} />
+        <TelegramPreview config={draft} categories={buyerCategories} />
       </div>
     </div>
   );
@@ -375,32 +392,137 @@ function CustomLinks({
   );
 }
 
-function TelegramPreview({ config }: { readonly config: StoreConfig }): JSX.Element {
+const PREVIEW_SCREENS = ['Home', 'Shop', 'Category', 'Product', 'Checkout'] as const;
+
+function sampleProduct(id: string, category: string | null, soldOut = false): ShopProduct {
+  return {
+    id,
+    title: category ? 'Sample product' : 'Uncategorised item',
+    category,
+    priceMinor: 5_000_000n,
+    stockUnlimited: false,
+    stockCount: soldOut ? 0 : 8,
+    soldCount: 3,
+    description: 'A sample description for this store. '.repeat(8),
+    durationText: '12 months',
+    warrantyText: '30 days',
+    typeLabel: null,
+    deliveryType: 'inventory_unit',
+    requiresEmailActivation: false,
+  };
+}
+
+function buttonClass(style?: 'success' | 'danger'): string {
+  const base = 'flex-1 rounded-lg px-2 py-2 text-center text-xs text-[var(--text-1)]';
+  if (style === 'success') {
+    return `${base} border border-[var(--green)] bg-[var(--bg-card)]`;
+  }
+  if (style === 'danger') {
+    return `${base} border border-[var(--red)] bg-[var(--bg-card)]`;
+  }
+  return `${base} bg-[var(--bg-card)]`;
+}
+
+function TelegramPreview({
+  config,
+  categories,
+}: {
+  readonly config: StoreConfig;
+  readonly categories: readonly string[];
+}): JSX.Element {
+  const [screen, setScreen] = useState<(typeof PREVIEW_SCREENS)[number]>('Home');
   const channel = config.links.channel.url ? `${config.links.channel.label}: ${config.links.channel.url}` : '';
   const group = config.links.group.url ? `${config.links.group.label}: ${config.links.group.url}` : '';
   const website = config.links.website.url ? `${config.links.website.label}: ${config.links.website.url}` : '';
-  const html = renderTemplate(config.welcome, {
-    name: 'Alex',
-    store: 'Your store',
-    balance: '$12.50',
-    channel,
-    group,
-    website,
-  }).replace(/\n{3,}/g, '\n\n');
-  const rows = layoutHomeButtons(config, { resellerSignupEnabled: true });
+  const names = categories.length > 0 ? categories.slice(0, 4) : ['Sample category'];
+  const products = [
+    ...names.map((name, index) => sampleProduct(`sample-${index}`, name, index === 1)),
+    sampleProduct('loose', null),
+  ];
+  const firstName = names[0] ?? 'Sample category';
+  let html = '';
+  let rows: ReadonlyArray<ReadonlyArray<{ readonly text: string; readonly style?: 'success' | 'danger' }>> = [];
+  if (screen === 'Home') {
+    html = renderTemplate(config.welcome, {
+      name: 'Alex',
+      store: 'Your store',
+      balance: '12.50 USDT',
+      channel,
+      group,
+      website,
+    }).replace(/\n{3,}/g, '\n\n');
+    rows = layoutHomeButtons(config, { resellerSignupEnabled: true });
+  } else if (screen === 'Shop') {
+    const view = renderShop({
+      products,
+      settings: config.catalog.categories,
+      templates: config.catalog.templates,
+    });
+    html = view.text;
+    rows = view.rows;
+  } else if (screen === 'Category') {
+    const view = renderShop({
+      products,
+      settings: config.catalog.categories,
+      templates: config.catalog.templates,
+      categoryToken: categoryToken(firstName),
+    });
+    html = view.text;
+    rows = view.rows;
+  } else if (screen === 'Product') {
+    const sample = sampleProduct('card', firstName);
+    html = productCardText(sample, config.catalog.templates);
+    rows = layoutScreenButtons(productCardButtons(sample));
+  } else {
+    html = checkoutText({
+      title: config.messages.checkoutHeader,
+      productTitle: 'Sample product',
+      quantity: 1,
+      warranty: '30 days',
+      totalMinor: 400_000n,
+      balanceMinor: 0n,
+      windowLine: 'You have 15 minutes to complete this payment.',
+      shortfallTemplate: config.catalog.templates.checkoutShortfall,
+      minimumDepositMinor: 1_000_000n,
+    });
+    rows = layoutScreenButtons(
+      checkoutButtons({
+        orderId: 'sample',
+        productId: 'card',
+        totalMinor: 400_000n,
+        balanceMinor: 0n,
+        minimumDepositMinor: 1_000_000n,
+        binance: true,
+        bep20: true,
+        trc20: false,
+        demo: false,
+      }),
+    );
+  }
   return (
     <aside className="btc-card p-4" aria-label="Telegram preview">
       <p className="mb-3 text-sm text-[var(--text-2)]">Preview</p>
+      <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Preview screen">
+        {PREVIEW_SCREENS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            role="tab"
+            aria-selected={screen === item}
+            className={screen === item ? 'btc-btn-primary' : 'btc-btn-secondary'}
+            onClick={() => setScreen(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
       <div className="rounded-2xl bg-[var(--bg-raised)] p-3 text-sm text-[var(--text-1)]">
         <PreviewHtml html={html} />
         <div className="mt-3 space-y-2">
           {rows.map((row, index) => (
             <div key={index} className="flex gap-2">
               {row.map((button) => (
-                <span
-                  key={button.text}
-                  className="flex-1 rounded-lg bg-[var(--bg-card)] px-2 py-2 text-center text-xs text-[var(--text-1)]"
-                >
+                <span key={button.text} className={buttonClass('style' in button ? button.style : undefined)}>
                   {button.text}
                 </span>
               ))}
@@ -408,6 +530,7 @@ function TelegramPreview({ config }: { readonly config: StoreConfig }): JSX.Elem
           ))}
         </div>
       </div>
+      <p className="mt-3 text-xs text-[var(--text-3)]">Sample buyer. Your store name and products are used in Telegram.</p>
     </aside>
   );
 }

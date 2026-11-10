@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
+import { buyerCategoryNames, buyerFacingCategory } from '@/modules/catalog/buyer-category';
 
 describe('buyer shop categories', () => {
   it('hides a supplier catalog label and keeps an owner category', () => {
@@ -30,5 +30,16 @@ describe('buyer shop categories', () => {
         buyerCategory: null,
       }),
     ).toBe('Keys');
+  });
+
+  it('lists each buyer category once and skips supplier labels', () => {
+    expect(
+      buyerCategoryNames([
+        { category: 'Supplier', supplierId: 'sup', buyerCategory: 'Games' },
+        { category: 'Supplier', supplierId: 'sup', buyerCategory: null },
+        { category: 'Keys', supplierId: null, buyerCategory: null },
+        { category: 'Keys', supplierId: null, buyerCategory: null },
+      ]),
+    ).toEqual(['Games', 'Keys']);
   });
 });

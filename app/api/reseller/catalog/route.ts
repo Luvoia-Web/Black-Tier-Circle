@@ -12,6 +12,7 @@ import { ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { CreateListingSchema } from '@/lib/validations/catalog';
 import { listPublishedProducts } from '@/modules/catalog';
+import { readCardHints } from '@/modules/catalog/card-text';
 import { createListing, getMarginMinor, getMarginPercent, listResellerListings } from '@/modules/pricing';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,9 @@ type CatalogRow = {
   readonly stockUnlimited: boolean;
   readonly stockCount: number | null;
   readonly estimatedDeliveryMinutes: number | null;
+  readonly durationText: string | null;
+  readonly warrantyText: string | null;
+  readonly typeLabel: string | null;
   readonly listing: CatalogListing | null;
   readonly isListed: boolean;
   readonly marginPercent: number | null;
@@ -55,6 +59,7 @@ export async function GET(): Promise<Response> {
     const rows: CatalogRow[] = products.map((product) => {
       const listing = byProduct.get(product.id) ?? null;
       const profit = listing ? getMarginMinor(product.wholesalePriceMinor, listing.retailPriceMinor) : null;
+      const hints = readCardHints(product.supplierMetadata);
       return {
         id: product.id,
         sku: product.sku,
@@ -67,6 +72,9 @@ export async function GET(): Promise<Response> {
         stockUnlimited: product.stockUnlimited,
         stockCount: product.stockCount,
         estimatedDeliveryMinutes: product.estimatedDeliveryMinutes,
+        durationText: product.durationText ?? hints.durationText,
+        warrantyText: product.warrantyText ?? hints.warrantyText,
+        typeLabel: product.typeLabel ?? hints.typeLabel,
         listing: listing
           ? {
               id: listing.id,

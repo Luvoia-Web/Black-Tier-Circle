@@ -14,6 +14,7 @@ import { ProductForm, type ProductFormValues } from '@/components/catalog/produc
 import { PageHeader } from '@/components/ui/page-header';
 import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import { readCardHints } from '@/modules/catalog/card-text';
 import type { DeliveryType } from '@/modules/catalog/types';
 
 function parseSupplierMetadata(raw: string): Record<string, unknown> | null {
@@ -50,6 +51,9 @@ type ProductDto = {
   readonly supplierId: string | null;
   readonly supplierName: string | null;
   readonly supplierMetadata: Record<string, unknown>;
+  readonly durationText: string | null;
+  readonly warrantyText: string | null;
+  readonly typeLabel: string | null;
 };
 
 function trimUsdt(minor: string): string {
@@ -80,6 +84,7 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
         return;
       }
       const product = json.data;
+      const hints = readCardHints(product.supplierMetadata);
       if (product.supplierId) {
         setSupplierLocked({
           name: product.supplierName ?? 'the supplier',
@@ -105,6 +110,9 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
           product.supplierMetadata && Object.keys(product.supplierMetadata).length > 0
             ? JSON.stringify(product.supplierMetadata, null, 2)
             : '',
+        durationText: product.durationText ?? hints.durationText ?? '',
+        warrantyText: product.warrantyText ?? hints.warrantyText ?? '',
+        typeLabel: product.typeLabel ?? hints.typeLabel ?? '',
       });
     })();
   }, [params.productId]);
@@ -133,6 +141,9 @@ export default function EditProductPage({ params }: EditPageProps): JSX.Element 
           supplierSku: values.deliveryType === 'supplier_api' ? values.supplierSku : null,
           supplierMetadata:
             values.deliveryType === 'supplier_api' ? parseSupplierMetadata(values.supplierMetadata) : {},
+          durationText: values.durationText.trim() || null,
+          warrantyText: values.warrantyText.trim() || null,
+          typeLabel: values.typeLabel.trim() || null,
         }),
       });
       const json = (await response.json()) as { success: boolean; error?: { message: string } };

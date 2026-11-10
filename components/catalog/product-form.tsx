@@ -29,6 +29,9 @@ export type ProductFormValues = {
   readonly estimatedDeliveryMinutes: string;
   readonly supplierSku: string;
   readonly supplierMetadata: string;
+  readonly durationText: string;
+  readonly warrantyText: string;
+  readonly typeLabel: string;
 };
 
 type ProductFormProps = {
@@ -62,6 +65,9 @@ const EMPTY: ProductFormValues = {
   estimatedDeliveryMinutes: '',
   supplierSku: '',
   supplierMetadata: '',
+  durationText: '',
+  warrantyText: '',
+  typeLabel: '',
 };
 
 const inputClass = 'btc-input';
@@ -195,6 +201,48 @@ export function ProductForm({
           </label>
         </>
       ) : null}
+      <fieldset className="space-y-3 rounded-[var(--r-md)] border border-[var(--border)] p-4">
+        <legend className="px-1 text-sm text-[var(--text-1)]">Buyer card</legend>
+        <p className="text-xs text-[var(--text-3)]">
+          Optional lines on the Telegram product. Leave a line blank to hide it. Plain text, 60 characters.
+        </p>
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
+          Duration
+          <input
+            maxLength={60}
+            value={values.durationText}
+            placeholder="12 months"
+            aria-invalid={values.durationText.length > 60}
+            onChange={(event) => setValues({ ...values, durationText: event.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
+          Warranty
+          <input
+            maxLength={60}
+            value={values.warrantyText}
+            placeholder="30 days"
+            aria-invalid={values.warrantyText.length > 60}
+            onChange={(event) => setValues({ ...values, warrantyText: event.target.value })}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
+          Type label
+          <input
+            maxLength={60}
+            value={values.typeLabel}
+            placeholder="Instant, Activation link, or Manual"
+            aria-invalid={values.typeLabel.length > 60}
+            onChange={(event) => setValues({ ...values, typeLabel: event.target.value })}
+            className={inputClass}
+          />
+          <span className="text-xs text-[var(--text-3)]">
+            Leave blank and the card uses Instant, Activation link, or Manual from the delivery type.
+          </span>
+        </label>
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
           Wholesale price

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { InlineKeyboard } from 'grammy';
 import { loadSoldCounts } from '@/modules/catalog/sold-count';
@@ -210,6 +211,10 @@ describe('shop screens', () => {
     expect(paid.find((button) => button.data.startsWith('pay_bep20'))?.text).toBe('Pay with Crypto');
     expect(depositAmountLine(1_000_000n)).toContain('1.00 USDT');
     expect(depositAmountLine(null)).toBe('');
+  });
+
+  it('keeps category tokens on the same sha256 prefix as before', () => {
+    expect(categoryToken('Keys')).toBe(createHash('sha256').update('Keys').digest('hex').slice(0, 12));
   });
 
   it('styles buy and pay buttons without changing callback data', () => {

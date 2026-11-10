@@ -5,6 +5,8 @@
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
+import { listProducts } from '@/modules/catalog';
+import { buyerCategoryNames } from '@/modules/catalog/buyer-category';
 import { readStudio, writeStudio } from '@/modules/store-config/access';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +14,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(): Promise<Response> {
   try {
     const session = await requireOwner();
-    const studio = await readStudio(asDbClient(session.admin), 'owner', null);
-    return jsonSuccess(studio);
+    const db = asDbClient(session.admin);
+    const studio = await readStudio(db, 'owner', null);
+    const products = await listProducts(db);
+    const buyerCategories = buyerCategoryNames(products.filter((product) => product.status !== 'archived'));
+    return jsonSuccess({ ...studio, buyerCategories });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

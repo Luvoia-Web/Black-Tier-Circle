@@ -46,6 +46,12 @@ function parseSanitized(html: string): ReactNode[] {
       nodes.push(<u key={nextKey}>{children}</u>);
     } else if (name === 'code') {
       nodes.push(<code key={nextKey}>{children}</code>);
+    } else if (name === 'blockquote') {
+      nodes.push(
+        <blockquote key={nextKey} className="border-l-2 border-[var(--border)] pl-3 text-[var(--text-2)]">
+          {children}
+        </blockquote>,
+      );
     } else if (name === 'a') {
       const href = raw.match(/href="([^"]*)"/)?.[1] ?? '#';
       nodes.push(

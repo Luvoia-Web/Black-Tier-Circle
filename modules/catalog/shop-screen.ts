@@ -4,8 +4,8 @@
  * Money stays in bigint minor units.
  */
 
-import { createHash } from 'node:crypto';
 import { formatUsdt } from '@/lib/money';
+import { sha256Hex } from '@/modules/catalog/sha256';
 import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
 import { readCardHints } from '@/modules/catalog/card-text';
 import type { Product } from '@/modules/catalog/types';
@@ -44,7 +44,7 @@ export type ShopProduct = {
 const EMPTY_WORDS = /^(n\/a|null|undefined|none)$/i;
 
 export function categoryToken(name: string): string {
-  return createHash('sha256').update(name).digest('hex').slice(0, 12);
+  return sha256Hex(name).slice(0, 12);
 }
 
 export function isSoldOut(product: Pick<ShopProduct, 'stockUnlimited' | 'stockCount'>): boolean {

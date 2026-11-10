@@ -16,3 +16,11 @@ export function buyerFacingCategory(product: Pick<Product, 'category' | 'supplie
   const category = product.category?.trim() ?? '';
   return category.length > 0 ? category : null;
 }
+
+export function buyerCategoryNames(
+  products: readonly (Pick<Product, 'category' | 'supplierId'> & { buyerCategory?: string | null })[],
+): string[] {
+  return [...new Set(products.map((product) => buyerFacingCategory(product)).filter((name): name is string => name !== null))].sort(
+    (left, right) => left.localeCompare(right),
+  );
+}

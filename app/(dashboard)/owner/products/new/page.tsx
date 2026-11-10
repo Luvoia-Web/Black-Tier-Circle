@@ -62,6 +62,9 @@ export default function NewProductPage(): JSX.Element {
           supplierSku: values.deliveryType === 'supplier_api' ? values.supplierSku : undefined,
           supplierMetadata:
             values.deliveryType === 'supplier_api' ? parseSupplierMetadata(values.supplierMetadata) : undefined,
+          durationText: values.durationText.trim() || null,
+          warrantyText: values.warrantyText.trim() || null,
+          typeLabel: values.typeLabel.trim() || null,
         }),
       });
       const json = (await response.json()) as {

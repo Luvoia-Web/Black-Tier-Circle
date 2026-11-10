@@ -36,6 +36,9 @@ type CatalogRow = {
   readonly stockUnlimited: boolean;
   readonly stockCount: number | null;
   readonly estimatedDeliveryMinutes: number | null;
+  readonly durationText: string | null;
+  readonly warrantyText: string | null;
+  readonly typeLabel: string | null;
   readonly listing: CatalogListing | null;
   readonly isListed: boolean;
 };
@@ -57,6 +60,18 @@ function deliveryLabel(value: string): string {
     return 'supplier';
   }
   return 'manual';
+}
+
+function CardFacts({ row }: { readonly row: CatalogRow }): JSX.Element | null {
+  const facts = [
+    row.durationText ? `Duration: ${row.durationText}` : '',
+    row.warrantyText ? `Warranty: ${row.warrantyText}` : '',
+    row.typeLabel ? `Type: ${row.typeLabel}` : '',
+  ].filter((fact) => fact.length > 0);
+  if (facts.length === 0) {
+    return null;
+  }
+  return <p className="mt-1 text-sm text-[var(--text-2)]">{facts.join(' · ')} · Set by the catalog owner</p>;
 }
 
 function stockLabel(row: CatalogRow): string {
@@ -369,6 +384,7 @@ export default function ResellerProductsPage(): JSX.Element {
                       Stock: {stockLabel(row)}
                       {row.category ? ` · ${row.category}` : ''}
                     </p>
+                    <CardFacts row={row} />
                   </div>
                   {row.listing ? (
                     <button
