@@ -950,6 +950,8 @@ export async function getOrderFulfillmentStatus(
 export async function processQueuedFulfillments(
   supabase: DbClient,
 ): Promise<{ processed: number; failed: number }> {
+  const { expireOpenCheckouts } = await import('@/modules/orders/checkout');
+  await expireOpenCheckouts(supabase);
   const queued = await listOrders(supabase, { fulfillmentStatus: 'queued', limit: 50 });
   const timeoutMs = FULFILLMENT_CONFIG.fulfillmentTimeoutMinutes * 60 * 1000;
   let processed = 0;

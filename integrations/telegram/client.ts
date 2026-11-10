@@ -28,7 +28,7 @@ import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import type { Product } from '@/modules/catalog/types';
 import { cancelOrder, getOrder, listOrders, updateOrderQuantity } from '@/modules/orders';
-import { openCheckoutOrder } from '@/modules/orders/checkout';
+import { CHECKOUT_WINDOW_MS, expireCheckout, isCheckoutExpired, maxOrderQuantity, openCheckoutOrder } from '@/modules/orders/checkout';
 import type { Order } from '@/modules/orders/types';
 import {
   confirmDemoOrderPayment,
@@ -52,6 +52,7 @@ const CUSTOMER_CACHE_MS = 30_000;
 const CUSTOMER_CACHE = new Map<string, { data: CustomerRecord; expiresAt: number }>();
 const COMMANDS_REFRESH = new Map<string, number>();
 const awaitingEmail = new Map<string, { readonly orderId: string; readonly productTitle: string }>();
+const awaitingQty = new Map<string, { readonly productId: string; readonly max: number }>();
 const awaitingFind = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
@@ -385,6 +386,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   function clearPending(chatId: string | number): void {
     const key = emailKey(context.botConnection.id, chatId);
     awaitingEmail.delete(key);
+    awaitingQty.delete(key);
     awaitingFind.delete(key);
   }
 
@@ -517,19 +519,24 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (customer !== null) {
       customer = await getCustomerById(context.supabase, customer.id);
     }
-    const current = await storeContext();
     const config = await loadPaymentConfig(
       context.supabase,
       customer?.creditBalanceMinor ?? 0n,
       context.tenantId,
     );
     const notice = config.demoEnabled ? '\n\n⚠️ <i>Demo mode — no real payment required</i>' : '';
+    if (await rejectIfExpired(screen, order)) {
+      return;
+    }
+    const unit = order.quantity > 0 ? order.quotedRetailPriceMinor / BigInt(order.quantity) : order.quotedRetailPriceMinor;
     const text =
       `✅ <b>Order Summary</b>\n\n` +
       `📦 ${escHtml(productTitle)}\n` +
+      `💵 Unit price: ${escHtml(formatUsdt(unit))}\n` +
       `🔢 Quantity: ${order.quantity}\n` +
       `💵 Total: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
-      `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+      `🔖 Order: <code>${orderRef(order.id)}</code>\n` +
+      `${paymentWindowLine(order)}\n\n` +
       `Choose how to pay:${notice}`;
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
@@ -547,43 +554,97 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, ERROR_TEXT.OUT_OF_STOCK ?? ERROR_TEXT.DEFAULT ?? '', homeKeyboard(await storeContext()));
       return;
     }
-    try {
-      const maxQty = item.product.stockUnlimited
-        ? Math.min(10, item.product.maxPurchaseQty)
-        : Math.min(item.product.stockCount ?? 1, 10, item.product.maxPurchaseQty);
-      if (maxQty > 1) {
-        const keyboard = new InlineKeyboard();
-        const perRow = maxQty <= 5 ? maxQty : 5;
-        for (let count = 1; count <= maxQty; count += 1) {
-          keyboard.text(String(count), `qp:${productId}:${count}`);
-          if (count % perRow === 0) {
-            keyboard.row();
-          }
-        }
-        keyboard.row().text('❌ Cancel', 'shop:');
-        await show(
-          bot,
-          screen,
-          `📦 <b>${escHtml(item.product.title)}</b>\n\n` +
-            `💵 Unit price: <b>${escHtml(formatUsdt(item.priceMinor))}</b>\n` +
-            `📊 Available: ${item.product.stockUnlimited ? 'Unlimited' : item.product.stockCount} units\n\n` +
-            `How many would you like to buy?\n` +
-            `(Enter 1 to ${maxQty})`,
-          keyboard,
-          'HTML',
-        );
-        return;
+    await showQuantityPicker(screen, item);
+  }
+
+  function paymentWindowLine(order: Order): string {
+    const deadline = new Date(order.createdAt.getTime() + CHECKOUT_WINDOW_MS);
+    const remainingMs = deadline.getTime() - Date.now();
+    const hh = String(deadline.getUTCHours()).padStart(2, '0');
+    const mm = String(deadline.getUTCMinutes()).padStart(2, '0');
+    if (remainingMs <= 0) {
+      return `⏳ This order expired at ${hh}:${mm} UTC. Please start again.`;
+    }
+    const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+    return `⏳ You have ${minutes} minute${minutes === 1 ? '' : 's'} to complete this payment (expires at ${hh}:${mm} UTC).`;
+  }
+
+  async function rejectIfExpired(screen: Screen, order: Order): Promise<boolean> {
+    if (!isCheckoutExpired(order) || order.paymentStatus === 'verified') {
+      return false;
+    }
+    await expireCheckout(context.supabase, order.id);
+    const latest = await getOrder(context.supabase, order.id);
+    if (latest.paymentStatus !== 'expired') {
+      return false;
+    }
+    await show(
+      bot,
+      screen,
+      '⏳ <b>This order expired.</b>\n\nPlease start again.',
+      new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('🏠 Home', 'home:'),
+      'HTML',
+    );
+    return true;
+  }
+
+  async function showQuantityPicker(screen: Screen, item: CatalogItem): Promise<void> {
+    const maxQty = maxOrderQuantity(item.product);
+    if (maxQty <= 1) {
+      await placeOrder(screen, item, 1);
+      return;
+    }
+    const buttonMax = Math.min(maxQty, 10);
+    const keyboard = new InlineKeyboard();
+    for (let count = 1; count <= buttonMax; count += 1) {
+      keyboard.text(String(count), `qp:${item.product.id}:${count}`);
+      if (count % 5 === 0) {
+        keyboard.row();
       }
-      const order = await openCheckoutOrder(context.supabase, {
-        channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
-        ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
-        botId: context.botConnection.id,
-        customerId: customer.id,
-        productId,
-        quantity: 1,
-        idempotencyKey: 'checkout',
-      });
-      if (item.product.requiresEmailActivation) {
+    }
+    keyboard.row().text('✏️ Type a number', `qty_type:${item.product.id}`);
+    keyboard.row().text('❌ Cancel', 'shop:');
+    awaitingQty.set(emailKey(context.botConnection.id, screen.chatId), { productId: item.product.id, max: maxQty });
+    await show(
+      bot,
+      screen,
+      `📦 <b>${escHtml(item.product.title)}</b>\n\n` +
+        `💵 Unit price: <b>${escHtml(formatUsdt(item.priceMinor))}</b>\n` +
+        `📊 Available: ${item.product.stockUnlimited ? 'Unlimited' : item.product.stockCount} units\n\n` +
+        `How many would you like to buy?\n` +
+        `Choose a button or send a whole number from 1 to ${maxQty}.`,
+      keyboard,
+      'HTML',
+    );
+  }
+
+  async function placeOrder(screen: Screen, item: CatalogItem, quantity: number): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    awaitingQty.delete(emailKey(context.botConnection.id, screen.chatId));
+    const maxQty = maxOrderQuantity(item.product);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > maxQty) {
+      await show(
+        bot,
+        screen,
+        `❌ Enter a whole number from 1 to ${maxQty}.`,
+        new InlineKeyboard().text('⬅ Back', `buy:${item.product.id}`),
+        'HTML',
+      );
+      return;
+    }
+    try {
+    const order = await openCheckoutOrder(context.supabase, {
+      channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
+      ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
+      botId: context.botConnection.id,
+      customerId: customer.id,
+      productId: item.product.id,
+      quantity,
+      idempotencyKey: 'checkout',
+    });
+    if (item.product.requiresEmailActivation) {
         awaitingEmail.set(emailKey(context.botConnection.id, screen.chatId), {
           orderId: order.id,
           productTitle: item.product.title,
@@ -690,6 +751,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(current), 'HTML');
       return;
     }
+    if (await rejectIfExpired(screen, order)) {
+      return;
+    }
     if (current.isDemoMode) {
       await show(
         bot,
@@ -719,7 +783,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           `💵 Amount: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
           `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
           `Open Binance Pay and complete the payment.\n` +
-          `Then send your <b>Binance Pay Order ID</b> in this chat.`,
+          `Then send your <b>Binance Pay Order ID</b> in this chat.\n\n` +
+          `${paymentWindowLine(order)}`,
         keyboard,
         'HTML',
       );
@@ -749,6 +814,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current));
       return;
     }
+    if (await rejectIfExpired(screen, order)) {
+      return;
+    }
     const keyboard = new InlineKeyboard()
       .text('📋 Copy Address', 'copy_addr:')
       .row()
@@ -762,7 +830,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         `⚠️ Send the EXACT amount.\n` +
         `After sending, reply with your transaction hash (0x and 64 characters).\n\n` +
         `Order: <code>${orderRef(order.id)}</code>\n` +
-        `⏰ Expires in 24 hours`,
+        `${paymentWindowLine(order)}`,
       keyboard,
     );
   }
@@ -775,6 +843,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current), 'HTML');
       return;
     }
+    if (await rejectIfExpired(screen, order)) {
+      return;
+    }
     await show(
       bot,
       screen,
@@ -783,7 +854,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         `To address:\n<code>${escHtml(address)}</code>\n\n` +
         `⚠️ Send on TRC20 network ONLY. BEP20/ERC20 will be lost.\n\n` +
         `After sending, reply with your transaction hash.\n` +
-        `Order: <code>${orderRef(order.id)}</code>`,
+        `Order: <code>${orderRef(order.id)}</code>\n` +
+        `${paymentWindowLine(order)}`,
       new InlineKeyboard().text('❌ Cancel Order', `cancel_order:${order.id}`),
       'HTML',
     );
@@ -795,12 +867,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(await storeContext()), 'HTML');
       return;
     }
+    if (await rejectIfExpired(screen, order)) {
+      return;
+    }
     await show(
       bot,
       screen,
       `🧪 <b>Demo Mode Payment</b>\n\n` +
         `⚠️ This is a test environment. No real payment is required.\n\n` +
-        `🔖 Order: <code>${orderRef(order.id)}</code>\n\n` +
+        `🔖 Order: <code>${orderRef(order.id)}</code>\n` +
+        `${paymentWindowLine(order)}\n\n` +
         `Tap below to simulate a successful payment:`,
       new InlineKeyboard()
         .text('✅ Confirm Test Payment', `pay_demo_confirm:${order.id}`)
@@ -877,6 +953,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
         'HTML',
       );
+      return;
+    }
+    if (await rejectIfExpired(screen, order)) {
       return;
     }
     const balance = (await getCustomerById(context.supabase, customer.id)).creditBalanceMinor;
@@ -998,6 +1077,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       stage('delivered_shown');
     } catch (error: unknown) {
       const code = error instanceof AppError ? error.code : '';
+      if (code === 'ORDER_EXPIRED') {
+        await show(
+          bot,
+          screen,
+          '⏳ <b>This order expired.</b>\n\nPlease start again.',
+          new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('🏠 Home', 'home:'),
+          'HTML',
+        );
+        return;
+      }
       if (code === 'PAYMENT_IN_PROGRESS' || code === 'ORDER_ALREADY_PAID') {
         await show(
           bot,
@@ -1476,27 +1565,33 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await handleBuy(screen, data.slice('buy:'.length));
       return;
     }
-    if (data.startsWith('qp:')) {
-      const [, productId, rawQty] = data.split(':');
-      const quantity = Number(rawQty);
-      if (!productId || !Number.isInteger(quantity) || quantity < 1) {
+    if (data.startsWith('qty_type:')) {
+      const productId = data.slice('qty_type:'.length);
+      const item = (await loadCatalog()).find((entry) => entry.product.id === productId);
+      if (!item) {
         await showHome(screen);
         return;
       }
-      if (customer === null) {
-        throw new Error('missing customer');
+      const maxQty = maxOrderQuantity(item.product);
+      awaitingQty.set(emailKey(context.botConnection.id, screen.chatId), { productId, max: maxQty });
+      await show(
+        bot,
+        screen,
+        `✏️ Send a whole number from 1 to ${maxQty}.`,
+        new InlineKeyboard().text('❌ Cancel', 'shop:'),
+        'HTML',
+      );
+      return;
+    }
+    if (data.startsWith('qp:')) {
+      const [, productId, rawQty] = data.split(':');
+      const quantity = Number(rawQty);
+      const item = (await loadCatalog()).find((entry) => entry.product.id === productId);
+      if (!item || !Number.isInteger(quantity)) {
+        await showHome(screen);
+        return;
       }
-      const order = await openCheckoutOrder(context.supabase, {
-        channel: context.tenantId === null ? 'owner_store' : 'reseller_bot',
-        ...(context.tenantId !== null ? { tenantId: context.tenantId } : {}),
-        botId: context.botConnection.id,
-        customerId: customer.id,
-        productId,
-        quantity,
-        idempotencyKey: 'checkout',
-      });
-      const title = (await loadCatalog()).find((entry) => entry.product.id === productId)?.product.title ?? 'Product';
-      await showPaymentOptions(screen, order, title);
+      await placeOrder(screen, item, quantity);
       return;
     }
     if (data.startsWith('qty:')) {
@@ -1682,6 +1777,27 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function onText(screen: Screen, text: string): Promise<void> {
     const trimmed = text.trim();
+    const pendingQty = awaitingQty.get(emailKey(context.botConnection.id, screen.chatId));
+    if (pendingQty && /^[0-9]+$/.test(trimmed)) {
+      const item = (await loadCatalog()).find((entry) => entry.product.id === pendingQty.productId);
+      if (!item) {
+        awaitingQty.delete(emailKey(context.botConnection.id, screen.chatId));
+        await showHome(screen);
+        return;
+      }
+      await placeOrder(screen, item, Number(trimmed));
+      return;
+    }
+    if (pendingQty) {
+      await show(
+        bot,
+        screen,
+        `❌ Enter a whole number from 1 to ${pendingQty.max}.`,
+        new InlineKeyboard().text('✏️ Type a number', `qty_type:${pendingQty.productId}`).text('❌ Cancel', 'shop:'),
+        'HTML',
+      );
+      return;
+    }
     const pendingEmail = awaitingEmail.get(emailKey(context.botConnection.id, screen.chatId));
     if (pendingEmail) {
       if (!isEmailAddress(trimmed)) {

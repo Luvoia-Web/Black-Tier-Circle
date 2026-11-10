@@ -871,6 +871,14 @@ export async function payOrderFromCustomerWallet(
   if (order.paymentStatus !== 'awaiting') {
     throw new PaymentError('ORDER_NOT_PAYABLE', 'This order is not waiting for payment');
   }
+  const { expireCheckout, isCheckoutExpired } = await import('@/modules/orders/checkout');
+  if (isCheckoutExpired(order)) {
+    await expireCheckout(supabase, order.id);
+    const latest = await getOrder(supabase, order.id);
+    if (latest.paymentStatus === 'expired') {
+      throw new PaymentError('ORDER_EXPIRED', 'This order expired. Please start again.');
+    }
+  }
 
   const rpc = await supabase.rpc('pay_order_from_customer_wallet', {
     p_order_id: orderId,

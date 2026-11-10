@@ -9,6 +9,24 @@ import { getOrder, updateOrderQuantity, createOrder } from '@/modules/orders';
 import type { CreateOrderInput, Order } from '@/modules/orders/types';
 
 export const CHECKOUT_WINDOW_MS = 15 * 60 * 1000;
+export const UNLIMITED_STOCK_MAX_QTY = 50;
+
+/**
+ * Purchase cap for one order.
+ * Limited products use the stock count.
+ * Unlimited products allow 50.
+ * maxPurchaseQty is not used: the column defaults to 1, so a stored 1
+ * cannot be told apart from an owner-set limit of 1.
+ */
+export function maxOrderQuantity(product: {
+  readonly stockUnlimited: boolean;
+  readonly stockCount: number | null;
+}): number {
+  if (!product.stockUnlimited) {
+    return Math.max(0, product.stockCount ?? 0);
+  }
+  return UNLIMITED_STOCK_MAX_QTY;
+}
 
 const checkoutLocks = new Map<string, Promise<Order>>();
 
@@ -67,6 +85,7 @@ export async function findOpenCheckout(
       continue;
     }
     if (isCheckoutExpired(order)) {
+      await expireCheckout(supabase, order.id);
       continue;
     }
     return order;
@@ -142,6 +161,62 @@ export async function assertCheckoutOpen(order: Order): Promise<void> {
   }
   const { ValidationError } = await import('@/lib/errors');
   throw new ValidationError('ORDER_EXPIRED', 'This order expired. Please start again.');
+}
+
+export async function expireCheckout(supabase: DbClient, orderId: string): Promise<boolean> {
+  const { getOrder, claimTransition, canTransitionFulfillment } = await import('@/modules/orders');
+  const order = await getOrder(supabase, orderId);
+  if (order.paymentStatus !== 'awaiting' && order.paymentStatus !== 'pending_verification') {
+    return false;
+  }
+  if (!isCheckoutExpired(order)) {
+    return false;
+  }
+  if (order.paymentStatus === 'pending_verification') {
+    const claims = (await supabase.from('payment_claims').select('id').eq('order_id', orderId).limit(1)) as QueryResult<
+      unknown[] | null
+    >;
+    if (Array.isArray(claims.data) && claims.data.length > 0) {
+      return false;
+    }
+  }
+  const expired = await claimTransition(supabase, orderId, 'payment', order.paymentStatus, 'expired', {
+    trigger: 'worker',
+    note: 'payment window elapsed',
+  });
+  if (!expired) {
+    return false;
+  }
+  if (canTransitionFulfillment(order.fulfillmentStatus, 'canceled')) {
+    await claimTransition(supabase, orderId, 'fulfillment', order.fulfillmentStatus, 'canceled', {
+      trigger: 'worker',
+      note: 'payment window elapsed',
+    });
+  }
+  if (order.fundingStatus === 'reserved') {
+    const { releaseReservation } = await import('@/modules/wallet');
+    await releaseReservation(supabase, orderId, 'payment window elapsed');
+    await claimTransition(supabase, orderId, 'funding', 'reserved', 'released', {
+      trigger: 'worker',
+      note: 'payment window elapsed',
+    });
+  }
+  await releaseCheckoutKey(supabase, orderId);
+  return true;
+}
+
+export async function expireOpenCheckouts(supabase: DbClient): Promise<number> {
+  const { listOrders } = await import('@/modules/orders');
+  let count = 0;
+  for (const paymentStatus of ['awaiting', 'pending_verification'] as const) {
+    const orders = await listOrders(supabase, { paymentStatus, limit: 100 });
+    for (const order of orders) {
+      if (await expireCheckout(supabase, order.id)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 export async function reloadIfPresent(supabase: DbClient, orderId: string): Promise<Order | null> {

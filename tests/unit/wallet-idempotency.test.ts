@@ -33,7 +33,8 @@ vi.mock('@/modules/platform', () => ({
 }));
 
 import { PaymentError } from '@/lib/errors';
-import { openCheckoutOrder } from '@/modules/orders/checkout';
+import { expireCheckout, openCheckoutOrder } from '@/modules/orders/checkout';
+import { ValidationError } from '@/lib/errors';
 import { payOrderFromCustomerWallet, refundWalletPaymentOnce } from '@/modules/payments';
 import { processQueuedOrder } from '@/modules/fulfillment';
 import { deliveredOrderText, startInlineDelivery, takeInlineMessage } from '@/modules/fulfillment/customer-message';
@@ -196,6 +197,86 @@ describe('wallet payment idempotency', () => {
     );
     expect(new Set(orders.map((order) => order.id)).size).toBe(1);
     expect(db.tables.orders).toHaveLength(1);
+  });
+
+  it('keeps one open order when the quantity changes and rejects more than 50', async () => {
+    const db = seedDb();
+    const product = db.tables.products?.find((item) => item.id === PRODUCT_ID);
+    if (product) {
+      product.max_purchase_qty = 1;
+    }
+    const first = await openCheckoutOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: PRODUCT_ID,
+      quantity: 1,
+      idempotencyKey: 'qty-1',
+    });
+    const second = await openCheckoutOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: PRODUCT_ID,
+      quantity: 5,
+      idempotencyKey: 'qty-5',
+    });
+    expect(second.id).toBe(first.id);
+    expect(second.quantity).toBe(5);
+    expect(second.quotedRetailPriceMinor).toBe(50_000_000n);
+    expect(db.tables.orders).toHaveLength(1);
+    await expect(
+      openCheckoutOrder(db, {
+        channel: 'owner_store',
+        botId: 'owner',
+        customerId: CUSTOMER_ID,
+        productId: PRODUCT_ID,
+        quantity: 51,
+        idempotencyKey: 'qty-51',
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(db.tables.orders).toHaveLength(1);
+  });
+
+  it('rejects a wallet payment after 15 minutes without charging', async () => {
+    const db = seedDb();
+    const order = await openCheckoutOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: PRODUCT_ID,
+      quantity: 1,
+      idempotencyKey: 'expire',
+    });
+    const row = db.tables.orders?.find((item) => item.id === order.id);
+    if (row) {
+      row.created_at = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    }
+    await expect(payOrderFromCustomerWallet(db, order.id, CUSTOMER_ID)).rejects.toMatchObject({
+      code: 'ORDER_EXPIRED',
+    });
+    expect(db.tables.orders?.find((item) => item.id === order.id)?.payment_status).toBe('expired');
+    expect(db.tables.customers?.[0]?.credit_balance).toBe('50000000');
+  });
+
+  it('does not expire a verification that already has a payment claim', async () => {
+    const db = seedDb();
+    const order = await openCheckoutOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: PRODUCT_ID,
+      quantity: 1,
+      idempotencyKey: 'claim',
+    });
+    const row = db.tables.orders?.find((item) => item.id === order.id);
+    if (row) {
+      row.payment_status = 'pending_verification';
+      row.created_at = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    }
+    db.tables.payment_claims = [{ id: 'claim-1', order_id: order.id }];
+    expect(await expireCheckout(db, order.id)).toBe(false);
+    expect(db.tables.orders?.find((item) => item.id === order.id)?.payment_status).toBe('pending_verification');
   });
 
   it('refunds a failed fulfillment once', async () => {
