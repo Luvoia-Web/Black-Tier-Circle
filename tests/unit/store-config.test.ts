@@ -53,6 +53,7 @@ describe('bot html sanitizer', () => {
       '<a href="https://shop.example">Shop</a>',
     );
     expect(sanitizeBotHtml('<img src=x onerror=alert(1)>')).toBe('');
+    expect(sanitizeBotHtml('<blockquote expandable>More</blockquote>')).toBe('<blockquote expandable>More</blockquote>');
   });
 
   it('balances an unclosed tag and escapes a broken close', () => {

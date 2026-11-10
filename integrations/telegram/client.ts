@@ -7,7 +7,6 @@
  * @module Telegram
  */
 
-import { createHash } from 'node:crypto';
 import { Bot, InlineKeyboard } from 'grammy';
 import { resolveBotContextCached, type BotContext } from './bot-context';
 import { telegramSetMyCommands } from './api';
@@ -26,7 +25,24 @@ import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations
 import { getCustomerById, getOrCreateCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
-import { buyerFacingCategory } from '@/modules/catalog/buyer-category';
+import { loadSoldCounts } from '@/modules/catalog/sold-count';
+import {
+  BALANCE_ADDED_TEXT,
+  BALANCE_EXPIRED_TEXT,
+  checkoutButtons,
+  checkoutText,
+  depositAmountLine,
+  topUpAmount,
+  layoutScreenButtons,
+  productCardButtons,
+  productCardText,
+  quantityText,
+  renderShop,
+  resolvedWarranty,
+  shopProductFrom,
+  type ScreenButton,
+} from '@/modules/catalog/shop-screen';
+import { claimCheckoutResume, markResumeAfterTopup } from '@/modules/orders/balance-notice';
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { renderTemplate } from '@/modules/store-config/template';
 import { normalizeBotUrl } from '@/modules/store-config/urls';
@@ -57,6 +73,7 @@ const CUSTOMER_CACHE = new Map<string, { data: CustomerRecord; expiresAt: number
 const COMMANDS_REFRESH = new Map<string, number>();
 const awaitingEmail = new Map<string, { readonly orderId: string; readonly productTitle: string }>();
 const awaitingQty = new Map<string, { readonly productId: string; readonly max: number }>();
+const pendingTopup = new Map<string, bigint>();
 const awaitingFind = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
@@ -102,6 +119,7 @@ const ERROR_TEXT: Record<string, string> = {
 type CatalogItem = {
   readonly product: Product;
   readonly priceMinor: bigint;
+  readonly soldCount: number | null;
 };
 
 type Screen = {
@@ -148,33 +166,8 @@ function orderRef(orderId: string): string {
   return orderId.slice(0, 8).toUpperCase();
 }
 
-function categoryKey(name: string): string {
-  return createHash('sha256').update(name).digest('hex').slice(0, 12);
-}
-
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
-function deliveryLabel(product: Product): string {
-  if (product.deliveryType === 'file_reusable') {
-    return 'File';
-  }
-  if (product.deliveryType === 'inventory_unit') {
-    return 'License key';
-  }
-  if (product.deliveryType === 'supplier_api') {
-    return 'Instant';
-  }
-  return 'Manual';
-}
-
-function stockPhrase(product: Product): string {
-  if (product.stockUnlimited) {
-    return 'Unlimited';
-  }
-  const count = product.stockCount ?? 0;
-  return count <= 0 ? 'Sold out' : `${count} units available`;
 }
 
 function soldOut(product: Product): boolean {
@@ -419,15 +412,42 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function loadCatalog(): Promise<CatalogItem[]> {
     const cacheKey = `bot_products_${context.botConnection.id}`;
     return withCache(cacheKey, PRODUCT_CACHE_MS, async () => {
-      if (context.tenantId === null) {
-        const products = await listProducts(context.supabase, { status: 'published' });
-        return products.map((product) => ({ product, priceMinor: product.retailPriceMinor }));
-      }
-      const listings = await listResellerListings(context.supabase, context.tenantId);
-      return listings
-        .filter((listing) => listing.isVisible && listing.product.status === 'published')
-        .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
+      const items =
+        context.tenantId === null
+          ? (await listProducts(context.supabase, { status: 'published' })).map((product) => ({
+              product,
+              priceMinor: product.retailPriceMinor,
+            }))
+          : (await listResellerListings(context.supabase, context.tenantId))
+              .filter((listing) => listing.isVisible && listing.product.status === 'published')
+              .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
+      const sold = await loadSoldCounts(
+        context.supabase,
+        items.map((item) => item.product.id),
+        context.tenantId,
+      ).catch(() => null);
+      return items.map((item) => ({
+        ...item,
+        soldCount: sold ? (sold.get(item.product.id) ?? 0) : null,
+      }));
     });
+  }
+
+  function paint(buttons: readonly ScreenButton[]): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    for (const row of layoutScreenButtons(buttons)) {
+      for (const button of row) {
+        keyboard.text(clip(button.text, 64), button.data);
+        if (button.style === 'success') {
+          keyboard.success();
+        }
+        if (button.style === 'danger') {
+          keyboard.danger();
+        }
+      }
+      keyboard.row();
+    }
+    return keyboard;
   }
 
   async function maintenanceBlock(screen: Screen): Promise<boolean> {
@@ -473,67 +493,15 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       );
       return;
     }
-    const shopCategory = (item: CatalogItem): string | null => buyerFacingCategory(item.product);
-    const categories = [...new Set(catalog.map(shopCategory).filter((value): value is string => value !== null))];
-    type ShopButton = { readonly label: string; readonly data: string };
-    const productButton = (item: CatalogItem): ShopButton => {
-      const stock = item.product.stockUnlimited ? '∞' : soldOut(item.product) ? 'sold out' : `${item.product.stockCount ?? 0} left`;
-      return {
-        label: clip(`${soldOut(item.product) ? '❌' : '📦'} ${item.product.title} — ${formatUsdt(item.priceMinor)} (${stock})`, 64),
-        data: soldOut(item.product) ? 'soldout:' : `product:${item.product.id}`,
-      };
-    };
-    const buttons: ShopButton[] = [];
-    let heading = 'Select a product:';
-    if (!showAll && categoryToken === undefined && categories.length > 0) {
-      for (const category of categories) {
-        buttons.push({ label: clip(`📂 ${category}`, 40), data: `cat:${categoryKey(category)}:0` });
-      }
-      for (const item of catalog) {
-        if (shopCategory(item) === null) {
-          buttons.push(productButton(item));
-        }
-      }
-      heading = 'Choose a category or a product:';
-    } else {
-      const visible =
-        categoryToken === undefined
-          ? catalog
-          : catalog.filter((item) => {
-              const category = shopCategory(item);
-              return category !== null && categoryKey(category) === categoryToken;
-            });
-      for (const item of visible) {
-        buttons.push(productButton(item));
-      }
-    }
-    const pageSize = 8;
-    const pages = Math.max(1, Math.ceil(buttons.length / pageSize));
-    const safePage = Math.min(Math.max(page, 0), pages - 1);
-    const slice = buttons.slice(safePage * pageSize, safePage * pageSize + pageSize);
-    const keyboard = new InlineKeyboard();
-    for (const button of slice) {
-      keyboard.text(button.label, button.data).row();
-    }
-    if (pages > 1) {
-      if (safePage > 0) {
-        keyboard.text('⬅ Prev', categoryToken ? `cat:${categoryToken}:${safePage - 1}` : `pg:${safePage - 1}`);
-      }
-      if (safePage < pages - 1) {
-        keyboard.text('Next ➡', categoryToken ? `cat:${categoryToken}:${safePage + 1}` : `pg:${safePage + 1}`);
-      }
-      keyboard.row();
-    }
-    if (categoryToken) {
-      keyboard.text('⬅ Categories', 'shop:');
-    }
-    keyboard.text('🏠 Main Menu', 'start:');
-    await show(
-      bot,
-      screen,
-      `🛍 <b>Browse Shop</b>\n\n${escHtml(current.storeName)} — ${catalog.length} products\n\n${heading}`,
-      keyboard,
-    );
+    const catalogConfig = current.studio?.config.catalog;
+    const view = renderShop({
+      products: catalog.map((item) => shopProductFrom(item.product, item.priceMinor, item.soldCount)),
+      ...(catalogConfig ? { settings: catalogConfig.categories, templates: catalogConfig.templates } : {}),
+      page,
+      ...(categoryToken ? { categoryToken } : {}),
+      ...(showAll ? { showAll } : {}),
+    });
+    await show(bot, screen, view.text, paint(view.rows.flat()), 'HTML');
   }
 
   async function showProduct(screen: Screen, productId: string): Promise<void> {
@@ -546,59 +514,35 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, ERROR_TEXT.PRODUCT_NOT_AVAILABLE ?? ERROR_TEXT.DEFAULT ?? '', homeKeyboard(await storeContext()));
       return;
     }
-    const product = item.product;
-    const minutes = product.estimatedDeliveryMinutes;
-    const text =
-      `📦 <b>${escHtml(product.title)}</b>\n\n` +
-      `${escHtml(product.description ?? 'No description.')}\n\n` +
-      `💵 Price: <b>${money(item.priceMinor)}</b>\n` +
-      `📦 Stock: ${escHtml(stockPhrase(product))}\n` +
-      `⏱ Delivery: ${minutes ? escHtml(`~${minutes} minutes`) : 'Instant'}\n` +
-      `📂 Type: ${escHtml(deliveryLabel(product))}`;
-    const keyboard = new InlineKeyboard();
-    if (soldOut(product) || product.status !== 'published') {
-      keyboard.text('❌ Out of Stock', 'sold:').row();
-    } else {
-      keyboard.text('🛒 Buy Now', `buy:${product.id}`).row();
-    }
-    keyboard.text('⬅ Back to Shop', 'shop:').text('🏠 Home', 'home:');
-    await show(bot, screen, text, keyboard);
+    const current = await storeContext();
+    const view = shopProductFrom(item.product, item.priceMinor, item.soldCount);
+    const text = productCardText(view, current.studio?.config.catalog.templates);
+    await show(
+      bot,
+      screen,
+      text,
+      paint(productCardButtons(view, item.product.status === 'published')),
+      'HTML',
+    );
   }
 
   async function paymentKeyboard(order: Order): Promise<InlineKeyboard> {
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
     const config = await loadPaymentConfig(context.supabase, balance, context.tenantId);
-    const price = order.quotedRetailPriceMinor;
-    const keyboard = new InlineKeyboard();
-    if (balance > 0n) {
-      if (balance >= price && price > 0n) {
-        keyboard
-          .text(clip(`💰 Pay from Wallet (${formatUsdt(balance)})`, 64), `pay_wallet:${order.id}`)
-          .row();
-      } else {
-        keyboard
-          .text(
-            clip(`💰 Wallet: ${formatUsdt(balance)} (need ${formatUsdt(price)})`, 64),
-            `wallet_low:${order.id}`,
-          )
-          .row();
-      }
-    }
-    if (config.binancePayEnabled || config.isDemoMode) {
-      keyboard.text('💳 Pay with Binance Pay', `pay_bp:${order.id}`).row();
-    }
-    if (config.bep20Enabled && (config.platformUsdtWallet || current.usdtWalletAddress)) {
-      keyboard.text('📤 Send USDT (BEP20)', `pay_bep20:${order.id}`).row();
-    }
-    if (config.trc20Enabled && (config.platformUsdtTrc20Wallet || current.trc20WalletAddress)) {
-      keyboard.text('📤 Send USDT (TRC20)', `pay_trc20:${order.id}`).row();
-    }
-    if (config.demoEnabled && !config.binancePayEnabled && !config.bep20Enabled && !config.trc20Enabled) {
-      keyboard.text('🧪 Test Payment (Demo)', `pay_demo:${order.id}`).row();
-    }
-    keyboard.text('❌ Cancel Order', `cancel_order:${order.id}`);
-    return keyboard;
+    return paint(
+      checkoutButtons({
+        orderId: order.id,
+        productId: order.productId,
+        totalMinor: order.quotedRetailPriceMinor,
+        balanceMinor: balance,
+        minimumDepositMinor: current.minimumDepositMinor,
+        binance: config.binancePayEnabled || config.isDemoMode,
+        bep20: config.bep20Enabled && Boolean(config.platformUsdtWallet || current.usdtWalletAddress),
+        trc20: config.trc20Enabled && Boolean(config.platformUsdtTrc20Wallet || current.trc20WalletAddress),
+        demo: config.demoEnabled && !config.binancePayEnabled && !config.bep20Enabled && !config.trc20Enabled,
+      }),
+    );
   }
 
   async function showPaymentOptions(screen: Screen, order: Order, productTitle: string): Promise<void> {
@@ -611,32 +555,24 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       customer?.creditBalanceMinor ?? 0n,
       context.tenantId,
     );
-    const notice = config.demoEnabled ? '\n\n⚠️ <i>Demo mode — no real payment required</i>' : '';
     if (await rejectIfExpired(screen, order)) {
       return;
     }
-    const unit = order.quantity > 0 ? order.quotedRetailPriceMinor / BigInt(order.quantity) : order.quotedRetailPriceMinor;
-    const checkoutHeader = current.studio
-      ? renderStoreTemplate(
-          current.studio.config.messages.checkoutHeader,
-          templateVars(current, customer?.creditBalanceMinor ?? 0n, customer?.firstName, {
-            product: productTitle,
-            quantity: String(order.quantity),
-            total: formatUsdt(order.quotedRetailPriceMinor),
-            order: orderRef(order.id),
-          }),
-          '✅ <b>Order Summary</b>',
-        )
-      : '✅ <b>Order Summary</b>';
-    const text =
-      `${checkoutHeader}\n\n` +
-      `📦 ${escHtml(productTitle)}\n` +
-      `💵 Unit price: ${escHtml(formatUsdt(unit))}\n` +
-      `🔢 Quantity: ${order.quantity}\n` +
-      `💵 Total: <b>${escHtml(formatUsdt(order.quotedRetailPriceMinor))}</b>\n` +
-      `🔖 Order: <code>${orderRef(order.id)}</code>\n` +
-      `${paymentWindowLine(order)}\n\n` +
-      `Choose how to pay:${notice}`;
+    const catalog = await loadCatalog();
+    const item = catalog.find((entry) => entry.product.id === order.productId);
+    const view = item ? shopProductFrom(item.product, item.priceMinor, item.soldCount) : null;
+    const text = checkoutText({
+      title: current.studio?.config.messages.checkoutHeader ?? '',
+      productTitle,
+      quantity: order.quantity,
+      warranty: view ? resolvedWarranty(view) : null,
+      totalMinor: order.quotedRetailPriceMinor,
+      balanceMinor: customer?.creditBalanceMinor ?? 0n,
+      windowLine: paymentWindowLine(order),
+      ...(current.studio ? { shortfallTemplate: current.studio.config.catalog.templates.checkoutShortfall } : {}),
+      minimumDepositMinor: current.minimumDepositMinor,
+      ...(config.demoEnabled ? { demoNotice: 'Demo mode. No real payment is required.' } : {}),
+    });
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
 
@@ -702,16 +638,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       }
     }
     keyboard.row().text('✏️ Type a number', `qty_type:${item.product.id}`);
-    keyboard.row().text('❌ Cancel', 'shop:');
+    keyboard.row().text('❌ Cancel', 'shop:').danger();
     awaitingQty.set(emailKey(context.botConnection.id, screen.chatId), { productId: item.product.id, max: maxQty });
     await show(
       bot,
       screen,
-      `📦 <b>${escHtml(item.product.title)}</b>\n\n` +
-        `💵 Unit price: <b>${escHtml(formatUsdt(item.priceMinor))}</b>\n` +
-        `📊 Available: ${item.product.stockUnlimited ? 'Unlimited' : item.product.stockCount} units\n\n` +
-        `How many would you like to buy?\n` +
-        `Choose a button or send a whole number from 1 to ${maxQty}.`,
+      quantityText(shopProductFrom(item.product, item.priceMinor, item.soldCount), item.priceMinor, maxQty),
       keyboard,
       'HTML',
     );
@@ -1327,6 +1259,34 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     customer = { ...customer, creditBalanceMinor: credit.newBalance };
+    const notice = await claimCheckoutResume(context.supabase, customer.id);
+    if (notice.kind === 'resume') {
+      pendingTopup.delete(emailKey(context.botConnection.id, screen.chatId));
+      await show(
+        bot,
+        screen,
+        BALANCE_ADDED_TEXT,
+        paint([{ text: 'Complete order', data: `pay_menu:${notice.orderId}`, style: 'success', width: 'full' }]),
+        'HTML',
+      );
+      return;
+    }
+    if (notice.kind === 'expired') {
+      pendingTopup.delete(emailKey(context.botConnection.id, screen.chatId));
+      await show(
+        bot,
+        screen,
+        BALANCE_EXPIRED_TEXT,
+        paint([
+          ...(notice.productId
+            ? [{ text: 'Start again', data: `buy:${notice.productId}`, style: 'success' as const, width: 'full' as const }]
+            : []),
+          { text: '🏠 Home', data: 'home:', width: 'full' },
+        ]),
+        'HTML',
+      );
+      return;
+    }
     await show(
       bot,
       screen,
@@ -1402,7 +1362,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         `Your balance is credited automatically after network confirmation.\n\n` +
         `<code>${escHtml(address)}</code>\n\n` +
         `<i>Minimum: 1.00 USDT · Network: BNB Smart Chain (BEP20)\n` +
-        `Balance updates within a few minutes of confirmation.</i>`,
+        `Balance updates within a few minutes of confirmation.</i>` +
+        amountNote(screen.chatId),
       new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
     );
   }
@@ -1427,7 +1388,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         `Your balance is credited automatically.\n\n` +
         `Merchant ID: <code>${escHtml(merchantId)}</code>\n\n` +
         `<b>Reference (required):</b> <code>${escHtml(reference)}</code>\n` +
-        `<i>Include your Telegram ID as the reference so we can match your payment.</i>`,
+        `<i>Include your Telegram ID as the reference so we can match your payment.</i>` +
+        amountNote(screen.chatId),
       new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
     );
   }
@@ -1450,9 +1412,15 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         `Send USDT (TRC20) to the address below.\n` +
         `Your balance is credited automatically after network confirmation.\n\n` +
         `<code>${escHtml(address)}</code>\n\n` +
-        `<i>Network: TRON (TRC20) only. BEP20 and ERC20 transfers will be lost.</i>`,
+        `<i>Network: TRON (TRC20) only. BEP20 and ERC20 transfers will be lost.</i>` +
+        amountNote(screen.chatId),
       new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
     );
+  }
+
+  function amountNote(chatId: string | number): string {
+    const line = depositAmountLine(pendingTopup.get(emailKey(context.botConnection.id, chatId)) ?? null);
+    return line.length > 0 ? `\n\n${line}` : '';
   }
 
   async function showDeposit(screen: Screen): Promise<void> {
@@ -1474,7 +1442,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      `💳 <b>Add Funds</b>\n\nChoose how to add funds to your wallet:`,
+      `💳 <b>Add Funds</b>\n\nChoose how to add funds to your wallet:${amountNote(screen.chatId)}`,
       keyboard,
       'HTML',
     );
@@ -1798,7 +1766,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showWallet(screen);
       return;
     }
+    if (data.startsWith('dep_for:')) {
+      const order = await ownedOrder(data.slice('dep_for:'.length));
+      if (!order) {
+        await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(await storeContext()));
+        return;
+      }
+      const current = await storeContext();
+      const due = topUpAmount(order.quotedRetailPriceMinor, customer?.creditBalanceMinor ?? 0n, current.minimumDepositMinor);
+      await markResumeAfterTopup(context.supabase, order.id);
+      if (due !== null) {
+        pendingTopup.set(emailKey(context.botConnection.id, screen.chatId), due);
+      }
+      await showDeposit(screen);
+      return;
+    }
     if (data === 'deposit:' || data === 'deposit') {
+      pendingTopup.delete(emailKey(context.botConnection.id, screen.chatId));
       await showDeposit(screen);
       return;
     }

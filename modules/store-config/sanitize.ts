@@ -1,4 +1,4 @@
-const ALLOWED = new Set(['b', 'i', 'u', 'code', 'a']);
+const ALLOWED = new Set(['b', 'i', 'u', 'code', 'a', 'blockquote']);
 
 export function escapeHtml(value: string): string {
   return value
@@ -58,6 +58,16 @@ function sanitizeBalanced(input: string): string {
         stack.pop();
         out += `</${name}>`;
       }
+      continue;
+    }
+    if (name === 'blockquote') {
+      const expandable = /^blockquote\s+expandable$/i.test(raw);
+      const plain = /^blockquote$/i.test(raw);
+      if (!plain && !expandable) {
+        continue;
+      }
+      stack.push('blockquote');
+      out += expandable ? '<blockquote expandable>' : '<blockquote>';
       continue;
     }
     if (name === 'a') {
