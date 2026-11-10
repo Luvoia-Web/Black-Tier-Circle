@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/lib/errors';
 import { DEFAULT_STORE_CONFIG } from '@/modules/store-config/defaults';
 import { getStoreConfig, mergeStoreConfig, saveStoreConfig } from '@/modules/store-config';
+import { tenantIdForStudio, writeStudio } from '@/modules/store-config/access';
+import { AuthError } from '@/lib/errors';
 import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import { renderTemplate } from '@/modules/store-config/template';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
@@ -84,5 +86,26 @@ describe('store config', () => {
     expect(owner.config.welcome).toBe(DEFAULT_STORE_CONFIG.welcome);
     expect(reseller.config.welcome).toBe('Reseller hello {name}');
     expect(owner.config).not.toEqual(reseller.config);
+  });
+
+  it('keeps a reseller on their own tenant even if the body names another store', async () => {
+    const db = createMemoryDb();
+    expect(tenantIdForStudio('owner', TENANT)).toBeNull();
+    expect(tenantIdForStudio('reseller', TENANT)).toBe(TENANT);
+    expect(() => tenantIdForStudio('reseller', null)).toThrow(AuthError);
+    const other = '00000000-0000-4000-8000-000000000099';
+    await writeStudio(
+      db,
+      'reseller',
+      TENANT,
+      { config: DEFAULT_STORE_CONFIG, version: 0, tenantId: null, otherTenantId: other },
+      ACTOR,
+    );
+    const owner = await getStoreConfig(db, null);
+    const reseller = await getStoreConfig(db, TENANT);
+    const stranger = await getStoreConfig(db, other);
+    expect(owner.source).toBe('default');
+    expect(stranger.source).toBe('default');
+    expect(reseller.source).toBe('stored');
   });
 });
