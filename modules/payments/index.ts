@@ -553,7 +553,7 @@ export async function verifyBep20Claim(
   const chain = await verify({
     txHash,
     toAddress: address,
-    minAmountMinor: order.quotedRetailPriceMinor,
+    exactAmountMinor: order.quotedRetailPriceMinor,
     notBefore: order.createdAt,
   });
   if (chain.status === 'unavailable') {

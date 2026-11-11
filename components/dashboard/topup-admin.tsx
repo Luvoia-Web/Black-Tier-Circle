@@ -59,6 +59,7 @@ export function TopupAdmin(): JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [hash, setHash] = useState('');
+  const [verifiedAmount, setVerifiedAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
@@ -97,7 +98,12 @@ export function TopupAdmin(): JSX.Element {
       const response = await fetch(API_ROUTES.paymentTopup(row.id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, reason, ...(hash.trim() ? { txHash: hash.trim() } : {}) }),
+        body: JSON.stringify({
+          decision,
+          reason,
+          ...(hash.trim() ? { txHash: hash.trim() } : {}),
+          ...(verifiedAmount.trim() ? { verifiedAmount: verifiedAmount.trim() } : {}),
+        }),
       });
       const json = (await response.json()) as {
         success: boolean;
@@ -112,6 +118,7 @@ export function TopupAdmin(): JSX.Element {
       setActiveId(null);
       setReason('');
       setHash('');
+      setVerifiedAmount('');
       await load();
     } catch {
       setError('The review was not saved');
@@ -208,7 +215,11 @@ export function TopupAdmin(): JSX.Element {
           }}
         />
       </div>
-      {error ? <p className="mb-3 text-sm text-[var(--red)]">{error}</p> : null}
+      {error ? (
+        <p className="mb-3 text-sm text-[var(--red)]" role="alert">
+          {error}
+        </p>
+      ) : null}
       {notice ? <p className="mb-3 text-sm text-[var(--green)]">{notice}</p> : null}
       {loading ? <SkeletonTable /> : <DataTable columns={columns} rows={data?.rows ?? []} emptyMessage="No top-ups match these filters." rowKey={(row) => row.id} />}
       <div className="mt-3 flex gap-2">
@@ -240,11 +251,26 @@ export function TopupAdmin(): JSX.Element {
               onChange={(event) => setReason(event.target.value)}
             />
           </label>
-          <label className="mt-3 block text-sm text-[var(--text-2)]">
+          <label className="mt-3 block text-sm text-[var(--text-2)]" htmlFor="topup-verified-amount">
+            Verified amount
+            <input
+              id="topup-verified-amount"
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--bg-page)] px-3 py-2 text-sm text-[var(--text-1)]"
+              inputMode="decimal"
+              placeholder="Leave blank to credit the expected amount"
+              value={verifiedAmount}
+              onChange={(event) => setVerifiedAmount(event.target.value)}
+            />
+          </label>
+          <p className="mt-1 text-xs text-[var(--text-2)]">
+            Type the amount you verified to credit that amount. A note is required. Leave this blank to credit the expected amount.
+          </p>
+          <label className="mt-3 block text-sm text-[var(--text-2)]" htmlFor="topup-review-hash">
             Transaction hash
             <input
+              id="topup-review-hash"
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--bg-page)] px-3 py-2 text-sm text-[var(--text-1)]"
-              placeholder="Leave blank to credit the expected amount"
+              placeholder="Leave blank for a manual credit"
               value={hash}
               onChange={(event) => setHash(event.target.value)}
             />

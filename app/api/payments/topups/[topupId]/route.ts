@@ -12,7 +12,12 @@ export async function POST(request: Request, context: { params: { topupId: strin
     assertRateLimit(`topup-review:${session.user.id}`, 20);
     const tenantId =
       session.profile.role === 'owner' ? null : (await requireReseller()).tenant.id;
-    const body = (await readJsonBody(request)) as { decision?: unknown; reason?: unknown; txHash?: unknown };
+    const body = (await readJsonBody(request)) as {
+      decision?: unknown;
+      reason?: unknown;
+      txHash?: unknown;
+      verifiedAmount?: unknown;
+    };
     const decision = body.decision === 'reject' ? 'reject' : body.decision === 'approve' ? 'approve' : null;
     if (!decision || typeof body.reason !== 'string') {
       throw new ValidationError('INVALID_REVIEW', 'Choose approve or reject and enter a reason.');
@@ -24,6 +29,7 @@ export async function POST(request: Request, context: { params: { topupId: strin
       decision,
       reason: body.reason,
       ...(typeof body.txHash === 'string' ? { txHash: body.txHash } : {}),
+      ...(typeof body.verifiedAmount === 'string' ? { verifiedAmount: body.verifiedAmount } : {}),
     });
     return jsonSuccess(result);
   } catch (error: unknown) {

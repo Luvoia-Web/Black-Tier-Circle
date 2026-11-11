@@ -6,7 +6,7 @@
 import { randomUUID } from 'crypto';
 import { normalizeEthAddress, verifyUsdtTransfer, bep20MinConfirmations, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
 import { AppError, ValidationError } from '@/lib/errors';
-import { formatUsdt } from '@/lib/money';
+import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { TX_HASH_REGEX } from '@/lib/validations/payments';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
@@ -18,6 +18,7 @@ type TopupRow = {
   readonly id: string;
   readonly customer_id: string;
   readonly tenant_id: string | null;
+  readonly pay_to_address?: string | null;
   readonly amount_expected_minor: string | number;
   readonly credited_amount_minor?: string | number | null;
   readonly status: string;
@@ -121,11 +122,11 @@ export async function listWalletTopups(
       id: row.id,
       buyer: names.get(row.customer_id) ?? 'Buyer',
       status: row.status,
-      amount: formatUsdt(asMinor(row.amount_expected_minor)),
+      amount: `${minorToUsdt(asMinor(row.amount_expected_minor))} USDT`,
       creditedAmount:
         row.credited_amount_minor === null || row.credited_amount_minor === undefined
           ? null
-          : formatUsdt(asMinor(row.credited_amount_minor)),
+          : `${minorToUsdt(asMinor(row.credited_amount_minor))} USDT`,
       txHash: row.tx_hash ?? null,
       explorerUrl: explorer(row.tx_hash),
       createdAt: row.created_at,
@@ -190,6 +191,24 @@ async function writeAudit(
   }
 }
 
+function parseVerifiedAmount(raw: string | undefined): bigint | null {
+  if (raw === undefined || raw.trim() === '') {
+    return null;
+  }
+  try {
+    const amount = usdtToMinor(raw.trim());
+    if (amount <= 0n) {
+      throw new ValidationError('INVALID_AMOUNT', 'Enter the verified USDT amount.');
+    }
+    return amount;
+  } catch (error: unknown) {
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+    throw new ValidationError('INVALID_AMOUNT', 'Enter the verified USDT amount, for example 10.004200.');
+  }
+}
+
 function rpcRow(data: unknown): Record<string, unknown> | null {
   if (Array.isArray(data)) {
     const row = data[0];
@@ -210,6 +229,7 @@ export async function reviewWalletTopup(
     readonly decision: 'approve' | 'reject';
     readonly reason: string;
     readonly txHash?: string;
+    readonly verifiedAmount?: string;
   },
   verify: typeof verifyUsdtTransfer = verifyUsdtTransfer,
 ): Promise<{ readonly success: boolean; readonly repeated: boolean; readonly balance: string | null; readonly errorCode: string | null }> {
@@ -255,27 +275,34 @@ export async function reviewWalletTopup(
     throw new ValidationError('EXPIRED', 'This top-up expired before it was approved.');
   }
 
-  let amount = asMinor(topup.amount_expected_minor);
+  const expected = asMinor(topup.amount_expected_minor);
+  const typedAmount = parseVerifiedAmount(input.verifiedAmount);
+  const amount = typedAmount ?? expected;
   if (typed.length > 0) {
     if (!TX_HASH_REGEX.test(typed)) {
       throw new ValidationError('INVALID_HASH', 'Paste the transaction hash, or leave it blank for a manual credit.');
     }
-    const resolved = await resolveOrderPayments(supabase, input.tenantId);
-    const address = normalizeEthAddress(resolved.bep20Address ?? '');
+    const stored = normalizeEthAddress(topup.pay_to_address ?? '');
+    const resolved = stored ? null : await resolveOrderPayments(supabase, input.tenantId);
+    const address = stored ?? normalizeEthAddress(resolved?.bep20Address ?? '');
     if (!address) {
       throw new ValidationError('PAYMENTS_UNAVAILABLE', 'Save a valid public BEP20 address before approving a chain payment.');
     }
     const chain: VerifyUsdtTransferResult = await verify({
       txHash: typed,
       toAddress: address,
-      minAmountMinor: amount,
+      exactAmountMinor: amount,
       notBefore: new Date(topup.created_at),
     });
     if (chain.status !== 'verified') {
-      const code = chain.status === 'rejected' ? chain.reason : chain.reason;
-      throw new ValidationError(code, 'The chain check did not confirm this transfer.');
+      throw new ValidationError(chain.reason, 'The chain check did not confirm this transfer.');
     }
-    amount = chain.amountMinor;
+    if (chain.amountMinor !== amount) {
+      throw new ValidationError(
+        'AMOUNT_MISMATCH',
+        'The amount on the chain does not match the verified amount you typed.',
+      );
+    }
   }
 
   const rpc = await supabase.rpc('credit_wallet_topup', {
@@ -283,6 +310,7 @@ export async function reviewWalletTopup(
     p_tx_hash: hash,
     p_amount_minor: amount.toString(),
     p_network: 'bep20',
+    p_exact: amount === expected,
   });
   if (rpc.error) {
     throw new AppError('TOPUP_CREDIT_FAILED', 'The credit could not be saved.', 503);

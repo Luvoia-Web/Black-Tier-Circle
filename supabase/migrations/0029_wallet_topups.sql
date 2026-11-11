@@ -4,6 +4,9 @@
 --
 -- Money is bigint minor units (1 USDT = 1000000). BSC USDT has 18 decimals.
 -- The app converts with raw / 10^12, rounded down, before it calls credit_wallet_topup.
+-- A buyer claim is accepted only when that minor amount equals amount_expected_minor.
+-- amount_expected_minor is the requested amount plus a tag of 100..9900 minor units,
+-- unique among pending top-ups that share pay_to_address.
 -- bot_id is null for the owner store. Owner customers already store bot_id as null.
 
 alter table platform_settings
@@ -36,6 +39,7 @@ create table if not exists wallet_topups (
   customer_id uuid not null references customers(id),
   bot_id uuid references bot_connections(id),
   tenant_id uuid references tenants(id),
+  pay_to_address text not null,
   amount_expected_minor bigint not null check (amount_expected_minor > 0),
   credited_amount_minor bigint check (credited_amount_minor is null or credited_amount_minor > 0),
   status text not null default 'pending' check (status in ('pending', 'credited', 'expired', 'failed', 'rejected')),
@@ -45,11 +49,21 @@ create table if not exists wallet_topups (
   expires_at timestamptz not null default (now() + interval '30 minutes'),
   credited_at timestamptz,
   reject_reason text,
+  constraint wallet_topups_pay_to_chk check (
+    pay_to_address = lower(pay_to_address)
+    and pay_to_address ~ '^0x[0-9a-f]{40}$'
+  ),
   constraint wallet_topups_hash_lower_chk check (tx_hash is null or tx_hash = lower(tx_hash))
 );
 
 create unique index if not exists wallet_topups_one_pending
   on wallet_topups (customer_id)
+  where status = 'pending';
+
+-- The address matters, not the store. Resellers who share the owner address
+-- must not be given the same pending amount.
+create unique index if not exists wallet_topups_pending_amount
+  on wallet_topups (pay_to_address, amount_expected_minor)
   where status = 'pending';
 
 create index if not exists wallet_topups_pending_expiry
@@ -143,11 +157,18 @@ grant all on table wallet_topups, chain_payments to service_role;
 -- Credits a pending top-up once. A second call with the same top-up and hash
 -- returns success and does not add the balance again.
 -- A hash already stored for anything else returns ALREADY_USED and does not credit.
+-- p_exact true (buyer claims) requires p_amount_minor = amount_expected_minor and
+-- credits that expected amount. p_exact false is only for a manual review after
+-- the owner typed the verified amount and a note.
+drop function if exists credit_wallet_topup(uuid, text, bigint, text);
+drop function if exists credit_wallet_topup(uuid, text, bigint, text, boolean);
+
 create or replace function credit_wallet_topup(
   p_topup_id uuid,
   p_tx_hash text,
   p_amount_minor bigint,
-  p_network text
+  p_network text,
+  p_exact boolean default true
 )
 returns table (
   success boolean,
@@ -163,6 +184,8 @@ declare
   v_hash text;
   v_network text;
   v_balance bigint;
+  v_credit bigint;
+  v_exact boolean;
 begin
   if p_topup_id is null then
     return query select false, 0::bigint, 'NOT_FOUND';
@@ -230,10 +253,12 @@ begin
     return;
   end if;
 
-  if p_amount_minor < v_topup.amount_expected_minor then
-    return query select false, 0::bigint, 'AMOUNT_TOO_SMALL';
+  v_exact := coalesce(p_exact, true);
+  if v_exact and p_amount_minor <> v_topup.amount_expected_minor then
+    return query select false, 0::bigint, 'AMOUNT_MISMATCH';
     return;
   end if;
+  v_credit := case when v_exact then v_topup.amount_expected_minor else p_amount_minor end;
 
   select credit_balance into v_balance
   from customers
@@ -247,7 +272,7 @@ begin
 
   begin
     insert into chain_payments (network, tx_hash, purpose, reference_id, customer_id, amount_minor)
-    values (v_network, v_hash, 'topup', v_topup.id, v_topup.customer_id, p_amount_minor);
+    values (v_network, v_hash, 'topup', v_topup.id, v_topup.customer_id, v_credit);
   exception
     when unique_violation then
       return query select false, coalesce(v_balance, 0), 'ALREADY_USED';
@@ -255,10 +280,10 @@ begin
   end;
 
   update customers
-  set credit_balance = credit_balance + p_amount_minor,
+  set credit_balance = credit_balance + v_credit,
       updated_at = now()
   where id = v_topup.customer_id
-    and credit_balance + p_amount_minor >= 0
+    and credit_balance + v_credit >= 0
   returning credit_balance into v_balance;
 
   if not found then
@@ -267,7 +292,7 @@ begin
 
   update wallet_topups
   set status = 'credited',
-      credited_amount_minor = p_amount_minor,
+      credited_amount_minor = v_credit,
       tx_hash = v_hash,
       network = v_network,
       credited_at = now(),
@@ -283,8 +308,8 @@ begin
 end;
 $$;
 
-revoke all on function credit_wallet_topup(uuid, text, bigint, text) from public, anon, authenticated;
-grant execute on function credit_wallet_topup(uuid, text, bigint, text) to service_role;
+revoke all on function credit_wallet_topup(uuid, text, bigint, text, boolean) from public, anon, authenticated;
+grant execute on function credit_wallet_topup(uuid, text, bigint, text, boolean) to service_role;
 
 -- Records an order (or any) chain payment without crediting a wallet.
 -- The same hash and reference returns success. Any other use returns ALREADY_USED.

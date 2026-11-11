@@ -8,15 +8,21 @@
  * @module Topups
  */
 
-import { verifyUsdtTransfer, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
+import { normalizeEthAddress, verifyUsdtTransfer, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
 import { AppError, ValidationError } from '@/lib/errors';
 import { usdtToMinor } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import type { DbClient, QueryResult } from '@/lib/supabase/query';
+import type { DbClient, QueryError, QueryResult } from '@/lib/supabase/query';
 
 export const TOPUP_FLOOR_MINOR = 1_000_000n;
 export const TOPUP_DEFAULT_MAX_MINOR = 10_000_000_000n;
 export const TOPUP_WINDOW_MS = 30 * 60 * 1000;
+/** 0.0001 USDT. Combined with the requested amount so two open top-ups cannot share a figure. */
+export const TOPUP_TAG_MIN = 100n;
+/** 0.0099 USDT. */
+export const TOPUP_TAG_MAX = 9900n;
+export const TOPUP_TAG_ATTEMPTS = 20;
+export const TOPUP_BUSY_MESSAGE = 'Payments are busy, please try again in a minute.';
 
 export type TopupStatus = 'pending' | 'credited' | 'expired' | 'failed' | 'rejected';
 
@@ -25,6 +31,7 @@ export type WalletTopup = {
   readonly customerId: string;
   readonly botId: string | null;
   readonly tenantId: string | null;
+  readonly payToAddress: string | null;
   readonly amountExpectedMinor: bigint;
   readonly creditedAmountMinor: bigint | null;
   readonly status: TopupStatus;
@@ -54,6 +61,7 @@ export type ClaimTopupResult =
       readonly reason: string;
       readonly confirmations?: number;
       readonly amountMinor?: bigint;
+      readonly expectedMinor?: bigint;
     }
   | { readonly status: 'unavailable' };
 
@@ -62,6 +70,7 @@ type TopupRow = {
   readonly customer_id?: string;
   readonly bot_id?: string | null;
   readonly tenant_id?: string | null;
+  readonly pay_to_address?: string | null;
   readonly amount_expected_minor?: string | number | bigint;
   readonly credited_amount_minor?: string | number | bigint | null;
   readonly status?: string;
@@ -104,6 +113,7 @@ function mapTopup(row: TopupRow): WalletTopup | null {
     customerId: row.customer_id,
     botId: row.bot_id ?? null,
     tenantId: row.tenant_id ?? null,
+    payToAddress: typeof row.pay_to_address === 'string' && row.pay_to_address.length > 0 ? row.pay_to_address.toLowerCase() : null,
     amountExpectedMinor: asMinor(row.amount_expected_minor),
     creditedAmountMinor:
       row.credited_amount_minor === null || row.credited_amount_minor === undefined
@@ -211,8 +221,71 @@ async function expireRow(supabase: DbClient, topupId: string): Promise<void> {
     .eq('status', 'pending');
 }
 
+export function randomTopupTag(random: () => number = Math.random): bigint {
+  const span = Number(TOPUP_TAG_MAX - TOPUP_TAG_MIN) + 1;
+  const offset = Math.floor(random() * span);
+  if (!Number.isInteger(offset) || offset < 0 || offset >= span) {
+    return TOPUP_TAG_MIN;
+  }
+  return TOPUP_TAG_MIN + BigInt(offset);
+}
+
 /**
- * Reuses the buyer's open top-up. A second pending row is never inserted.
+ * Amount a "Pay with Crypto" checkout adds to the wallet.
+ * Balance zero uses the order total. A partial balance uses the shortfall.
+ * A shortfall under the store minimum is raised to that minimum so the top-up can open.
+ * Null means the balance already covers the order.
+ */
+export function orderCryptoTopupMinor(totalMinor: bigint, balanceMinor: bigint, minimumMinor: bigint): bigint | null {
+  if (totalMinor <= 0n || balanceMinor >= totalMinor) {
+    return null;
+  }
+  const requested = balanceMinor <= 0n ? totalMinor : totalMinor - balanceMinor;
+  if (requested <= 0n) {
+    return null;
+  }
+  const floor = minimumMinor > TOPUP_FLOOR_MINOR ? minimumMinor : TOPUP_FLOOR_MINOR;
+  return requested < floor ? floor : requested;
+}
+
+function uniqueKind(error: QueryError | null): 'amount' | 'customer' | null {
+  if (!error) {
+    return null;
+  }
+  const text = `${error.code ?? ''} ${error.message}`.toLowerCase();
+  const unique = text.includes('23505') || text.includes('duplicate') || text.includes('unique');
+  if (!unique) {
+    return null;
+  }
+  if (text.includes('wallet_topups_one_pending') || text.includes('customer_id')) {
+    return 'customer';
+  }
+  if (text.includes('wallet_topups_pending_amount') || text.includes('pay_to_address') || text.includes('amount_expected')) {
+    return 'amount';
+  }
+  return 'amount';
+}
+
+async function pendingAmounts(supabase: DbClient, address: string): Promise<Set<string>> {
+  const listed = (await supabase
+    .from('wallet_topups')
+    .select('*')
+    .eq('status', 'pending')
+    .eq('pay_to_address', address)) as QueryResult<TopupRow[] | null>;
+  const used = new Set<string>();
+  if (!Array.isArray(listed.data)) {
+    return used;
+  }
+  for (const row of listed.data) {
+    if (row.amount_expected_minor !== undefined && row.amount_expected_minor !== null) {
+      used.add(asMinor(row.amount_expected_minor).toString());
+    }
+  }
+  return used;
+}
+
+/**
+ * Reuses the buyer's open top-up. A new row gets a unique tagged amount for its receiving address.
  */
 export async function openWalletTopup(
   supabase: DbClient,
@@ -221,11 +294,17 @@ export async function openWalletTopup(
     readonly botId: string;
     readonly tenantId: string | null;
     readonly amountMinor: bigint;
+    readonly payToAddress: string;
     readonly now?: Date;
   },
+  options?: { readonly pickTag?: () => bigint },
 ): Promise<{ readonly topup: WalletTopup; readonly reused: boolean }> {
   const limits = await loadTopupLimits(supabase, input.tenantId);
   assertTopupAmount(input.amountMinor, limits);
+  const address = normalizeEthAddress(input.payToAddress);
+  if (!address) {
+    throw new ValidationError('INVALID_ADDRESS', 'This store does not have a valid BEP20 address.');
+  }
   const now = input.now ?? new Date();
   const existing = await findOpenTopup(supabase, input.customerId);
   if (existing) {
@@ -236,31 +315,52 @@ export async function openWalletTopup(
     }
   }
   const botId = input.botId === OWNER_STORE_BOT_ID ? null : input.botId;
-  const created = (await supabase
-    .from('wallet_topups')
-    .insert({
-      customer_id: input.customerId,
-      bot_id: botId,
-      tenant_id: input.tenantId,
-      amount_expected_minor: input.amountMinor.toString(),
-      status: 'pending',
-      network: 'bep20',
-      expires_at: new Date(now.getTime() + TOPUP_WINDOW_MS).toISOString(),
-    })
-    .select('*')
-    .single()) as QueryResult<TopupRow | null>;
-  if (created.error || !created.data) {
-    const again = await findOpenTopup(supabase, input.customerId);
-    if (again) {
-      return { topup: again, reused: true };
+  const used = await pendingAmounts(supabase, address);
+  const pick = options?.pickTag ?? randomTopupTag;
+  for (let attempt = 0; attempt < TOPUP_TAG_ATTEMPTS; attempt += 1) {
+    const tag = pick();
+    if (tag < TOPUP_TAG_MIN || tag > TOPUP_TAG_MAX) {
+      continue;
     }
-    throw new AppError('TOPUP_CREATE_FAILED', created.error?.message ?? 'Could not start the top-up', 500);
+    const expected = input.amountMinor + tag;
+    if (used.has(expected.toString())) {
+      continue;
+    }
+    const created = (await supabase
+      .from('wallet_topups')
+      .insert({
+        customer_id: input.customerId,
+        bot_id: botId,
+        tenant_id: input.tenantId,
+        pay_to_address: address,
+        amount_expected_minor: expected.toString(),
+        status: 'pending',
+        network: 'bep20',
+        expires_at: new Date(now.getTime() + TOPUP_WINDOW_MS).toISOString(),
+      })
+      .select('*')
+      .single()) as QueryResult<TopupRow | null>;
+    if (created.error || !created.data) {
+      const kind = uniqueKind(created.error);
+      if (kind === 'amount') {
+        used.add(expected.toString());
+        continue;
+      }
+      if (kind === 'customer') {
+        const again = await findOpenTopup(supabase, input.customerId);
+        if (again && again.expiresAt.getTime() > now.getTime()) {
+          return { topup: again, reused: true };
+        }
+      }
+      throw new AppError('TOPUP_CREATE_FAILED', created.error?.message ?? 'Could not start the top-up', 500);
+    }
+    const topup = mapTopup(created.data);
+    if (!topup) {
+      throw new AppError('TOPUP_CREATE_FAILED', 'Could not start the top-up', 500);
+    }
+    return { topup, reused: false };
   }
-  const topup = mapTopup(created.data);
-  if (!topup) {
-    throw new AppError('TOPUP_CREATE_FAILED', 'Could not start the top-up', 500);
-  }
-  return { topup, reused: false };
+  throw new ValidationError('TOPUP_BUSY', TOPUP_BUSY_MESSAGE);
 }
 
 export async function getTopup(supabase: DbClient, topupId: string): Promise<WalletTopup | null> {
@@ -274,15 +374,15 @@ export async function getTopup(supabase: DbClient, topupId: string): Promise<Wal
 }
 
 /**
- * Verifies a BEP20 transfer, then credits whatever was actually received.
- * The database function refuses a second credit for the same top-up or hash.
+ * Verifies a BEP20 transfer to the address stored on the top-up.
+ * The received amount must equal amount_expected_minor. The credit function
+ * enforces that again and refuses a second credit for the same top-up or hash.
  */
 export async function claimWalletTopup(
   supabase: DbClient,
   input: {
     readonly customerId: string;
     readonly txHash: string;
-    readonly toAddress: string;
     readonly topupId?: string;
   },
   verify: typeof verifyUsdtTransfer = verifyUsdtTransfer,
@@ -306,11 +406,14 @@ export async function claimWalletTopup(
   if (topup.status !== 'pending' && topup.status !== 'credited') {
     return { status: 'rejected', reason: 'NOT_PENDING' };
   }
+  if (!topup.payToAddress) {
+    return { status: 'rejected', reason: 'INVALID_ADDRESS', expectedMinor: topup.amountExpectedMinor };
+  }
 
   const chain: VerifyUsdtTransferResult = await verify({
     txHash: input.txHash.trim(),
-    toAddress: input.toAddress,
-    minAmountMinor: topup.amountExpectedMinor,
+    toAddress: topup.payToAddress,
+    exactAmountMinor: topup.amountExpectedMinor,
     notBefore: topup.createdAt,
   });
   if (chain.status === 'unavailable') {
@@ -320,8 +423,17 @@ export async function claimWalletTopup(
     return {
       status: 'rejected',
       reason: chain.reason,
+      expectedMinor: topup.amountExpectedMinor,
       ...(chain.confirmations !== undefined ? { confirmations: chain.confirmations } : {}),
       ...(chain.amountMinor !== undefined ? { amountMinor: chain.amountMinor } : {}),
+    };
+  }
+  if (chain.amountMinor !== topup.amountExpectedMinor) {
+    return {
+      status: 'rejected',
+      reason: 'AMOUNT_MISMATCH',
+      amountMinor: chain.amountMinor,
+      expectedMinor: topup.amountExpectedMinor,
     };
   }
 
@@ -340,6 +452,7 @@ async function creditVerifiedTopup(
     p_tx_hash: txHash,
     p_amount_minor: amountMinor.toString(),
     p_network: 'bep20',
+    p_exact: true,
   });
   if (rpc.error) {
     return { status: 'unavailable' };
@@ -348,7 +461,12 @@ async function creditVerifiedTopup(
   const success = row?.success === true;
   const code = typeof row?.error_code === 'string' ? row.error_code : null;
   if (!success) {
-    return { status: 'rejected', reason: code ?? 'CREDIT_FAILED', amountMinor };
+    return {
+      status: 'rejected',
+      reason: code ?? 'CREDIT_FAILED',
+      amountMinor,
+      expectedMinor: topup.amountExpectedMinor,
+    };
   }
   const updated = await getTopup(supabase, topup.id);
   return {

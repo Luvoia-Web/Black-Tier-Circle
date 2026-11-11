@@ -39,7 +39,7 @@ export type VerifyRejectReason =
   | 'WRONG_TOKEN'
   | 'WRONG_RECIPIENT'
   | 'NO_TRANSFER'
-  | 'AMOUNT_TOO_SMALL'
+  | 'AMOUNT_MISMATCH'
   | 'TOO_EARLY'
   | 'TOO_FEW_CONFIRMATIONS';
 
@@ -65,7 +65,8 @@ export interface ChainReader {
 export type VerifyUsdtTransferInput = {
   readonly txHash: string;
   readonly toAddress: string;
-  readonly minAmountMinor: bigint;
+  /** Received minor units must equal this. A larger transfer is rejected. */
+  readonly exactAmountMinor: bigint;
   readonly notBefore: Date;
   readonly minConfirmations?: number;
 };
@@ -229,7 +230,7 @@ export async function verifyUsdtTransfer(
   if (!recipient) {
     return { status: 'rejected', reason: 'INVALID_ADDRESS' };
   }
-  if (input.minAmountMinor <= 0n) {
+  if (input.exactAmountMinor <= 0n) {
     return { status: 'rejected', reason: 'INVALID_AMOUNT' };
   }
   if (Number.isNaN(input.notBefore.getTime())) {
@@ -282,8 +283,8 @@ export async function verifyUsdtTransfer(
 
   const raw = parsed.matches.reduce((sum, item) => sum + item.raw, 0n);
   const amountMinor = usdtRawToMinorUnits(raw);
-  if (amountMinor < input.minAmountMinor) {
-    return { status: 'rejected', reason: 'AMOUNT_TOO_SMALL', amountMinor };
+  if (amountMinor !== input.exactAmountMinor) {
+    return { status: 'rejected', reason: 'AMOUNT_MISMATCH', amountMinor };
   }
 
   const view = await blockView(readers, loaded.reader, blockNumber);

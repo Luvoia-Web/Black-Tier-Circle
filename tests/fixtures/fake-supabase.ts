@@ -557,9 +557,15 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       if (network !== 'bep20' || !validHash) {
         return fail(network !== 'bep20' ? 'UNSUPPORTED_NETWORK' : 'INVALID_HASH', balance);
       }
-      if (amount <= 0n || amount < asMinor(topup.amount_expected_minor)) {
-        return fail(amount <= 0n ? 'INVALID_AMOUNT' : 'AMOUNT_TOO_SMALL', balance);
+      const expected = asMinor(topup.amount_expected_minor);
+      const exact = args.p_exact !== false;
+      if (amount <= 0n) {
+        return fail('INVALID_AMOUNT', balance);
       }
+      if (exact && amount !== expected) {
+        return fail('AMOUNT_MISMATCH', balance);
+      }
+      const credit = exact ? expected : amount;
       if (!customer) {
         return fail('CUSTOMER_NOT_FOUND');
       }
@@ -574,13 +580,13 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         purpose: 'topup',
         reference_id: topup.id,
         customer_id: topup.customer_id,
-        amount_minor: amount.toString(),
+        amount_minor: credit.toString(),
         created_at: nowIso(),
       });
-      const next = balance + amount;
+      const next = balance + credit;
       customer.credit_balance = next.toString();
       topup.status = 'credited';
-      topup.credited_amount_minor = amount.toString();
+      topup.credited_amount_minor = credit.toString();
       topup.tx_hash = hash;
       topup.network = network;
       topup.credited_at = nowIso();
@@ -602,6 +608,29 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
     let rangeFrom: number | null = null;
     let rangeTo: number | null = null;
     let limitCount: number | null = null;
+    let insertError: { message: string; code: string } | null = null;
+
+    function pendingClash(row: MemoryRow): { message: string; code: string } | null {
+      if (relation !== 'wallet_topups' || String(row.status ?? 'pending') !== 'pending') {
+        return null;
+      }
+      const sameCustomer = table.some(
+        (existing) => String(existing.status) === 'pending' && String(existing.customer_id) === String(row.customer_id),
+      );
+      if (sameCustomer) {
+        return { code: '23505', message: 'duplicate key value violates unique constraint "wallet_topups_one_pending"' };
+      }
+      const sameAmount = table.some(
+        (existing) =>
+          String(existing.status) === 'pending' &&
+          String(existing.pay_to_address ?? '') === String(row.pay_to_address ?? '') &&
+          String(existing.amount_expected_minor) === String(row.amount_expected_minor),
+      );
+      if (sameAmount) {
+        return { code: '23505', message: 'duplicate key value violates unique constraint "wallet_topups_pending_amount"' };
+      }
+      return null;
+    }
 
     function matches(row: MemoryRow): boolean {
       return filters.every((filter) => {
@@ -630,8 +659,13 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
           ...pendingInsert,
           id: pendingInsert.id ?? crypto.randomUUID(),
         };
-        table.push(row);
+        const clash = pendingClash(row);
         pendingInsert = null;
+        if (clash) {
+          insertError = clash;
+          return [];
+        }
+        table.push(row);
         return [row];
       }
       if (mode === 'update' && pendingUpdate !== null) {
@@ -732,6 +766,11 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       },
       async single(): Promise<QueryResult<unknown>> {
         const rows = apply();
+        if (insertError) {
+          const error = insertError;
+          insertError = null;
+          return { data: null as unknown, error };
+        }
         const row = rows[0];
         if (!row) {
           return { data: null as unknown, error: { message: 'not found' } };

@@ -25,6 +25,7 @@ function db() {
         id: TOPUP,
         customer_id: CUSTOMER,
         tenant_id: null,
+        pay_to_address: ADDRESS,
         amount_expected_minor: '1000000',
         status: 'pending',
         tx_hash: null,
@@ -53,17 +54,17 @@ describe('top-up review', () => {
     const first = await reviewWalletTopup(
       memory,
       { actorId: ACTOR, tenantId: null, topupId: TOPUP, decision: 'approve', reason: 'Matched the transfer', txHash: HASH },
-      async () => verified(2_500_000n),
+      async () => verified(1_000_000n),
     );
     const second = await reviewWalletTopup(
       memory,
       { actorId: ACTOR, tenantId: null, topupId: TOPUP, decision: 'approve', reason: 'Matched the transfer', txHash: HASH },
-      async () => verified(2_500_000n),
+      async () => verified(1_000_000n),
     );
     expect(first.success).toBe(true);
     expect(first.repeated).toBe(false);
     expect(second.repeated).toBe(true);
-    expect(memory.tables.customers?.[0]?.credit_balance).toBe('2500000');
+    expect(memory.tables.customers?.[0]?.credit_balance).toBe('1000000');
     expect(memory.tables.audit_log).toHaveLength(1);
   });
 
@@ -79,6 +80,54 @@ describe('top-up review', () => {
     expect(result.success).toBe(true);
     expect(memory.tables.customers?.[0]?.credit_balance).toBe('1000000');
     expect(String(memory.tables.chain_payments?.[0]?.tx_hash ?? '')).toMatch(/^manual:/);
+  });
+
+  it('credits a typed amount that differs from the expected tag, once', async () => {
+    const memory = db();
+    const first = await reviewWalletTopup(
+      memory,
+      {
+        actorId: ACTOR,
+        tenantId: null,
+        topupId: TOPUP,
+        decision: 'approve',
+        reason: 'Buyer sent 2.50 instead of the tagged amount',
+        txHash: HASH,
+        verifiedAmount: '2.50',
+      },
+      async () => verified(2_500_000n),
+    );
+    const second = await reviewWalletTopup(
+      memory,
+      {
+        actorId: ACTOR,
+        tenantId: null,
+        topupId: TOPUP,
+        decision: 'approve',
+        reason: 'Buyer sent 2.50 instead of the tagged amount',
+        txHash: HASH,
+        verifiedAmount: '2.50',
+      },
+      async () => verified(2_500_000n),
+    );
+    expect(first.success).toBe(true);
+    expect(second.repeated).toBe(true);
+    expect(memory.tables.customers?.[0]?.credit_balance).toBe('2500000');
+    expect(memory.tables.audit_log?.[0]?.reason).toBe('Buyer sent 2.50 instead of the tagged amount');
+    expect(memory.tables.wallet_topups?.[0]?.credited_amount_minor).toBe('2500000');
+  });
+
+  it('does not credit an overpayment unless the owner types that amount', async () => {
+    const memory = db();
+    await expect(
+      reviewWalletTopup(
+        memory,
+        { actorId: ACTOR, tenantId: null, topupId: TOPUP, decision: 'approve', reason: 'Chain amount was larger', txHash: HASH },
+        async () => verified(2_500_000n),
+      ),
+    ).rejects.toMatchObject({ code: 'AMOUNT_MISMATCH' });
+    expect(memory.tables.customers?.[0]?.credit_balance).toBe('0');
+    expect(memory.tables.audit_log ?? []).toHaveLength(0);
   });
 
   it('rejects a pending top-up without crediting it', async () => {

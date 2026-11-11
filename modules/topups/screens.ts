@@ -7,7 +7,7 @@
  */
 
 import { escapeHtml } from '@/modules/store-config/sanitize';
-import { formatUsdt, usdtToMinor } from '@/lib/money';
+import { formatUsdt, minorToUsdt, usdtToMinor } from '@/lib/money';
 import { bep20MinConfirmations } from '@/integrations/bsc/verify';
 import { TOPUP_FLOOR_MINOR, type TopupLimits, type WalletTopup } from '@/modules/topups';
 
@@ -15,6 +15,14 @@ export const QUICK_TOPUP_MINORS = [1_000_000n, 5_000_000n, 10_000_000n, 20_000_0
 
 export const NETWORK_WARNING =
   'Network: BNB Smart Chain (BEP20) only - sending on another network loses the money';
+
+export const EXACT_AMOUNT_WARNING =
+  'Send EXACTLY this amount. A different amount cannot be matched automatically.';
+
+/** Six-decimal USDT so a 0.0001–0.0099 tag is visible. */
+export function exactUsdtLabel(minor: bigint): string {
+  return `${minorToUsdt(minor)} USDT`;
+}
 
 export function remainingTimeLabel(expiresAt: Date, now = new Date()): string {
   const ms = expiresAt.getTime() - now.getTime();
@@ -59,18 +67,21 @@ export function parseTopupAmount(
 
 export function topupInstructions(topup: WalletTopup, address: string, now = new Date(), reused = false): string {
   const when = topup.expiresAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+  const shown = topup.payToAddress && topup.payToAddress.length > 0 ? topup.payToAddress : address;
   const lines = [
     `<b>Send USDT (BEP20)</b>`,
     '',
-    `Send exactly <b>${escapeHtml(formatUsdt(topup.amountExpectedMinor))}</b>`,
+    `<b>${EXACT_AMOUNT_WARNING}</b>`,
+    `<code>${escapeHtml(exactUsdtLabel(topup.amountExpectedMinor))}</code>`,
     '',
     `To this address:`,
-    `<code>${escapeHtml(address)}</code>`,
+    `<code>${escapeHtml(shown)}</code>`,
     '',
     NETWORK_WARNING,
     '',
     `Time left: <b>${escapeHtml(remainingTimeLabel(topup.expiresAt, now))}</b>`,
     `Expires at ${escapeHtml(when)}.`,
+    `This top-up expires 30 minutes after it was created.`,
     '',
     `After it is sent, tap <b>I have paid</b> and paste the transaction hash.`,
   ];
@@ -84,6 +95,7 @@ export function topupClaimText(input: {
   readonly outcome: 'credited' | 'rejected' | 'unavailable' | 'rate_limited';
   readonly reason?: string;
   readonly amountMinor?: bigint;
+  readonly expectedMinor?: bigint;
   readonly newBalance?: bigint;
   readonly confirmations?: number;
   readonly repeated?: boolean;
@@ -117,8 +129,10 @@ export function topupClaimText(input: {
   if (reason === 'WRONG_TOKEN' || reason === 'WRONG_RECIPIENT' || reason === 'NO_TRANSFER') {
     return 'That transaction is not a USDT transfer to this store on BNB Smart Chain (BEP20). Nothing was credited.';
   }
-  if (reason === 'AMOUNT_TOO_SMALL') {
-    return 'The amount received is below this top-up. Nothing was credited.';
+  if (reason === 'AMOUNT_MISMATCH' || reason === 'AMOUNT_TOO_SMALL') {
+    const sent = input.amountMinor !== undefined ? exactUsdtLabel(input.amountMinor) : 'a different amount';
+    const expected = input.expectedMinor !== undefined ? exactUsdtLabel(input.expectedMinor) : 'the amount on this top-up';
+    return `The amount sent was ${escapeHtml(sent)}, but this top-up expects exactly ${escapeHtml(expected)}.\n\nNothing was credited. Contact /support so the store can review it.`;
   }
   if (reason === 'ALREADY_USED') {
     return 'That transaction hash was already used. Nothing was credited again.';

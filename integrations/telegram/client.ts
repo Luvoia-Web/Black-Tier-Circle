@@ -1725,6 +1725,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         botId: context.botConnection.id,
         tenantId: context.tenantId,
         amountMinor: chosen,
+        payToAddress: address,
       });
       awaitingTopupAmount.delete(topupKey(screen.chatId));
       await show(
@@ -1768,16 +1769,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await finish(topupClaimText({ outcome: 'rate_limited' }));
       return;
     }
-    const current = await storeContext();
-    const address = current.usdtWalletAddress;
-    if (!address || !normalizeEthAddress(address)) {
-      await finish('Payments are unavailable until this store saves a valid BEP20 address.');
-      return;
-    }
     const result = await claimWalletTopup(context.supabase, {
       customerId: customer.id,
       txHash: text.trim(),
-      toAddress: address,
     });
     if (result.status === 'unavailable') {
       await finish(topupClaimText({ outcome: 'unavailable' }));
@@ -1792,6 +1786,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           outcome: 'rejected',
           reason: result.reason,
           ...(result.confirmations !== undefined ? { confirmations: result.confirmations } : {}),
+          ...(result.amountMinor !== undefined ? { amountMinor: result.amountMinor } : {}),
+          ...(result.expectedMinor !== undefined ? { expectedMinor: result.expectedMinor } : {}),
         }),
         new InlineKeyboard().text('Wallet', 'wallet:'),
       );

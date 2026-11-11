@@ -88,7 +88,7 @@ function check(partial?: Partial<Parameters<typeof verifyUsdtTransfer>[0]>, chai
     {
       txHash: HASH,
       toAddress: RECIPIENT,
-      minAmountMinor: 1_000_000n,
+      exactAmountMinor: 1_000_000n,
       notBefore: NOT_BEFORE,
       ...partial,
     },
@@ -165,8 +165,17 @@ describe('verifyUsdtTransfer', () => {
     const result = await check(undefined, reader({ receipt: receipt({ raw: 10n ** 18n - 1n }) }));
     expect(result.status).toBe('rejected');
     if (result.status === 'rejected') {
-      expect(result.reason).toBe('AMOUNT_TOO_SMALL');
+      expect(result.reason).toBe('AMOUNT_MISMATCH');
       expect(result.amountMinor).toBe(999_999n);
+    }
+  });
+
+  it('rejects a transfer larger than the exact expected amount', async () => {
+    const result = await check(undefined, reader({ receipt: receipt({ raw: 10n ** 18n + 10n ** 12n }) }));
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected') {
+      expect(result.reason).toBe('AMOUNT_MISMATCH');
+      expect(result.amountMinor).toBe(1_000_001n);
     }
   });
 
@@ -192,7 +201,7 @@ describe('verifyUsdtTransfer', () => {
 
   it('returns unavailable when no provider is configured', async () => {
     const result = await verifyUsdtTransfer(
-      { txHash: HASH, toAddress: RECIPIENT, minAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
+      { txHash: HASH, toAddress: RECIPIENT, exactAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
       { readers: [] },
     );
     expect(result).toEqual({ status: 'unavailable', reason: 'NO_PROVIDER' });
@@ -205,7 +214,7 @@ describe('verifyUsdtTransfer', () => {
 
   it('uses the next provider when the first one is down', async () => {
     const result = await verifyUsdtTransfer(
-      { txHash: HASH, toAddress: RECIPIENT, minAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
+      { txHash: HASH, toAddress: RECIPIENT, exactAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
       { readers: [reader({ fail: 'all' }), reader()], minConfirmations: 15 },
     );
     expect(result.status).toBe('verified');
@@ -219,7 +228,7 @@ describe('verifyUsdtTransfer', () => {
       },
     });
     const result = await verifyUsdtTransfer(
-      { txHash: HASH, toAddress: RECIPIENT, minAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
+      { txHash: HASH, toAddress: RECIPIENT, exactAmountMinor: 1_000_000n, notBefore: NOT_BEFORE },
       { readers: [chain] },
     );
     expect(result).toEqual({ status: 'unavailable', reason: 'PROVIDER_ERROR' });

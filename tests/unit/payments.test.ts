@@ -292,16 +292,17 @@ describe('crypto payments fail closed', () => {
   it('refuses a hash that already credited a wallet top-up', async () => {
     const db = seedDb();
     withStoreAddress(db);
-    await openWalletTopup(db, {
+    const opened = await openWalletTopup(db, {
       customerId: CUSTOMER_ID,
       botId: 'owner',
       tenantId: null,
       amountMinor: 1_000_000n,
+      payToAddress: STORE_ADDRESS,
     });
     const credited = await claimWalletTopup(
       db,
-      { customerId: CUSTOMER_ID, txHash: VALID_TX, toAddress: STORE_ADDRESS },
-      async () => verifiedTransfer(1_000_000n),
+      { customerId: CUSTOMER_ID, txHash: VALID_TX },
+      async () => verifiedTransfer(opened.topup.amountExpectedMinor),
     );
     expect(credited.status).toBe('credited');
     const order = await createOrder(db, {
