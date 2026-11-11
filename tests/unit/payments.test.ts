@@ -18,7 +18,7 @@ vi.mock('@/modules/fulfillment', () => ({
 
 import type { VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
 import { invalidateCache } from '@/lib/cache';
-import { PaymentError, ValidationError } from '@/lib/errors';
+import { PaymentError } from '@/lib/errors';
 import { amountSufficient, amountsMatch, minorToUsdtApiString } from '@/lib/money';
 import {
   bscValueToMinorUnits,
@@ -42,10 +42,6 @@ const CUSTOMER_ID = '00000000-0000-4000-8000-000000000301';
 
 const VALID_TX =
   '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const VALID_TX_TWO =
-  '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-const FAIL_TX = '0xFAIL';
-
 function seedDb() {
   return createMemoryDb({
     tenants: [
@@ -180,56 +176,20 @@ describe('BINANCE PAY (sandbox)', () => {
   });
 });
 
-describe('BEP20 (sandbox)', () => {
-  beforeEach(() => {
-    vi.stubEnv('NODE_ENV', 'test');
-    vi.stubEnv('PAYMENT_SANDBOX', 'true');
-  });
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it('verifyBep20Claim with valid 0x hash → verified=true', async () => {
-    const { db, order } = await ownerOrder('bep-success');
-    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX });
-    expect(result.verified).toBe(true);
-    expect(db.tables.orders?.[0]?.payment_status).toBe('verified');
-  });
-
-  it('verifyBep20Claim with 0xFAIL hash → verified=false', async () => {
-    const { db, order } = await ownerOrder('bep-fail');
-    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: FAIL_TX });
+describe('BEP20 order claims are closed', () => {
+  it('does not verify a hash or mark the order paid', async () => {
+    const { db, order } = await ownerOrder('bep-closed');
+    let called = false;
+    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX }, async () => {
+      called = true;
+      return verifiedTransfer(order.quotedRetailPriceMinor);
+    });
+    expect(called).toBe(false);
     expect(result.verified).toBe(false);
-  });
-
-  it('verifyBep20Claim with invalid format → throws ValidationError', async () => {
-    const { db, order } = await ownerOrder('bep-invalid');
-    await expect(verifyBep20Claim(db, { orderId: order.id, txHash: 'not-a-hash' })).rejects.toBeInstanceOf(
-      ValidationError,
-    );
-  });
-
-  it('verifyBep20Claim same hash twice → second call verified=false (replay prevention)', async () => {
-    const db = seedDb();
-    const first = await createOrder(db, {
-      channel: 'owner_store',
-      botId: 'owner',
-      customerId: CUSTOMER_ID,
-      productId: PRODUCT_ID,
-      idempotencyKey: 'bep-replay-1',
-    });
-    const second = await createOrder(db, {
-      channel: 'owner_store',
-      botId: 'owner',
-      customerId: CUSTOMER_ID,
-      productId: PRODUCT_ID,
-      idempotencyKey: 'bep-replay-2',
-    });
-    const firstResult = await verifyBep20Claim(db, { orderId: first.id, txHash: VALID_TX_TWO });
-    expect(firstResult.verified).toBe(true);
-    const replay = await verifyBep20Claim(db, { orderId: second.id, txHash: VALID_TX_TWO });
-    expect(replay.verified).toBe(false);
-    expect(replay.rejectReason).toBe('TX_REPLAY');
+    expect(result.rejectReason).toBe('ORDER_CLAIM_CLOSED');
+    expect(db.tables.orders?.[0]?.payment_status).toBe('awaiting');
+    expect(db.tables.chain_payments ?? []).toHaveLength(0);
+    expect(db.tables.payment_claims ?? []).toHaveLength(0);
   });
 });
 
@@ -264,32 +224,7 @@ describe('crypto payments fail closed', () => {
     invalidateCache('platform_settings');
   });
 
-  it('does not mark an order paid in production when no chain provider is reachable', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('PAYMENT_SANDBOX', 'true');
-    vi.stubEnv('BSC_RPC_URLS', '');
-    vi.stubEnv('ETHERSCAN_API_KEY', '');
-    const { db, order } = await ownerOrder('bep-no-provider');
-    withStoreAddress(db);
-    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX });
-    expect(result.verified).toBe(false);
-    expect(result.rejectReason).toBe('PAYMENTS_UNAVAILABLE');
-    expect(db.tables.orders?.[0]?.payment_status).toBe('awaiting');
-  });
-
-  it('rejects a transfer that the verifier says happened too early', async () => {
-    const { db, order } = await ownerOrder('bep-too-early');
-    withStoreAddress(db);
-    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX }, async () => ({
-      status: 'rejected',
-      reason: 'TOO_EARLY',
-    }));
-    expect(result.verified).toBe(false);
-    expect(result.rejectReason).toBe('TOO_EARLY');
-    expect(db.tables.orders?.[0]?.payment_status).not.toBe('verified');
-  });
-
-  it('refuses a hash that already credited a wallet top-up', async () => {
+  it('does not let a credited top-up hash pay an order by direct claim', async () => {
     const db = seedDb();
     withStoreAddress(db);
     const opened = await openWalletTopup(db, {
@@ -299,10 +234,8 @@ describe('crypto payments fail closed', () => {
       amountMinor: 1_000_000n,
       payToAddress: STORE_ADDRESS,
     });
-    const credited = await claimWalletTopup(
-      db,
-      { customerId: CUSTOMER_ID, txHash: VALID_TX },
-      async () => verifiedTransfer(opened.topup.amountExpectedMinor),
+    const credited = await claimWalletTopup(db, { customerId: CUSTOMER_ID, txHash: VALID_TX }, async () =>
+      verifiedTransfer(opened.topup.amountExpectedMinor),
     );
     expect(credited.status).toBe('credited');
     const order = await createOrder(db, {
@@ -312,13 +245,13 @@ describe('crypto payments fail closed', () => {
       productId: PRODUCT_ID,
       idempotencyKey: 'hash-used-by-topup',
     });
-    const result = await verifyBep20Claim(
-      db,
-      { orderId: order.id, txHash: VALID_TX },
-      async () => verifiedTransfer(order.quotedRetailPriceMinor),
-    );
-    expect(result.verified).toBe(false);
-    expect(result.rejectReason).toBe('ALREADY_USED');
+    let called = false;
+    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX }, async () => {
+      called = true;
+      return verifiedTransfer(order.quotedRetailPriceMinor);
+    });
+    expect(called).toBe(false);
+    expect(result).toMatchObject({ verified: false, rejectReason: 'ORDER_CLAIM_CLOSED' });
     const paid = db.tables.orders?.find((row) => String(row.id) === order.id);
     expect(paid?.payment_status).not.toBe('verified');
   });

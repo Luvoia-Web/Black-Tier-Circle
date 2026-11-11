@@ -23,7 +23,7 @@ import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { normalizeEthAddress } from '@/integrations/bsc/verify';
-import { claimWalletTopup, findOpenTopup, openWalletTopup } from '@/modules/topups';
+import { claimWalletTopup, findOpenTopup, openWalletTopup, orderCryptoTopupMinor } from '@/modules/topups';
 import {
   parseTopupAmount,
   quickTopupAmounts,
@@ -83,7 +83,6 @@ import {
   createBinancePayOrder,
   submitBinanceManualReview,
   payOrderFromCustomerWallet,
-  verifyBep20Claim,
   verifyBinancePayClaim,
 } from '@/modules/payments';
 import { listResellerListings } from '@/modules/pricing';
@@ -1135,11 +1134,13 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const current = await storeContext();
     const order = await ownedOrder(orderId);
     const address = normalizeEthAddress(current.usdtWalletAddress ?? '');
-    if (!order || !address) {
+    if (!order || !address || customer === null) {
       await show(
         bot,
         screen,
-        'Crypto payments are temporarily unavailable.',
+        context.tenantId !== null && !address
+          ? 'Crypto payments are not enabled for this store.'
+          : 'Crypto payments are temporarily unavailable.',
         order ? await paymentKeyboard(order) : homeKeyboard(current),
         'HTML',
       );
@@ -1148,22 +1149,24 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (await rejectIfExpired(screen, order)) {
       return;
     }
-    const keyboard = new InlineKeyboard()
-      .text('📋 Copy Address', 'copy_addr:')
-      .row()
-      .text('❌ Cancel Order', `cancel_order:${order.id}`);
-    await show(
-      bot,
-      screen,
-      `📤 <b>Send USDT (BEP20)</b>\n\n` +
-        `Send at least:\n<b>${money(order.quotedRetailPriceMinor)}</b>\n` +
-        `Network: BNB Smart Chain (BEP20) only. Sending on another network loses the money.\n\n` +
-        `To this address:\n<code>${escHtml(address)}</code>\n\n` +
-        `After sending, reply with your transaction hash (0x and 64 characters).\n\n` +
-        `Order: <code>${orderRef(order.id)}</code>\n` +
-        `${paymentWindowLine(order)}`,
-      keyboard,
+    const due = orderCryptoTopupMinor(
+      order.quotedRetailPriceMinor,
+      customer.creditBalanceMinor,
+      current.minimumDepositMinor,
     );
+    if (due === null) {
+      await show(
+        bot,
+        screen,
+        'Your balance covers this order. Pay with your wallet.',
+        await paymentKeyboard(order),
+        'HTML',
+      );
+      return;
+    }
+    await markResumeAfterTopup(context.supabase, order.id);
+    pendingTopup.set(emailKey(context.botConnection.id, screen.chatId), due);
+    await showTopupInstructions(screen, due);
   }
 
   async function startTrc20(screen: Screen, orderId: string): Promise<void> {
@@ -1485,7 +1488,18 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       BINANCE_NUMERIC_ORDER_ID_REGEX.test(trimmed) ||
       (sandbox &&
         (trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) || trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix)));
-    if (!isHash && !isBinance) {
+    if (isHash) {
+      const order = await latestPayableOrder();
+      await show(
+        bot,
+        screen,
+        'This chat does not confirm an order from a transaction hash. Add the exact top-up amount, then pay the order from your balance.',
+        order ? await paymentKeyboard(order) : homeKeyboard(await storeContext()),
+        'HTML',
+      );
+      return true;
+    }
+    if (!isBinance) {
       return false;
     }
     const order = await latestPayableOrder();
@@ -1493,22 +1507,20 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, `No pending order found. Use /orders to check your orders.`, homeKeyboard(await storeContext()));
       return true;
     }
-    await show(bot, screen, isHash ? `⏳ Verifying your transaction on the blockchain...` : `⏳ Verifying your Binance Pay payment...`);
+    await show(bot, screen, `⏳ Verifying your Binance Pay payment...`);
     if (sandbox) {
       await new Promise((resolve) => {
         setTimeout(resolve, PAYMENT_CONFIG.demo.verificationDelayMs);
       });
     }
     try {
-      const result = isHash
-        ? await verifyBep20Claim(context.supabase, { orderId: order.id, txHash: trimmed })
-        : await verifyBinancePayClaim(context.supabase, { orderId: order.id, binanceOrderId: trimmed });
+      const result = await verifyBinancePayClaim(context.supabase, { orderId: order.id, binanceOrderId: trimmed });
       if (result.verified) {
         await confirmed(screen, order);
         return true;
       }
       const reason = result.rejectReason ?? '';
-      const method = isHash ? 'USDT' : 'Binance Pay';
+      const method = 'Binance Pay';
       const text =
         reason === 'PAYMENTS_UNAVAILABLE' || reason === 'BINANCE_UNAVAILABLE'
           ? 'Crypto payments are temporarily unavailable.'
@@ -1530,7 +1542,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(
         bot,
         screen,
-        timedOut ? BOT_ERRORS.BINANCE_TIMEOUT : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(isHash ? 'USDT' : 'Binance Pay'),
+        timedOut ? BOT_ERRORS.BINANCE_TIMEOUT : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED('Binance Pay'),
         await paymentKeyboard(order),
         'HTML',
       );

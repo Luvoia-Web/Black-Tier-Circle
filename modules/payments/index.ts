@@ -15,15 +15,13 @@
  */
 
 import { createBinancePayClientFromCredentials } from '@/integrations/binance/client';
-import { createSandboxBscClient } from '@/integrations/bsc/client';
-import { normalizeEthAddress, verifyUsdtTransfer } from '@/integrations/bsc/verify';
+import { verifyUsdtTransfer } from '@/integrations/bsc/verify';
 import { AppError, PaymentError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { amountSufficient, amountsMatch, minorToUsdtApiString, usdtToMinor } from '@/lib/money';
 import { PAYMENT_CONFIG, paymentSandboxEnabled } from '@/lib/payment-config';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
-import { TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getProduct } from '@/modules/catalog';
 import {
   canTransitionFulfillment,
@@ -98,18 +96,6 @@ async function findClaimsByBinanceOrderId(
     .from('payment_claims')
     .select('*')
     .eq('binance_order_id', binanceOrderId)) as QueryResult<unknown[] | null>;
-  if (result.error) {
-    throw new AppError('CLAIM_LIST_FAILED', result.error.message, 500);
-  }
-  const rows = Array.isArray(result.data) ? result.data : [];
-  return rows.map((row) => mapPaymentClaimRow(asClaimRow(row)));
-}
-
-async function findClaimsByTxHash(supabase: DbClient, txHash: string): Promise<PaymentClaim[]> {
-  const result = (await supabase
-    .from('payment_claims')
-    .select('*')
-    .eq('tx_hash', txHash)) as QueryResult<unknown[] | null>;
   if (result.error) {
     throw new AppError('CLAIM_LIST_FAILED', result.error.message, 500);
   }
@@ -437,167 +423,17 @@ export async function submitBinanceManualReview(
   });
 }
 
-async function rememberChainPayment(
-  supabase: DbClient,
-  input: {
-    readonly txHash: string;
-    readonly orderId: string;
-    readonly customerId: string | null;
-    readonly amountMinor: bigint;
-  },
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly code: string }> {
-  const rpc = await supabase.rpc('record_chain_payment', {
-    p_network: 'bep20',
-    p_tx_hash: input.txHash.trim().toLowerCase(),
-    p_purpose: 'order',
-    p_reference_id: input.orderId,
-    p_customer_id: input.customerId,
-    p_amount_minor: input.amountMinor.toString(),
-  });
-  if (rpc.error) {
-    return { ok: false, code: 'PAYMENTS_UNAVAILABLE' };
-  }
-  const row = firstCreditRow(rpc.data);
-  if (row?.success === true) {
-    return { ok: true };
-  }
-  return { ok: false, code: typeof row?.error_code === 'string' ? row.error_code : 'ALREADY_USED' };
-}
-
 /**
- * Verifies a BEP20 USDT transfer claim.
- * Production never accepts a hash without a real chain check.
+ * Direct per-order BEP20 hash claims are closed.
+ * A buyer pays from wallet balance after a uniquely tagged top-up.
+ * This function does not read the chain, does not record a hash, and does not mark an order paid.
  */
 export async function verifyBep20Claim(
-  supabase: DbClient,
-  input: SubmitBep20ClaimInput,
-  verify: typeof verifyUsdtTransfer = verifyUsdtTransfer,
+  _supabase: DbClient,
+  _input: SubmitBep20ClaimInput,
+  _verify: typeof verifyUsdtTransfer = verifyUsdtTransfer,
 ): Promise<PaymentVerificationResult> {
-  const txHash = input.txHash.trim();
-  const order = await getOrder(supabase, input.orderId);
-  const resolved = await resolveOrderPayments(supabase, order.tenantId);
-  const sandbox = paymentSandboxEnabled();
-  const isDemoFail = sandbox && resolved.bep20Address === null && txHash.startsWith(PAYMENT_CONFIG.demo.failTxPrefix);
-  if (!TX_HASH_REGEX.test(txHash) && !isDemoFail) {
-    throw new ValidationError('INVALID_TX_HASH', 'Invalid transaction hash format');
-  }
-
-  const existing = await listClaimsForOrder(supabase, order.id);
-  if (existing.some((claim) => claim.verifiedAt !== null) || order.paymentStatus === 'verified') {
-    return successResult('verified');
-  }
-  if (!PAYABLE_STATUSES.has(order.paymentStatus)) {
-    throw new PaymentError('ORDER_NOT_PAYABLE', 'This order is not awaiting payment verification');
-  }
-
-  const replay = await findClaimsByTxHash(supabase, txHash);
-  if (replay.length > 0) {
-    const pending = await markPendingIfNeeded(supabase, order);
-    const claim = await insertClaim(supabase, {
-      orderId: pending.id,
-      paymentMethod: 'usdt_bep20',
-      txHash,
-    });
-    await finalizeClaim(
-      supabase,
-      claim.id,
-      { verified: false, rejectReason: 'TX_REPLAY' },
-      { reference: maskRef(txHash) },
-    );
-    await failPayment(supabase, pending, 'TX_REPLAY');
-    return failureResult('TX_REPLAY', 'failed');
-  }
-
-  if (sandbox) {
-    const result = await createSandboxBscClient().verifyUsdtTransfer({
-      txHash,
-      expectedToAddress: resolved.bep20Address ?? PAYMENT_CONFIG.demo.demoWalletAddress,
-      expectedAmountMinor: order.quotedRetailPriceMinor,
-      windowSeconds: PAYMENT_CONFIG.bep20.txWindowSeconds,
-      orderCreatedAt: order.createdAt,
-    });
-    const pending = await markPendingIfNeeded(supabase, order);
-    await supabase
-      .from('orders')
-      .update({ payment_method: 'usdt_bep20', updated_at: new Date().toISOString() })
-      .eq('id', pending.id);
-    const claim = await insertClaim(supabase, { orderId: pending.id, paymentMethod: 'usdt_bep20', txHash });
-    if (!result.verified) {
-      const reason = result.rejectReason ?? 'BSC_NOT_VERIFIED';
-      await finalizeClaim(supabase, claim.id, { verified: false, rejectReason: reason }, { reference: maskRef(txHash) });
-      await failPayment(supabase, pending, reason);
-      return failureResult(reason, 'failed');
-    }
-    const recorded = await rememberChainPayment(supabase, {
-      txHash,
-      orderId: pending.id,
-      customerId: pending.customerId,
-      amountMinor: pending.quotedRetailPriceMinor,
-    });
-    if (!recorded.ok) {
-      await finalizeClaim(supabase, claim.id, { verified: false, rejectReason: recorded.code }, { reference: maskRef(txHash) });
-      await failPayment(supabase, pending, recorded.code);
-      return failureResult(recorded.code, 'failed');
-    }
-    await finalizeClaim(supabase, claim.id, { verified: true }, { reference: maskRef(txHash), sandbox: true });
-    await succeedPayment(supabase, pending, 'sandbox bep20 payment');
-    enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
-    triggerFulfillment(supabase, pending.id);
-    return successResult('verified');
-  }
-
-  const address = resolved.bep20Address ? normalizeEthAddress(resolved.bep20Address) : null;
-  if (!address) {
-    return failureResult('PAYMENTS_UNAVAILABLE', order.paymentStatus);
-  }
-  const chain = await verify({
-    txHash,
-    toAddress: address,
-    exactAmountMinor: order.quotedRetailPriceMinor,
-    notBefore: order.createdAt,
-  });
-  if (chain.status === 'unavailable') {
-    return failureResult('PAYMENTS_UNAVAILABLE', order.paymentStatus);
-  }
-  if (chain.status === 'rejected') {
-    const retryable = chain.reason === 'NOT_FOUND' || chain.reason === 'TOO_FEW_CONFIRMATIONS';
-    if (retryable) {
-      return failureResult(chain.reason, order.paymentStatus);
-    }
-    const pending = await markPendingIfNeeded(supabase, order);
-    const claim = await insertClaim(supabase, { orderId: pending.id, paymentMethod: 'usdt_bep20', txHash });
-    await finalizeClaim(supabase, claim.id, { verified: false, rejectReason: chain.reason }, { reference: maskRef(txHash) });
-    await failPayment(supabase, pending, chain.reason);
-    return failureResult(chain.reason, 'failed');
-  }
-  if (chain.amountMinor < order.quotedRetailPriceMinor) {
-    const pending = await markPendingIfNeeded(supabase, order);
-    const claim = await insertClaim(supabase, { orderId: pending.id, paymentMethod: 'usdt_bep20', txHash });
-    await finalizeClaim(supabase, claim.id, { verified: false, rejectReason: 'AMOUNT_TOO_SMALL' }, { reference: maskRef(txHash) });
-    await failPayment(supabase, pending, 'AMOUNT_TOO_SMALL');
-    return failureResult('AMOUNT_TOO_SMALL', 'failed');
-  }
-
-  const recorded = await rememberChainPayment(supabase, {
-    txHash,
-    orderId: order.id,
-    customerId: order.customerId,
-    amountMinor: chain.amountMinor,
-  });
-  if (!recorded.ok) {
-    return failureResult(recorded.code, order.paymentStatus);
-  }
-  const pending = await markPendingIfNeeded(supabase, order);
-  await supabase
-    .from('orders')
-    .update({ payment_method: 'usdt_bep20', updated_at: new Date().toISOString() })
-    .eq('id', pending.id);
-  const claim = await insertClaim(supabase, { orderId: pending.id, paymentMethod: 'usdt_bep20', txHash });
-  await finalizeClaim(supabase, claim.id, { verified: true }, { reference: maskRef(txHash) });
-  await succeedPayment(supabase, pending, 'bep20 transfer verified');
-  enqueueOrderWebhook(supabase, pending.tenantId, 'order.payment_verified', { orderId: pending.id });
-  triggerFulfillment(supabase, pending.id);
-  return successResult('verified');
+  return failureResult('ORDER_CLAIM_CLOSED', 'awaiting');
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   expirePendingTopups,
   loadTopupLimits,
   openWalletTopup,
+  orderCryptoTopupMinor,
   TOPUP_BUSY_MESSAGE,
   TOPUP_FLOOR_MINOR,
 } from '@/modules/topups';
@@ -264,6 +265,15 @@ describe('wallet top-ups', () => {
     expect(await expirePendingTopups(db, new Date('2026-01-01T00:00:00.000Z'))).toBe(1);
     expect(await expirePendingTopups(db, new Date('2026-01-01T00:00:00.000Z'))).toBe(0);
     expect(db.tables.wallet_topups?.[0]?.status).toBe('expired');
+  });
+});
+
+describe('crypto checkout amount', () => {
+  it('uses the order total when the balance is zero and the shortfall otherwise', () => {
+    expect(orderCryptoTopupMinor(10_000_000n, 0n, TOPUP_FLOOR_MINOR)).toBe(10_000_000n);
+    expect(orderCryptoTopupMinor(10_000_000n, 4_000_000n, TOPUP_FLOOR_MINOR)).toBe(6_000_000n);
+    expect(orderCryptoTopupMinor(10_000_000n, 10_000_000n, TOPUP_FLOOR_MINOR)).toBeNull();
+    expect(orderCryptoTopupMinor(500_000n, 0n, TOPUP_FLOOR_MINOR)).toBe(TOPUP_FLOOR_MINOR);
   });
 });
 
