@@ -8,6 +8,7 @@
  * chain lookups, not a merchant credential.
  */
 
+import { usdtRawToMinorUnits } from '@/integrations/bsc/verify';
 import { withCache } from '@/lib/cache';
 import type { DbClient } from '@/lib/supabase/query';
 import type { PlatformSettings } from '@/modules/platform/types';
@@ -119,10 +120,7 @@ export function isBscScanConfigured(): boolean {
  * EXAMPLE: "10000000000000000000" (10 USDT on BSC) → 10_000_000n
  */
 export function bscValueToMinorUnits(rawBscValue: string): bigint {
-  // BSC USDT has 18 decimals, we use 6 decimals
-  // Divide by 10^(18-6) = 10^12
-  const CONVERSION_FACTOR = 1_000_000_000_000n; // 10^12
-  return BigInt(rawBscValue) / CONVERSION_FACTOR;
+  return usdtRawToMinorUnits(BigInt(rawBscValue));
 }
 
 /**
