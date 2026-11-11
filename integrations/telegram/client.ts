@@ -16,12 +16,21 @@ import { withCache } from '@/lib/cache';
 import { listProductsByIds } from '@/lib/lookups';
 import { BOT_ERRORS } from '@/lib/bot-errors';
 import { PAYMENT_CONFIG, loadPaymentConfig } from '@/lib/payment-config';
-import { AppError } from '@/lib/errors';
+import { AppError, ValidationError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
 import { checkRateLimit } from '@/lib/rate-limiter';
+import { normalizeEthAddress } from '@/integrations/bsc/verify';
+import { claimWalletTopup, findOpenTopup, openWalletTopup } from '@/modules/topups';
+import {
+  parseTopupAmount,
+  quickTopupAmounts,
+  topupAmountPrompt,
+  topupClaimText,
+  topupInstructions,
+} from '@/modules/topups/screens';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
@@ -93,6 +102,8 @@ const COMMANDS_REFRESH = new Map<string, number>();
 const awaitingEmail = new Map<string, { readonly orderId: string; readonly productTitle: string }>();
 const awaitingQty = new Map<string, { readonly productId: string; readonly max: number }>();
 const pendingTopup = new Map<string, bigint>();
+const awaitingTopupHash = new Set<string>();
+const awaitingTopupAmount = new Set<string>();
 const awaitingFind = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
@@ -489,6 +500,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     awaitingEmail.delete(key);
     awaitingQty.delete(key);
     awaitingFind.delete(key);
+    awaitingTopupHash.delete(key);
+    awaitingTopupAmount.delete(key);
   }
 
   async function showHome(screen: Screen): Promise<void> {
@@ -1562,6 +1575,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (customer === null) {
       throw new Error('missing customer');
     }
+    awaitingTopupHash.delete(topupKey(screen.chatId));
+    awaitingTopupAmount.delete(topupKey(screen.chatId));
     const fresh = await getCustomerById(context.supabase, customer.id);
     customer = fresh;
     const balance = fresh.creditBalanceMinor;
@@ -1602,29 +1617,190 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, text, keyboard, 'HTML');
   }
 
-  async function showBep20Topup(screen: Screen): Promise<void> {
-    const address = (await storeContext()).usdtWalletAddress;
-    if (!address) {
+  function topupKey(chatId: string | number): string {
+    return emailKey(context.botConnection.id, chatId);
+  }
+
+  async function showTopupAmount(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const limits = { min: current.minimumDepositMinor, max: current.maximumDepositMinor };
+    const keyboard = new InlineKeyboard();
+    const amounts = quickTopupAmounts(limits);
+    for (let index = 0; index < amounts.length; index += 1) {
+      const amount = amounts[index];
+      if (amount === undefined) {
+        continue;
+      }
+      keyboard.text(formatUsdt(amount).replace(' USDT', ''), `topup_amt:${amount.toString()}`);
+      if (index % 2 === 1 || index === amounts.length - 1) {
+        keyboard.row();
+      }
+    }
+    keyboard.text('Custom amount', 'topup_custom:').row();
+    keyboard.text('⬅ Back to Wallet', 'wallet:');
+    awaitingTopupHash.delete(topupKey(screen.chatId));
+    awaitingTopupAmount.delete(topupKey(screen.chatId));
+    await show(bot, screen, topupAmountPrompt(limits), keyboard, 'HTML');
+  }
+
+  async function showTopupInstructions(screen: Screen, amountMinor: bigint | null): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const current = await storeContext();
+    const address = current.usdtWalletAddress;
+    if (!address || !normalizeEthAddress(address)) {
       await show(
         bot,
         screen,
-        `📤 <b>Top Up — USDT BEP20</b>\n\nThis store has not set a BEP20 address yet.\nRedeem a top-up token or contact /support.`,
+        `📤 <b>Top up USDT (BEP20)</b>\n\nPayments are unavailable until this store saves a valid BEP20 address.`,
         new InlineKeyboard().text('🔑 Redeem Token', 'dep_token:').text('⬅ Back to Wallet', 'wallet:'),
+        'HTML',
       );
+      return;
+    }
+    const chosen = amountMinor ?? pendingTopup.get(topupKey(screen.chatId)) ?? null;
+    if (chosen === null) {
+      await showTopupAmount(screen);
+      return;
+    }
+    try {
+      const opened = await openWalletTopup(context.supabase, {
+        customerId: customer.id,
+        botId: context.botConnection.id,
+        tenantId: context.tenantId,
+        amountMinor: chosen,
+      });
+      awaitingTopupAmount.delete(topupKey(screen.chatId));
+      await show(
+        bot,
+        screen,
+        topupInstructions(opened.topup, address, new Date(), opened.reused),
+        new InlineKeyboard()
+          .text('I have paid', 'topup_paid:')
+          .row()
+          .text('Refresh', 'topup_show:')
+          .row()
+          .text('⬅ Back to Wallet', 'wallet:'),
+        'HTML',
+      );
+    } catch (error: unknown) {
+      const message = error instanceof ValidationError ? error.message : 'Could not start the top-up. Try another amount.';
+      await show(
+        bot,
+        screen,
+        `❌ ${escHtml(message)}`,
+        new InlineKeyboard().text('Choose another amount', 'topup_amounts:').text('⬅ Wallet', 'wallet:'),
+        'HTML',
+      );
+    }
+  }
+
+  async function claimTopupHash(screen: Screen, text: string): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const sent = await bot.api.sendMessage(screen.chatId, '⏳ <b>Checking your payment...</b>', { parse_mode: 'HTML' });
+    const finish = async (html: string, keyboard?: InlineKeyboard): Promise<void> => {
+      const extra = { parse_mode: 'HTML' as const, ...(keyboard ? { reply_markup: keyboard } : {}) };
+      try {
+        await bot.api.editMessageText(screen.chatId, sent.message_id, html, extra);
+      } catch {
+        await bot.api.sendMessage(screen.chatId, html, extra);
+      }
+    };
+    if (!checkRateLimit(`topup-claim:${customer.id}`, 5, 10 * 60 * 1000).allowed) {
+      await finish(topupClaimText({ outcome: 'rate_limited' }));
+      return;
+    }
+    const current = await storeContext();
+    const address = current.usdtWalletAddress;
+    if (!address || !normalizeEthAddress(address)) {
+      await finish('Payments are unavailable until this store saves a valid BEP20 address.');
+      return;
+    }
+    const result = await claimWalletTopup(context.supabase, {
+      customerId: customer.id,
+      txHash: text.trim(),
+      toAddress: address,
+    });
+    if (result.status === 'unavailable') {
+      await finish(topupClaimText({ outcome: 'unavailable' }));
+      return;
+    }
+    if (result.status === 'rejected') {
+      if (result.reason === 'EXPIRED' || result.reason === 'NO_OPEN_TOPUP') {
+        awaitingTopupHash.delete(topupKey(screen.chatId));
+      }
+      await finish(
+        topupClaimText({
+          outcome: 'rejected',
+          reason: result.reason,
+          ...(result.confirmations !== undefined ? { confirmations: result.confirmations } : {}),
+        }),
+        new InlineKeyboard().text('Wallet', 'wallet:'),
+      );
+      return;
+    }
+    awaitingTopupHash.delete(topupKey(screen.chatId));
+    customer = { ...customer, creditBalanceMinor: result.newBalance };
+    const notice = await claimCheckoutResume(context.supabase, customer.id);
+    if (notice.kind === 'resume') {
+      pendingTopup.delete(topupKey(screen.chatId));
+      await finish(
+        BALANCE_ADDED_TEXT,
+        paint([{ text: 'Complete order', data: `pay_menu:${notice.orderId}`, style: 'success', width: 'full' }]),
+      );
+      return;
+    }
+    if (notice.kind === 'expired') {
+      pendingTopup.delete(topupKey(screen.chatId));
+      await finish(BALANCE_EXPIRED_TEXT, new InlineKeyboard().text('🏠 Home', 'home:'));
+      return;
+    }
+    await finish(
+      topupClaimText({
+        outcome: 'credited',
+        amountMinor: result.amountMinor,
+        newBalance: result.newBalance,
+        repeated: result.repeated,
+      }),
+      new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('💰 My Wallet', 'wallet:'),
+    );
+  }
+
+  async function refreshTopup(screen: Screen): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const current = await storeContext();
+    const address = current.usdtWalletAddress;
+    if (!address || !normalizeEthAddress(address)) {
+      await showTopupInstructions(screen, null);
+      return;
+    }
+    awaitingTopupHash.delete(topupKey(screen.chatId));
+    const open = await findOpenTopup(context.supabase, customer.id);
+    if (!open) {
+      await showTopupAmount(screen);
       return;
     }
     await show(
       bot,
       screen,
-      `📤 <b>Top Up — USDT BEP20</b>\n\n` +
-        `Send USDT (BEP20) to the address below.\n` +
-        `Your balance is credited automatically after network confirmation.\n\n` +
-        `<code>${escHtml(address)}</code>\n\n` +
-        `<i>Minimum: 1.00 USDT · Network: BNB Smart Chain (BEP20)\n` +
-        `Balance updates within a few minutes of confirmation.</i>` +
-        amountNote(screen.chatId),
-      new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
+      topupInstructions(open, address),
+      new InlineKeyboard()
+        .text('I have paid', 'topup_paid:')
+        .row()
+        .text('Refresh', 'topup_show:')
+        .row()
+        .text('⬅ Back to Wallet', 'wallet:'),
+      'HTML',
     );
+  }
+
+  async function showBep20Topup(screen: Screen): Promise<void> {
+    await showTopupInstructions(screen, null);
   }
 
   async function showBinanceTopup(screen: Screen): Promise<void> {
@@ -2049,6 +2225,46 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showBep20Topup(screen);
       return;
     }
+    if (data === 'topup_amounts:') {
+      await showTopupAmount(screen);
+      return;
+    }
+    if (data === 'topup_show:') {
+      await refreshTopup(screen);
+      return;
+    }
+    if (data.startsWith('topup_amt:')) {
+      const raw = data.slice('topup_amt:'.length);
+      if (/^\d+$/.test(raw)) {
+        await showTopupInstructions(screen, BigInt(raw));
+      }
+      return;
+    }
+    if (data === 'topup_custom:') {
+      awaitingTopupAmount.add(topupKey(screen.chatId));
+      awaitingTopupHash.delete(topupKey(screen.chatId));
+      const current = await storeContext();
+      await show(
+        bot,
+        screen,
+        `Type the amount in USDT. Minimum ${escHtml(formatUsdt(current.minimumDepositMinor))}.`,
+        new InlineKeyboard().text('Cancel', 'topup_amounts:'),
+        'HTML',
+      );
+      return;
+    }
+    if (data === 'topup_paid:') {
+      awaitingTopupHash.add(topupKey(screen.chatId));
+      awaitingTopupAmount.delete(topupKey(screen.chatId));
+      await show(
+        bot,
+        screen,
+        'Send the transaction hash now. It starts with 0x and has 64 characters after that.',
+        new InlineKeyboard().text('⬅ Back', 'topup_show:'),
+        'HTML',
+      );
+      return;
+    }
     if (data === 'dep_bp:' || data === 'deposit_bp:') {
       await showBinanceTopup(screen);
       return;
@@ -2205,6 +2421,22 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (trimmed === '❓ Help') {
       await showSupport(screen);
+      return;
+    }
+    const topupStateKey = topupKey(screen.chatId);
+    if (awaitingTopupAmount.has(topupStateKey)) {
+      const current = await storeContext();
+      const parsed = parseTopupAmount(trimmed, { min: current.minimumDepositMinor, max: current.maximumDepositMinor });
+      if (!parsed.ok) {
+        await show(bot, screen, `❌ ${escHtml(parsed.message)}`, new InlineKeyboard().text('Cancel', 'topup_amounts:'), 'HTML');
+        return;
+      }
+      awaitingTopupAmount.delete(topupStateKey);
+      await showTopupInstructions(screen, parsed.amountMinor);
+      return;
+    }
+    if (awaitingTopupHash.has(topupStateKey)) {
+      await claimTopupHash(screen, trimmed);
       return;
     }
     if (/^\d{12}$/.test(trimmed) && !trimmed.startsWith('0')) {

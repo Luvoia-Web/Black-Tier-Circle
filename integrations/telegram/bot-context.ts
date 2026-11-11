@@ -8,12 +8,12 @@
  */
 
 import type { DbClient } from '@/lib/supabase/query';
-import { usdtToMinor } from '@/lib/money';
 import { getPlatformSettings } from '@/modules/platform';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
 import { getTenantSettings } from '@/modules/tenant-settings';
 import { getStoreConfig } from '@/modules/store-config';
 import type { StoredStoreConfig } from '@/modules/store-config/types';
+import { loadTopupLimits } from '@/modules/topups';
 
 export type BotContext = {
   readonly isOwnerBot: boolean;
@@ -36,8 +36,10 @@ export type BotContext = {
   readonly termsOfService: string | null;
   readonly botConnectionId: string | null;
   readonly binanceMerchantId: string | null;
-  /** Smallest wallet top-up, in USDT minor units. Null when the store has no minimum. */
-  readonly minimumDepositMinor: bigint | null;
+  /** Smallest wallet top-up, in USDT minor units. Never below 1.00 USDT. */
+  readonly minimumDepositMinor: bigint;
+  /** Largest wallet top-up, in USDT minor units. */
+  readonly maximumDepositMinor: bigint;
   /** Null when the owner has not saved Bot Studio yet. */
   readonly studio: StoredStoreConfig | null;
 };
@@ -50,22 +52,6 @@ export type BotContext = {
  * @param tenantId - Reseller tenant, or null for the owner store
  */
 const CONTEXT_CACHE = new Map<string, { data: BotContext; expiresAt: number }>();
-const OWNER_MINIMUM_MINOR = 1_000_000n;
-
-function depositMinimum(raw: string | null | undefined, ownerStore: boolean): bigint | null {
-  if (ownerStore) {
-    return OWNER_MINIMUM_MINOR;
-  }
-  if (!raw || raw.trim().length === 0) {
-    return null;
-  }
-  try {
-    const minor = usdtToMinor(raw.trim());
-    return minor > 0n ? minor : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Returns store settings, reusing a 30 second cache per bot.
@@ -98,7 +84,7 @@ export async function resolveBotContext(
   const studio = await getStoreConfig(supabase, tenantId);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
-  const minimumDepositMinor = depositMinimum(tenant?.usdtMinimumBep20, tenantId === null);
+  const limits = await loadTopupLimits(supabase, tenantId);
 
   return {
     isOwnerBot: tenantId === null,
@@ -121,7 +107,8 @@ export async function resolveBotContext(
     termsOfService: tenant?.termsOfService ?? null,
     botConnectionId,
     binanceMerchantId: payments.binance?.merchantId.trim() || null,
-    minimumDepositMinor,
+    minimumDepositMinor: limits.min,
+    maximumDepositMinor: limits.max,
     studio: studio.source === 'stored' ? studio : null,
   };
 }

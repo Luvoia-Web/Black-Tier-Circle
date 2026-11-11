@@ -16,6 +16,7 @@ import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { processQueuedFulfillments } from '@/modules/fulfillment';
 import { logger } from '@/lib/logger';
 import { qualifyPendingReferrals } from '@/modules/referrals/store';
+import { expirePendingTopups } from '@/modules/topups';
 import { deliverReferralNotice } from '@/modules/referrals/notify';
 import { friendJoinedText, qualifiedText } from '@/modules/referrals/screens';
 import { getStoreConfig } from '@/modules/store-config';
@@ -43,6 +44,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       });
     } catch (error: unknown) {
       logger.error('referral sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+    }
+    try {
+      await expirePendingTopups(db);
+    } catch (error: unknown) {
+      logger.error('top-up sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
     }
     return jsonSuccess(result);
   } catch (error: unknown) {

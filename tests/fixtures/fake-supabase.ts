@@ -482,6 +482,72 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ granted: true, capped: false, already: false }], error: null };
     }
 
+    if (fn === 'credit_wallet_topup') {
+      const topupId = String(args.p_topup_id ?? '');
+      const hash = String(args.p_tx_hash ?? '').trim().toLowerCase();
+      const amount = asMinor(args.p_amount_minor);
+      const network = String(args.p_network ?? 'bep20').trim().toLowerCase() || 'bep20';
+      const topup = tableOf('wallet_topups').find((row) => String(row.id) === topupId);
+      const fail = (code: string, balance = 0n) => ({
+        data: [{ success: false, new_balance: balance.toString(), error_code: code }],
+        error: null,
+      });
+      if (!topup) {
+        return fail('NOT_FOUND');
+      }
+      const customer = tableOf('customers').find((row) => String(row.id) === String(topup.customer_id));
+      const balance = asMinor(customer?.credit_balance ?? 0);
+      const validHash =
+        /^0x[0-9a-f]{64}$/.test(hash) ||
+        /^manual:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(hash);
+      if (String(topup.status) === 'credited' && String(topup.tx_hash ?? '') === hash) {
+        return { data: [{ success: true, new_balance: balance.toString(), error_code: null }], error: null };
+      }
+      if (String(topup.status) === 'credited') {
+        return fail('ALREADY_CREDITED', balance);
+      }
+      if (String(topup.status) !== 'pending') {
+        return fail('NOT_PENDING', balance);
+      }
+      if (String(topup.expires_at ?? '') <= nowIso()) {
+        topup.status = 'expired';
+        topup.reject_reason = 'EXPIRED';
+        return fail('EXPIRED', balance);
+      }
+      if (network !== 'bep20' || !validHash) {
+        return fail(network !== 'bep20' ? 'UNSUPPORTED_NETWORK' : 'INVALID_HASH', balance);
+      }
+      if (amount <= 0n || amount < asMinor(topup.amount_expected_minor)) {
+        return fail(amount <= 0n ? 'INVALID_AMOUNT' : 'AMOUNT_TOO_SMALL', balance);
+      }
+      if (!customer) {
+        return fail('CUSTOMER_NOT_FOUND');
+      }
+      const payments = tableOf('chain_payments');
+      if (payments.some((row) => String(row.network) === network && String(row.tx_hash) === hash)) {
+        return fail('ALREADY_USED', balance);
+      }
+      payments.push({
+        id: crypto.randomUUID(),
+        network,
+        tx_hash: hash,
+        purpose: 'topup',
+        reference_id: topup.id,
+        customer_id: topup.customer_id,
+        amount_minor: amount.toString(),
+        created_at: nowIso(),
+      });
+      const next = balance + amount;
+      customer.credit_balance = next.toString();
+      topup.status = 'credited';
+      topup.credited_amount_minor = amount.toString();
+      topup.tx_hash = hash;
+      topup.network = network;
+      topup.credited_at = nowIso();
+      topup.reject_reason = null;
+      return { data: [{ success: true, new_balance: next.toString(), error_code: null }], error: null };
+    }
+
     return { data: null, error: { message: `unknown rpc ${fn}` } };
   }
 
