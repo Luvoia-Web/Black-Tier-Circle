@@ -41,7 +41,7 @@ type Settings = {
 
 type SettingsPayload = {
   readonly success: boolean;
-  readonly data?: { settings: Settings; webhookUrl?: string };
+  readonly data?: { settings: Settings; webhookUrl?: string; addressWarning?: string | null };
   readonly error?: { code?: string; message: string };
 };
 
@@ -76,6 +76,7 @@ export default function OwnerSettingsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [botBusy, setBotBusy] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
+  const [addressWarning, setAddressWarning] = useState<string | null>(null);
   const [infoBusy, setInfoBusy] = useState(false);
   const [checks, setChecks] = useState<LaunchCheck[]>([]);
 
@@ -204,6 +205,7 @@ export default function OwnerSettingsPage(): JSX.Element {
         return;
       }
       setSettings(json.data.settings);
+      setAddressWarning(json.data.addressWarning ?? null);
       setApiKey('');
       setApiSecret('');
       toast.success('Payment settings saved');
@@ -302,9 +304,10 @@ export default function OwnerSettingsPage(): JSX.Element {
                 label="Your wallet"
                 value={settings.platformUsdtWalletBep20 ?? ''}
                 placeholder="0x..."
-                helper="Customers send USDT to this address."
+                helper="Customers send USDT to this public address. Never paste a private key or seed phrase."
                 onChange={(value) => setSettings({ ...settings, platformUsdtWalletBep20: value })}
               />
+              {addressWarning ? <p className="mt-2 text-sm text-[var(--amber)]">{addressWarning}</p> : null}
               <div className="my-4 border-t border-[var(--border)]" />
               <Toggle
                 label="Binance Pay"

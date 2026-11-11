@@ -7,6 +7,7 @@
  * @module Api
  */
 
+import { prepareBep20Address } from '@/lib/eth-address';
 import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { sanitizeInput } from '@/lib/sanitize';
@@ -19,13 +20,10 @@ export async function PATCH(request: Request): Promise<Response> {
   try {
     const session = await requireOwner();
     const parsed = UpdatePlatformPaymentsSchema.parse(await readJsonBody(request));
+    const address =
+      parsed.platformUsdtWalletBep20 === undefined ? null : prepareBep20Address(parsed.platformUsdtWalletBep20);
     const settings = await updatePaymentSettings(asDbClient(session.admin), {
-      ...(parsed.platformUsdtWalletBep20 !== undefined
-        ? {
-            platformUsdtWalletBep20:
-              parsed.platformUsdtWalletBep20 === null ? null : sanitizeInput(parsed.platformUsdtWalletBep20),
-          }
-        : {}),
+      ...(address ? { platformUsdtWalletBep20: address.address } : {}),
       ...(parsed.binancePayMerchantId !== undefined
         ? {
             binancePayMerchantId:
@@ -37,7 +35,7 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.binancePayEnabled !== undefined ? { binancePayEnabled: parsed.binancePayEnabled } : {}),
       ...(parsed.bep20Enabled !== undefined ? { bep20Enabled: parsed.bep20Enabled } : {}),
     });
-    return jsonSuccess({ settings });
+    return jsonSuccess({ settings, addressWarning: address?.warning ?? null });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

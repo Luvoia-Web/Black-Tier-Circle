@@ -100,6 +100,7 @@ const RESELLER_GROUPS: ReadonlyArray<NavGroup> = [
       { href: ROUTES.reseller.orders, label: 'Orders', icon: ShoppingBag },
       { href: ROUTES.reseller.products, label: 'Products', icon: Package },
       { href: ROUTES.reseller.deposits, label: 'Wallet', icon: CreditCard },
+      { href: ROUTES.reseller.payments, label: 'Payments', icon: DollarSign },
     ],
   },
   {

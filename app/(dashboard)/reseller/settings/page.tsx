@@ -66,6 +66,7 @@ export default function ResellerSettingsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [addressWarning, setAddressWarning] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -113,10 +114,17 @@ export default function ResellerSettingsPage(): JSX.Element {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = (await response.json()) as { success: boolean; error?: { message: string } };
+      const json = (await response.json()) as {
+        success: boolean;
+        data?: { addressWarning?: string | null };
+        error?: { message: string };
+      };
       if (!json.success) {
         toast.error(json.error?.message ?? 'Unable to save');
         return;
+      }
+      if (section === 'pay') {
+        setAddressWarning(json.data?.addressWarning ?? null);
       }
       toast.success(ok);
       await load();
@@ -275,12 +283,16 @@ export default function ResellerSettingsPage(): JSX.Element {
               {useOwnWallet ? 'Customers send USDT to your address.' : 'Using platform wallet'}
             </p>
             {useOwnWallet ? (
-              <FormField
-                label="USDT address"
-                value={settings.usdtWalletBep20 ?? ''}
-                placeholder="0x..."
-                onChange={(value) => setSettings({ ...settings, usdtWalletBep20: value })}
-              />
+              <>
+                <FormField
+                  label="USDT address"
+                  value={settings.usdtWalletBep20 ?? ''}
+                  placeholder="0x..."
+                  helper="Public address only. Never paste a private key or seed phrase."
+                  onChange={(value) => setSettings({ ...settings, usdtWalletBep20: value })}
+                />
+                {addressWarning ? <p className="mt-2 text-sm text-[var(--amber)]">{addressWarning}</p> : null}
+              </>
             ) : null}
             <FormField
               label="USDT minimum (BEP20)"

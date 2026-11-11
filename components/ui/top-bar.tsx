@@ -49,6 +49,7 @@ function titleForPath(pathname: string, role: UserRole): TitleMeta {
     [ROUTES.owner.settings, { title: 'Settings', crumb: 'Settings' }],
     [ROUTES.owner.botStudio, { title: 'Bot Studio', crumb: 'Store' }],
     [ROUTES.reseller.botStudio, { title: 'Bot Studio', crumb: 'Store' }],
+    [ROUTES.reseller.payments, { title: 'Payments', crumb: 'Wallet' }],
     [ROUTES.reseller.settingsApiKeys, { title: 'Developer API', crumb: 'Settings' }],
     [ROUTES.reseller.settingsWebhooks, { title: 'Webhooks', crumb: 'Settings' }],
     [ROUTES.reseller.assistant, { title: 'AI Assistant', crumb: 'Help' }],

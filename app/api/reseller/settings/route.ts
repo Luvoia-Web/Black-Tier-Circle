@@ -8,6 +8,7 @@
  * @module Api
  */
 
+import { prepareBep20Address } from '@/lib/eth-address';
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { sanitizeInput } from '@/lib/sanitize';
@@ -44,6 +45,7 @@ export async function PATCH(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
     const parsed = UpdateTenantSettingsSchema.parse(await readJsonBody(request));
+    const address = parsed.usdtWalletBep20 === undefined ? null : prepareBep20Address(parsed.usdtWalletBep20);
     const db = asDbClient(session.admin);
     if (parsed.storeName) {
       await updateTenantDisplayName(db, session.tenant.id, sanitizeInput(parsed.storeName));
@@ -66,7 +68,7 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.binanceApiSecret !== undefined ? { binanceApiSecret: parsed.binanceApiSecret } : {}),
       ...(parsed.binancePayEnabled !== undefined ? { binancePayEnabled: parsed.binancePayEnabled } : {}),
       ...(parsed.useOwnUsdtWallet !== undefined ? { useOwnUsdtWallet: parsed.useOwnUsdtWallet } : {}),
-      ...(parsed.usdtWalletBep20 !== undefined ? { usdtWalletBep20: cleanText(parsed.usdtWalletBep20) ?? null } : {}),
+      ...(address ? { usdtWalletBep20: address.address } : {}),
       ...(parsed.usdtWalletTrc20 !== undefined ? { usdtWalletTrc20: cleanText(parsed.usdtWalletTrc20) ?? null } : {}),
       ...(parsed.useOwnTrc20Wallet !== undefined ? { useOwnTrc20Wallet: parsed.useOwnTrc20Wallet } : {}),
       ...(parsed.trc20Enabled !== undefined ? { trc20Enabled: parsed.trc20Enabled } : {}),
@@ -87,7 +89,7 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.notifyBalanceThreshold !== undefined ? { notifyBalanceThreshold: parsed.notifyBalanceThreshold } : {}),
       ...(parsed.notifyProductAdded !== undefined ? { notifyProductAdded: parsed.notifyProductAdded } : {}),
     });
-    return jsonSuccess({ settings });
+    return jsonSuccess({ settings, addressWarning: address?.warning ?? null });
   } catch (error: unknown) {
     return handleRouteError(error);
   }
