@@ -6,7 +6,7 @@
  * @module V1
  */
 
-import { payoutAddressFor } from '@/lib/payment-config';
+import { normalizeEthAddress } from '@/integrations/bsc/verify';
 import { minorToUsdt } from '@/lib/money';
 import type { DbClient } from '@/lib/supabase/query';
 import type { Order } from '@/modules/orders';
@@ -34,8 +34,11 @@ export async function v1CreatedOrder(supabase: DbClient, order: Order): Promise<
     retailPrice: minorToUsdt(order.quotedRetailPriceMinor),
     wholesalePrice: minorToUsdt(order.quotedWholesalePriceMinor),
     paymentOptions: {
-      binancePay: { available: resolved.binance !== null || resolved.demo },
-      bep20: { available: true, walletAddress: payoutAddressFor(resolved.bep20Address) },
+      binancePay: { available: resolved.binance !== null },
+      bep20: {
+        available: normalizeEthAddress(resolved.bep20Address ?? '') !== null,
+        walletAddress: normalizeEthAddress(resolved.bep20Address ?? ''),
+      },
     },
     createdAt: order.createdAt.toISOString(),
   };

@@ -1,26 +1,7 @@
 # BSC / BEP20 USDT verification
 
-## Credentials required for live mode (Phase 5)
+Live checks are in `verify.ts`. They use `BSC_RPC_URLS` (public endpoints when that variable is unset) and, only when `ETHERSCAN_API_KEY` is set, Etherscan API V2 for chain id 56. They do not call BscScan V1.
 
-- `BSC_RPC_URL` — HTTPS endpoint for BSC JSON-RPC
-- `BSCSCAN_API_KEY` — BscScan (or compatible) API key
-- USDT receiving address — saved from the owner or reseller dashboard
+The sandbox client accepts any hash except `0xFAIL` / `FAIL_`. It runs only when `PAYMENT_SANDBOX=true` and `NODE_ENV` is not `production`. A missing API key does not turn the sandbox on.
 
-If `BSCSCAN_API_KEY` is missing or starts with `PLACEHOLDER`, `createBscClient()` returns the sandbox client.
-
-## Sandbox behavior
-
-- Hashes starting with `FAIL_` return `verified: false`
-- All other hashes return a successful transfer to the expected address
-- No RPC calls are made
-
-## Verification rules (Phase 5)
-
-Live verification must confirm:
-
-1. Transaction succeeded on chain
-2. Token is USDT BEP20
-3. `to` matches the wallet configured for that order
-4. Amount equals the order amount in minor units
-5. Block time is within `windowSeconds` of `orderCreatedAt`
-6. The hash has not already been used for another order
+A transfer is accepted only when the receipt succeeded, the log is from the official BSC USDT contract, the recipient is the store address, the amount is at least the amount due, the block is after the order or top-up was created, and enough blocks have confirmed it.

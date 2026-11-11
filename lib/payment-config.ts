@@ -4,8 +4,8 @@
  * Payment behavior constants. Merchant credentials and wallet addresses live in
  * platform_settings / tenant_settings and are edited from the dashboards.
  *
- * BSCSCAN_API_KEY remains an env var because it is an infrastructure key for
- * chain lookups, not a merchant credential.
+ * Chain checks use BSC_RPC_URLS and an optional ETHERSCAN_API_KEY.
+ * They do not use the deprecated BscScan V1 endpoint.
  */
 
 import { usdtRawToMinorUnits } from '@/integrations/bsc/verify';
@@ -13,10 +13,6 @@ import { withCache } from '@/lib/cache';
 import type { DbClient } from '@/lib/supabase/query';
 import type { PlatformSettings } from '@/modules/platform/types';
 import { resolveOrderPayments } from '@/modules/payments/resolve';
-
-function isRealCredential(value: string | undefined): boolean {
-  return !!value && !value.startsWith('PLACEHOLDER');
-}
 
 export const PAYMENT_CONFIG = {
   // ─── BINANCE PAY ─────────────────────────────────────────────────────
@@ -31,10 +27,6 @@ export const PAYMENT_CONFIG = {
 
   // ─── BEP20 / BSC ─────────────────────────────────────────────────────
   bep20: {
-    get bscscanApiKey(): string {
-      return process.env.BSCSCAN_API_KEY ?? '';
-    },
-    bscscanBaseUrl: 'https://api.bscscan.com/api',
     /** USDT BEP20 contract address on BSC mainnet — do not change */
     usdtContractAddress: '0x55d398326f99059fF775485246999027B3197955',
     /**
@@ -103,10 +95,39 @@ export function getPaymentModeLabel(live: boolean): string {
 }
 
 /**
- * True when a real BscScan key is available for on-chain verification.
+ * Local demo payments. Never true when NODE_ENV is production, even if the flag is set.
  */
-export function isBscScanConfigured(): boolean {
-  return isRealCredential(process.env.BSCSCAN_API_KEY);
+export function paymentSandboxEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production' && process.env.PAYMENT_SANDBOX === 'true';
+}
+
+/**
+ * Buyer TRC20 buttons stay hidden. There is no TRC20 verifier.
+ */
+export function buyerTrc20Visible(): boolean {
+  return false;
+}
+
+export function buyerCheckoutMethods(input: {
+  readonly binancePayEnabled: boolean;
+  readonly bep20Enabled: boolean;
+  readonly trc20Enabled: boolean;
+  readonly demoEnabled: boolean;
+}): {
+  readonly binance: boolean;
+  readonly bep20: boolean;
+  readonly trc20: boolean;
+  readonly demo: boolean;
+  readonly binanceManual: boolean;
+} {
+  const sandbox = paymentSandboxEnabled();
+  return {
+    binance: input.binancePayEnabled,
+    bep20: input.bep20Enabled,
+    trc20: buyerTrc20Visible() && input.trc20Enabled,
+    demo: sandbox && input.demoEnabled,
+    binanceManual: !input.binancePayEnabled && !sandbox,
+  };
 }
 
 /**
@@ -157,19 +178,20 @@ export async function loadPaymentConfig(
   const resolved = await withCache(cacheKey, 60_000, () => resolveOrderPayments(supabase, tenantId));
   const hasRealPaymentMethod =
     resolved.binance !== null || resolved.bep20Address !== null || resolved.trc20Address !== null;
+  const sandbox = paymentSandboxEnabled();
   return {
     walletEnabled: customerBalanceMinor > 0n,
     binancePayEnabled: resolved.binance !== null,
     bep20Enabled: resolved.bep20Address !== null,
-    trc20Enabled: resolved.trc20Address !== null,
-    demoEnabled: !hasRealPaymentMethod,
+    trc20Enabled: buyerTrc20Visible() && resolved.trc20Address !== null,
+    demoEnabled: sandbox && !hasRealPaymentMethod,
     binancePayApiKey: null,
     binancePayApiSecret: null,
     binancePayMerchantId: resolved.binance?.merchantId ?? null,
     platformUsdtWallet: resolved.bep20Address,
     platformUsdtTrc20Wallet: resolved.trc20Address,
     isLiveMode: hasRealPaymentMethod,
-    isDemoMode: !hasRealPaymentMethod,
+    isDemoMode: sandbox && !hasRealPaymentMethod,
   };
 }
 

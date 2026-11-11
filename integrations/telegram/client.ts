@@ -15,7 +15,7 @@ import type { BotEngine, BotEngineContext, TelegramClient, TelegramSendMessagePa
 import { withCache } from '@/lib/cache';
 import { listProductsByIds } from '@/lib/lookups';
 import { BOT_ERRORS } from '@/lib/bot-errors';
-import { PAYMENT_CONFIG, loadPaymentConfig } from '@/lib/payment-config';
+import { PAYMENT_CONFIG, buyerCheckoutMethods, buyerTrc20Visible, loadPaymentConfig, paymentSandboxEnabled } from '@/lib/payment-config';
 import { AppError, ValidationError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
@@ -81,6 +81,7 @@ import type { Order } from '@/modules/orders/types';
 import {
   confirmDemoOrderPayment,
   createBinancePayOrder,
+  submitBinanceManualReview,
   payOrderFromCustomerWallet,
   verifyBep20Claim,
   verifyBinancePayClaim,
@@ -104,6 +105,7 @@ const awaitingQty = new Map<string, { readonly productId: string; readonly max: 
 const pendingTopup = new Map<string, bigint>();
 const awaitingTopupHash = new Set<string>();
 const awaitingTopupAmount = new Set<string>();
+const awaitingBinanceManual = new Map<string, string>();
 const awaitingFind = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
@@ -502,6 +504,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     awaitingFind.delete(key);
     awaitingTopupHash.delete(key);
     awaitingTopupAmount.delete(key);
+    awaitingBinanceManual.delete(key);
   }
 
   async function showHome(screen: Screen): Promise<void> {
@@ -769,6 +772,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const current = await storeContext();
     const balance = customer?.creditBalanceMinor ?? 0n;
     const config = await loadPaymentConfig(context.supabase, balance, context.tenantId);
+    const methods = buyerCheckoutMethods(config);
     return paint(
       checkoutButtons({
         orderId: order.id,
@@ -776,10 +780,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         totalMinor: order.quotedRetailPriceMinor,
         balanceMinor: balance,
         minimumDepositMinor: current.minimumDepositMinor,
-        binance: config.binancePayEnabled || config.isDemoMode,
-        bep20: config.bep20Enabled && Boolean(config.platformUsdtWallet || current.usdtWalletAddress),
-        trc20: config.trc20Enabled && Boolean(config.platformUsdtTrc20Wallet || current.trc20WalletAddress),
-        demo: config.demoEnabled && !config.binancePayEnabled && !config.bep20Enabled && !config.trc20Enabled,
+        binance: methods.binance,
+        bep20: methods.bep20 && Boolean(normalizeEthAddress(current.usdtWalletAddress ?? '')),
+        trc20: methods.trc20,
+        demo: methods.demo,
+        binanceManual: methods.binanceManual,
       }),
     );
   }
@@ -834,6 +839,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       ...(current.studio ? { shortfallTemplate: current.studio.config.catalog.templates.checkoutShortfall } : {}),
       minimumDepositMinor: current.minimumDepositMinor,
       ...(config.demoEnabled ? { demoNotice: 'Demo mode. No real payment is required.' } : {}),
+      ...(!config.bep20Enabled && !config.binancePayEnabled && !config.demoEnabled
+        ? { paymentsNotice: 'Crypto payments are temporarily unavailable.' }
+        : {}),
     });
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
@@ -1057,18 +1065,32 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (await rejectIfExpired(screen, order)) {
       return;
     }
-    if (current.isDemoMode) {
+    if (!current.binancePayEnabled) {
+      if (paymentSandboxEnabled()) {
+        await show(
+          bot,
+          screen,
+          `💳 <b>Binance Pay — Demo Mode</b>\n\n` +
+            `⚠️ No live Binance Pay credentials are saved yet.\n\n` +
+            `For testing, confirm a simulated payment below.`,
+          new InlineKeyboard()
+            .text('✅ Simulate Payment', `pay_demo_confirm:${order.id}`)
+            .row()
+            .text('❌ Cancel', `cancel_order:${order.id}`),
+          'HTML',
+        );
+        return;
+      }
+      awaitingBinanceManual.set(topupKey(screen.chatId), order.id);
       await show(
         bot,
         screen,
-        `💳 <b>Binance Pay — Demo Mode</b>\n\n` +
-          `⚠️ No live Binance Pay credentials are saved yet.\n\n` +
-          `When you add them in Settings, this button opens a real checkout.\n\n` +
-          `For testing, confirm a simulated payment below.`,
-        new InlineKeyboard()
-          .text('✅ Simulate Payment', `pay_demo_confirm:${order.id}`)
-          .row()
-          .text('❌ Cancel', `cancel_order:${order.id}`),
+        `💳 <b>Binance Pay — request review</b>\n\n` +
+          `Automatic Binance Pay is not connected for this store.\n` +
+          `Send your Binance Pay reference (5 to 80 characters).\n` +
+          `The store owner reviews it in the dashboard.\n\n` +
+          `This does not mark the order paid.`,
+        new InlineKeyboard().text('❌ Cancel', `cancel_order:${order.id}`),
         'HTML',
       );
       return;
@@ -1112,9 +1134,15 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function startBep20(screen: Screen, orderId: string): Promise<void> {
     const current = await storeContext();
     const order = await ownedOrder(orderId);
-    const address = current.usdtWalletAddress;
+    const address = normalizeEthAddress(current.usdtWalletAddress ?? '');
     if (!order || !address) {
-      await show(bot, screen, ERROR_TEXT.ORDER_NOT_FOUND ?? '', homeKeyboard(current));
+      await show(
+        bot,
+        screen,
+        'Crypto payments are temporarily unavailable.',
+        order ? await paymentKeyboard(order) : homeKeyboard(current),
+        'HTML',
+      );
       return;
     }
     if (await rejectIfExpired(screen, order)) {
@@ -1128,9 +1156,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       bot,
       screen,
       `📤 <b>Send USDT (BEP20)</b>\n\n` +
-        `Send exactly:\n<b>${money(order.quotedRetailPriceMinor)}</b> on BEP20\n\n` +
+        `Send at least:\n<b>${money(order.quotedRetailPriceMinor)}</b>\n` +
+        `Network: BNB Smart Chain (BEP20) only. Sending on another network loses the money.\n\n` +
         `To this address:\n<code>${escHtml(address)}</code>\n\n` +
-        `⚠️ Send the EXACT amount.\n` +
         `After sending, reply with your transaction hash (0x and 64 characters).\n\n` +
         `Order: <code>${orderRef(order.id)}</code>\n` +
         `${paymentWindowLine(order)}`,
@@ -1139,6 +1167,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function startTrc20(screen: Screen, orderId: string): Promise<void> {
+    if (!buyerTrc20Visible()) {
+      await show(
+        bot,
+        screen,
+        'TRC20 cannot be confirmed automatically, so it is not offered.',
+        homeKeyboard(await storeContext()),
+        'HTML',
+      );
+      return;
+    }
     const current = await storeContext();
     const order = await ownedOrder(orderId);
     const address = current.trc20WalletAddress;
@@ -1165,6 +1203,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function startDemo(screen: Screen, orderId: string): Promise<void> {
+    if (!paymentSandboxEnabled()) {
+      await show(bot, screen, 'Crypto payments are temporarily unavailable.', homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
     const order = await ownedOrder(orderId);
     if (!order) {
       await show(bot, screen, BOT_ERRORS.ORDER_NOT_FOUND, homeKeyboard(await storeContext()), 'HTML');
@@ -1190,6 +1232,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function confirmDemo(screen: Screen, orderId: string): Promise<void> {
+    if (!paymentSandboxEnabled()) {
+      await show(bot, screen, 'Crypto payments are temporarily unavailable.', homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
     const current = await storeContext();
     const order = await ownedOrder(orderId);
     if (!order) {
@@ -1433,11 +1479,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function verifyReference(screen: Screen, text: string): Promise<boolean> {
     const trimmed = text.trim();
-    const isHash = TX_HASH_REGEX.test(trimmed) || trimmed.startsWith(PAYMENT_CONFIG.demo.failTxPrefix);
+    const sandbox = paymentSandboxEnabled();
+    const isHash = TX_HASH_REGEX.test(trimmed) || (sandbox && trimmed.startsWith(PAYMENT_CONFIG.demo.failTxPrefix));
     const isBinance =
       BINANCE_NUMERIC_ORDER_ID_REGEX.test(trimmed) ||
-      trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) ||
-      trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix);
+      (sandbox &&
+        (trimmed.startsWith(PAYMENT_CONFIG.demo.successPrefix) || trimmed.startsWith(PAYMENT_CONFIG.demo.failPrefix)));
     if (!isHash && !isBinance) {
       return false;
     }
@@ -1447,7 +1494,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return true;
     }
     await show(bot, screen, isHash ? `⏳ Verifying your transaction on the blockchain...` : `⏳ Verifying your Binance Pay payment...`);
-    if ((await storeContext()).isDemoMode) {
+    if (sandbox) {
       await new Promise((resolve) => {
         setTimeout(resolve, PAYMENT_CONFIG.demo.verificationDelayMs);
       });
@@ -1463,9 +1510,17 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       const reason = result.rejectReason ?? '';
       const method = isHash ? 'USDT' : 'Binance Pay';
       const text =
-        reason === 'AMOUNT_MISMATCH'
-          ? BOT_ERRORS.AMOUNT_MISMATCH(formatUsdt(order.quotedRetailPriceMinor), 'a different amount')
-          : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(method);
+        reason === 'PAYMENTS_UNAVAILABLE' || reason === 'BINANCE_UNAVAILABLE'
+          ? 'Crypto payments are temporarily unavailable.'
+          : reason === 'NOT_FOUND'
+            ? 'That transfer was not found yet. Try again in a minute.'
+            : reason === 'TOO_FEW_CONFIRMATIONS'
+              ? 'Too few confirmations so far. Try again in a minute.'
+              : reason === 'TX_REPLAY' || reason === 'ALREADY_USED'
+                ? 'This transaction hash was already used.'
+                : reason === 'AMOUNT_MISMATCH' || reason === 'AMOUNT_TOO_SMALL'
+                  ? BOT_ERRORS.AMOUNT_MISMATCH(formatUsdt(order.quotedRetailPriceMinor), 'a smaller amount')
+                  : BOT_ERRORS.PAYMENT_VERIFICATION_FAILED(method);
       await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
     } catch (error: unknown) {
       logger.error('telegram payment verification failed', {
@@ -1603,13 +1658,13 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     const current = await storeContext();
     const keyboard = new InlineKeyboard();
-    if (current.binancePayEnabled || current.isDemoMode) {
+    if (current.binancePayEnabled) {
       keyboard.text('🔶 Top up with Binance Pay', 'deposit_bp:').row();
     }
-    if (current.bep20Enabled && current.usdtWalletAddress) {
+    if (current.bep20Enabled && normalizeEthAddress(current.usdtWalletAddress ?? '')) {
       keyboard.text('📤 Top up USDT (BEP20)', 'deposit_bep20:').row();
     }
-    if (current.trc20Enabled && current.trc20WalletAddress) {
+    if (buyerTrc20Visible() && current.trc20Enabled && current.trc20WalletAddress) {
       keyboard.text('📤 Top up USDT (TRC20)', 'deposit_trc20:').row();
     }
     keyboard.text('🔑 Redeem Top-Up Token', 'dep_token:').row();
@@ -1820,7 +1875,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       screen,
       `💳 <b>Top Up — Binance Pay</b>\n\n` +
         `Send USDT via Binance Pay to the merchant below.\n` +
-        `Your balance is credited automatically.\n\n` +
+        `This chat does not credit Binance Pay top-ups automatically. The store matches your reference.\n\n` +
         `Merchant ID: <code>${escHtml(merchantId)}</code>\n\n` +
         `<b>Reference (required):</b> <code>${escHtml(reference)}</code>\n` +
         `<i>Include your Telegram ID as the reference so we can match your payment.</i>` +
@@ -1830,6 +1885,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function showTrc20Topup(screen: Screen): Promise<void> {
+    if (!buyerTrc20Visible()) {
+      await show(
+        bot,
+        screen,
+        'TRC20 cannot be confirmed automatically, so it is not offered.',
+        new InlineKeyboard().text('⬅ Back to Wallet', 'wallet:'),
+        'HTML',
+      );
+      return;
+    }
     const address = (await storeContext()).trc20WalletAddress;
     if (!address) {
       await show(
@@ -1864,13 +1929,13 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     const current = await storeContext();
     const keyboard = new InlineKeyboard().text('🔑 Redeem Top-Up Token', 'dep_token:').row();
-    if (current.bep20Enabled && current.usdtWalletAddress) {
+    if (current.bep20Enabled && normalizeEthAddress(current.usdtWalletAddress ?? '')) {
       keyboard.text('📤 Send USDT (BEP20)', 'dep_bep20:').row();
     }
     if (current.binancePayEnabled) {
       keyboard.text('💳 Binance Pay', 'dep_bp:').row();
     }
-    if (current.trc20Enabled && current.trc20WalletAddress) {
+    if (buyerTrc20Visible() && current.trc20Enabled && current.trc20WalletAddress) {
       keyboard.text('📤 Send USDT (TRC20)', 'dep_trc20:').row();
     }
     keyboard.text('⬅ Back', 'wallet:');
@@ -2126,6 +2191,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       const updated = await updateOrderQuantity(context.supabase, orderId, quantity);
       const title = (await loadCatalog()).find((entry) => entry.product.id === updated.productId)?.product.title ?? 'Product';
       await showPaymentOptions(screen, updated, title);
+      return;
+    }
+    if (data.startsWith('pay_bp_manual:')) {
+      await startBinance(screen, data.slice('pay_bp_manual:'.length));
       return;
     }
     if (data.startsWith('pay_bp:') || data.startsWith('pay:binance:')) {
@@ -2437,6 +2506,24 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (awaitingTopupHash.has(topupStateKey)) {
       await claimTopupHash(screen, trimmed);
+      return;
+    }
+    const manualOrderId = awaitingBinanceManual.get(topupStateKey);
+    if (manualOrderId) {
+      try {
+        await submitBinanceManualReview(context.supabase, manualOrderId, trimmed);
+        awaitingBinanceManual.delete(topupStateKey);
+        await show(
+          bot,
+          screen,
+          'Submitted for review. The order stays unpaid until the owner approves it in the dashboard.',
+          homeKeyboard(await storeContext()),
+          'HTML',
+        );
+      } catch (error: unknown) {
+        const message = error instanceof ValidationError ? error.message : 'Could not submit that reference.';
+        await show(bot, screen, `❌ ${escHtml(message)}`, homeKeyboard(await storeContext()), 'HTML');
+      }
       return;
     }
     if (/^\d{12}$/.test(trimmed) && !trimmed.startsWith('0')) {

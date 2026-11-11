@@ -482,6 +482,46 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ granted: true, capped: false, already: false }], error: null };
     }
 
+    if (fn === 'record_chain_payment') {
+      const hash = String(args.p_tx_hash ?? '').trim().toLowerCase();
+      const network = String(args.p_network ?? '').trim().toLowerCase();
+      const purpose = String(args.p_purpose ?? '');
+      const reference = String(args.p_reference_id ?? '');
+      const amount = asMinor(args.p_amount_minor);
+      const fail = (code: string) => ({ data: [{ success: false, error_code: code }], error: null });
+      if (!/^0x[0-9a-f]{64}$/.test(hash)) {
+        return fail('INVALID_HASH');
+      }
+      if (network !== 'bep20') {
+        return fail('UNSUPPORTED_NETWORK');
+      }
+      if (purpose !== 'topup' && purpose !== 'order') {
+        return fail('INVALID_PURPOSE');
+      }
+      if (reference.length === 0 || amount <= 0n) {
+        return fail('INVALID_AMOUNT');
+      }
+      const payments = tableOf('chain_payments');
+      const existing = payments.find((row) => String(row.network) === network && String(row.tx_hash) === hash);
+      if (existing) {
+        if (String(existing.purpose) === purpose && String(existing.reference_id) === reference) {
+          return { data: [{ success: true, error_code: null }], error: null };
+        }
+        return fail('ALREADY_USED');
+      }
+      payments.push({
+        id: crypto.randomUUID(),
+        network,
+        tx_hash: hash,
+        purpose,
+        reference_id: reference,
+        customer_id: args.p_customer_id ?? null,
+        amount_minor: amount.toString(),
+        created_at: nowIso(),
+      });
+      return { data: [{ success: true, error_code: null }], error: null };
+    }
+
     if (fn === 'credit_wallet_topup') {
       const topupId = String(args.p_topup_id ?? '');
       const hash = String(args.p_tx_hash ?? '').trim().toLowerCase();

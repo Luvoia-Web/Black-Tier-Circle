@@ -6,7 +6,7 @@
  * @module Tests
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/modules/fulfillment', () => ({
   processQueuedOrder: vi.fn().mockResolvedValue({
@@ -16,11 +16,22 @@ vi.mock('@/modules/fulfillment', () => ({
   }),
 }));
 
-import { ValidationError } from '@/lib/errors';
+import type { VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
+import { invalidateCache } from '@/lib/cache';
+import { PaymentError, ValidationError } from '@/lib/errors';
 import { amountSufficient, amountsMatch, minorToUsdtApiString } from '@/lib/money';
-import { bscValueToMinorUnits, getPaymentModeLabel, isPaymentLive } from '@/lib/payment-config';
+import {
+  bscValueToMinorUnits,
+  buyerCheckoutMethods,
+  buyerTrc20Visible,
+  getPaymentModeLabel,
+  isPaymentLive,
+  paymentSandboxEnabled,
+} from '@/lib/payment-config';
+import { checkoutButtons } from '@/modules/catalog/shop-screen';
 import { createOrder } from '@/modules/orders';
-import { verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
+import { confirmDemoOrderPayment, verifyBep20Claim, verifyBinancePayClaim } from '@/modules/payments';
+import { claimWalletTopup, openWalletTopup } from '@/modules/topups';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000010';
@@ -120,6 +131,14 @@ async function ownerOrder(key: string) {
 }
 
 describe('BINANCE PAY (sandbox)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('verifyBinancePayClaim with PAY_ prefix order ID → verified=true', async () => {
     const { db, order } = await ownerOrder('pay-success');
     const result = await verifyBinancePayClaim(db, { orderId: order.id, binanceOrderId: 'PAY_12345' });
@@ -162,6 +181,14 @@ describe('BINANCE PAY (sandbox)', () => {
 });
 
 describe('BEP20 (sandbox)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('verifyBep20Claim with valid 0x hash → verified=true', async () => {
     const { db, order } = await ownerOrder('bep-success');
     const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX });
@@ -203,6 +230,139 @@ describe('BEP20 (sandbox)', () => {
     const replay = await verifyBep20Claim(db, { orderId: second.id, txHash: VALID_TX_TWO });
     expect(replay.verified).toBe(false);
     expect(replay.rejectReason).toBe('TX_REPLAY');
+  });
+});
+
+const STORE_ADDRESS = '0x1111111111111111111111111111111111111111';
+
+function withStoreAddress(db: ReturnType<typeof seedDb>): void {
+  db.tables.platform_settings = [
+    {
+      id: '00000000-0000-4000-8000-000000000099',
+      platform_name: 'Black Tier Circle',
+      platform_usdt_wallet_bep20: STORE_ADDRESS,
+      bep20_enabled: true,
+      binance_pay_enabled: false,
+    },
+  ];
+}
+
+function verifiedTransfer(amountMinor: bigint): VerifyUsdtTransferResult {
+  return {
+    status: 'verified',
+    amountMinor,
+    confirmations: 20,
+    blockNumber: 100n,
+    blockTimestamp: new Date('2026-11-11T00:00:00.000Z'),
+    fromAddress: '0x2222222222222222222222222222222222222222',
+  };
+}
+
+describe('crypto payments fail closed', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    invalidateCache('platform_settings');
+  });
+
+  it('does not mark an order paid in production when no chain provider is reachable', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
+    vi.stubEnv('BSC_RPC_URLS', '');
+    vi.stubEnv('ETHERSCAN_API_KEY', '');
+    const { db, order } = await ownerOrder('bep-no-provider');
+    withStoreAddress(db);
+    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX });
+    expect(result.verified).toBe(false);
+    expect(result.rejectReason).toBe('PAYMENTS_UNAVAILABLE');
+    expect(db.tables.orders?.[0]?.payment_status).toBe('awaiting');
+  });
+
+  it('rejects a transfer that the verifier says happened too early', async () => {
+    const { db, order } = await ownerOrder('bep-too-early');
+    withStoreAddress(db);
+    const result = await verifyBep20Claim(db, { orderId: order.id, txHash: VALID_TX }, async () => ({
+      status: 'rejected',
+      reason: 'TOO_EARLY',
+    }));
+    expect(result.verified).toBe(false);
+    expect(result.rejectReason).toBe('TOO_EARLY');
+    expect(db.tables.orders?.[0]?.payment_status).not.toBe('verified');
+  });
+
+  it('refuses a hash that already credited a wallet top-up', async () => {
+    const db = seedDb();
+    withStoreAddress(db);
+    await openWalletTopup(db, {
+      customerId: CUSTOMER_ID,
+      botId: 'owner',
+      tenantId: null,
+      amountMinor: 1_000_000n,
+    });
+    const credited = await claimWalletTopup(
+      db,
+      { customerId: CUSTOMER_ID, txHash: VALID_TX, toAddress: STORE_ADDRESS },
+      async () => verifiedTransfer(1_000_000n),
+    );
+    expect(credited.status).toBe('credited');
+    const order = await createOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: PRODUCT_ID,
+      idempotencyKey: 'hash-used-by-topup',
+    });
+    const result = await verifyBep20Claim(
+      db,
+      { orderId: order.id, txHash: VALID_TX },
+      async () => verifiedTransfer(order.quotedRetailPriceMinor),
+    );
+    expect(result.verified).toBe(false);
+    expect(result.rejectReason).toBe('ALREADY_USED');
+    const paid = db.tables.orders?.find((row) => String(row.id) === order.id);
+    expect(paid?.payment_status).not.toBe('verified');
+  });
+
+  it('does not let the demo pay path mark an order paid in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
+    const { db, order } = await ownerOrder('demo-blocked');
+    await expect(confirmDemoOrderPayment(db, order.id)).rejects.toBeInstanceOf(PaymentError);
+    expect(db.tables.orders?.[0]?.payment_status).not.toBe('verified');
+    expect(paymentSandboxEnabled()).toBe(false);
+  });
+
+  it('does not treat a PAY_ reference as paid when the sandbox flag is off', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
+    const { db, order } = await ownerOrder('binance-no-sandbox');
+    const result = await verifyBinancePayClaim(db, { orderId: order.id, binanceOrderId: 'PAY_12345' });
+    expect(result.verified).toBe(false);
+    expect(result.rejectReason).toBe('BINANCE_UNAVAILABLE');
+    expect(db.tables.orders?.[0]?.payment_status).toBe('awaiting');
+  });
+
+  it('hides TRC20 from buyers by default', () => {
+    expect(buyerTrc20Visible()).toBe(false);
+    expect(
+      buyerCheckoutMethods({
+        binancePayEnabled: false,
+        bep20Enabled: true,
+        trc20Enabled: true,
+        demoEnabled: true,
+      }).trc20,
+    ).toBe(false);
+    const buttons = checkoutButtons({
+      orderId: '00000000-0000-4000-8000-000000000701',
+      productId: PRODUCT_ID,
+      totalMinor: 1_000_000n,
+      balanceMinor: 0n,
+      minimumDepositMinor: 1_000_000n,
+      binance: false,
+      bep20: true,
+      trc20: false,
+      demo: false,
+    });
+    expect(buttons.some((button) => button.data.startsWith('pay_trc20:'))).toBe(false);
   });
 });
 

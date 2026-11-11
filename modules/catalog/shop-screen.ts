@@ -508,6 +508,7 @@ export function checkoutText(input: {
   readonly shortfallTemplate?: string;
   readonly minimumDepositMinor: bigint | null;
   readonly demoNotice?: string | null;
+  readonly paymentsNotice?: string | null;
 }): string {
   const lines = [
     checkoutTitle(input.title),
@@ -543,6 +544,10 @@ export function checkoutText(input: {
   if (demo) {
     lines.push(demo);
   }
+  const paymentsNotice = present(input.paymentsNotice);
+  if (paymentsNotice) {
+    lines.push(paymentsNotice);
+  }
   return lines.join('\n');
 }
 
@@ -556,6 +561,7 @@ export function checkoutButtons(input: {
   readonly bep20: boolean;
   readonly trc20: boolean;
   readonly demo: boolean;
+  readonly binanceManual?: boolean;
 }): ScreenButton[] {
   const buttons: ScreenButton[] = [];
   const due = topUpAmount(input.totalMinor, input.balanceMinor, input.minimumDepositMinor);
@@ -596,6 +602,13 @@ export function checkoutButtons(input: {
   }
   if (input.demo) {
     buttons.push({ text: 'Test Payment (Demo)', data: `pay_demo:${input.orderId}`, style: 'success', width: 'full' });
+  }
+  if (input.binanceManual) {
+    buttons.push({
+      text: 'Binance Pay — request review',
+      data: `pay_bp_manual:${input.orderId}`,
+      width: 'full',
+    });
   }
   buttons.push({ text: '⬅ Back', data: `product:${input.productId}`, width: 'half' });
   buttons.push({ text: 'Cancel', data: `cancel_order:${input.orderId}`, style: 'danger', width: 'half' });
