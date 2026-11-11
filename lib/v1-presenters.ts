@@ -6,11 +6,10 @@
  * @module V1
  */
 
-import { normalizeEthAddress } from '@/integrations/bsc/verify';
 import { minorToUsdt } from '@/lib/money';
 import type { DbClient } from '@/lib/supabase/query';
 import type { Order } from '@/modules/orders';
-import { resolveOrderPayments, type PaymentClaim } from '@/modules/payments';
+import { resolveCryptoPayee, resolveOrderPayments, type PaymentClaim } from '@/modules/payments';
 
 export function v1OrderStatus(order: Order): {
   payment: string;
@@ -27,7 +26,10 @@ export function v1OrderStatus(order: Order): {
 }
 
 export async function v1CreatedOrder(supabase: DbClient, order: Order): Promise<Record<string, unknown>> {
-  const resolved = await resolveOrderPayments(supabase, order.tenantId);
+  const [resolved, crypto] = await Promise.all([
+    resolveOrderPayments(supabase, order.tenantId),
+    resolveCryptoPayee(supabase, order.tenantId),
+  ]);
   return {
     orderId: order.id,
     status: v1OrderStatus(order),
@@ -36,8 +38,8 @@ export async function v1CreatedOrder(supabase: DbClient, order: Order): Promise<
     paymentOptions: {
       binancePay: { available: resolved.binance !== null },
       bep20: {
-        available: normalizeEthAddress(resolved.bep20Address ?? '') !== null,
-        walletAddress: normalizeEthAddress(resolved.bep20Address ?? ''),
+        available: crypto.enabled,
+        walletAddress: crypto.address,
       },
     },
     createdAt: order.createdAt.toISOString(),

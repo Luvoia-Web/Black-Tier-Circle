@@ -9,7 +9,7 @@
 
 import type { DbClient } from '@/lib/supabase/query';
 import { getPlatformSettings } from '@/modules/platform';
-import { resolveOrderPayments } from '@/modules/payments/resolve';
+import { resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
 import { getTenantSettings } from '@/modules/tenant-settings';
 import { getStoreConfig } from '@/modules/store-config';
 import type { StoredStoreConfig } from '@/modules/store-config/types';
@@ -20,6 +20,8 @@ export type BotContext = {
   readonly tenantId: string | null;
   readonly storeName: string;
   readonly usdtWalletAddress: string | null;
+  /** Set when crypto top-ups are hidden. Null when crypto can be offered. */
+  readonly cryptoNotice: string | null;
   readonly trc20WalletAddress: string | null;
   readonly binancePayEnabled: boolean;
   readonly bep20Enabled: boolean;
@@ -81,6 +83,7 @@ export async function resolveBotContext(
   const platform = await getPlatformSettings(supabase);
   const tenant = tenantId ? await getTenantSettings(supabase, tenantId) : null;
   const payments = await resolveOrderPayments(supabase, tenantId);
+  const crypto = await resolveCryptoPayee(supabase, tenantId);
   const studio = await getStoreConfig(supabase, tenantId);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
@@ -90,10 +93,11 @@ export async function resolveBotContext(
     isOwnerBot: tenantId === null,
     tenantId,
     storeName,
-    usdtWalletAddress: payments.bep20Address,
+    usdtWalletAddress: crypto.address,
+    cryptoNotice: crypto.notice,
     trc20WalletAddress: payments.trc20Address,
     binancePayEnabled: payments.binance !== null,
-    bep20Enabled: payments.bep20Address !== null,
+    bep20Enabled: crypto.enabled,
     trc20Enabled: payments.trc20Address !== null,
     announcementChannelId: tenant?.announcementChannelId ?? null,
     hasAnyPaymentMethod: !payments.demo,

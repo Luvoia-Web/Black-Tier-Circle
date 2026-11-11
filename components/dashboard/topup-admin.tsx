@@ -9,6 +9,8 @@ import { API_ROUTES } from '@/lib/navigation';
 type Health = {
   readonly address: string | null;
   readonly addressValid: boolean;
+  readonly cryptoEnabled: boolean;
+  readonly notice: string | null;
   readonly provider: 'ok' | 'down';
   readonly confirmations: number;
 };
@@ -167,12 +169,17 @@ export function TopupAdmin(): JSX.Element {
         <p className="mt-1 text-sm text-[var(--text-2)]">USDT on BNB Smart Chain. A credit needs a chain check, or a manual review with a reason.</p>
       </div>
       <p className="mb-4 text-sm text-[var(--text-2)]">{data?.note ?? PUBLIC_ADDRESS_NOTE}</p>
+      {health?.notice ? (
+        <p className="mb-4 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--amber-soft)] p-4 text-sm text-[var(--text-1)]" role="status">
+          {health.notice}
+        </p>
+      ) : null}
       {health ? (
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
             <p className="text-xs text-[var(--text-2)]">Receiving address</p>
             <p className={`mt-1 break-all text-sm ${health.addressValid ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}>
-              {health.addressValid ? health.address : 'Not set or not a valid public address'}
+              {health.cryptoEnabled && health.addressValid ? health.address : 'Not enabled'}
             </p>
           </div>
           <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">

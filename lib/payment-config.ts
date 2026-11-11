@@ -12,7 +12,7 @@ import { usdtRawToMinorUnits } from '@/integrations/bsc/verify';
 import { withCache } from '@/lib/cache';
 import type { DbClient } from '@/lib/supabase/query';
 import type { PlatformSettings } from '@/modules/platform/types';
-import { resolveOrderPayments } from '@/modules/payments/resolve';
+import { resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
 
 export const PAYMENT_CONFIG = {
   // ─── BINANCE PAY ─────────────────────────────────────────────────────
@@ -176,19 +176,20 @@ export async function loadPaymentConfig(
 ): Promise<PaymentConfig> {
   const cacheKey = `payment_config_${tenantId ?? 'owner'}`;
   const resolved = await withCache(cacheKey, 60_000, () => resolveOrderPayments(supabase, tenantId));
+  const crypto = await resolveCryptoPayee(supabase, tenantId);
   const hasRealPaymentMethod =
-    resolved.binance !== null || resolved.bep20Address !== null || resolved.trc20Address !== null;
+    resolved.binance !== null || crypto.enabled || resolved.trc20Address !== null;
   const sandbox = paymentSandboxEnabled();
   return {
     walletEnabled: customerBalanceMinor > 0n,
     binancePayEnabled: resolved.binance !== null,
-    bep20Enabled: resolved.bep20Address !== null,
+    bep20Enabled: crypto.enabled,
     trc20Enabled: buyerTrc20Visible() && resolved.trc20Address !== null,
     demoEnabled: sandbox && !hasRealPaymentMethod,
     binancePayApiKey: null,
     binancePayApiSecret: null,
     binancePayMerchantId: resolved.binance?.merchantId ?? null,
-    platformUsdtWallet: resolved.bep20Address,
+    platformUsdtWallet: crypto.address,
     platformUsdtTrc20Wallet: resolved.trc20Address,
     isLiveMode: hasRealPaymentMethod,
     isDemoMode: sandbox && !hasRealPaymentMethod,

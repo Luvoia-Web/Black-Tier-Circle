@@ -13,10 +13,14 @@
  * @module Payments
  */
 
+import { normalizeEthAddress } from '@/integrations/bsc/verify';
 import { getDecryptedBinanceCredentials, getPlatformSettings } from '@/modules/platform';
 import type { DecryptedBinanceCredentials } from '@/modules/platform';
 import { getTenantPaymentSource } from '@/modules/tenant-settings';
 import type { DbClient } from '@/lib/supabase/query';
+
+export const RESELLER_CRYPTO_DISABLED =
+  'Crypto payments are not enabled for this store. Turn on “Use my own USDT wallet” and save your own BEP20 address in payment settings.';
 
 export type ResolvedPayments = {
   readonly demo: boolean;
@@ -65,4 +69,40 @@ export async function resolveOrderPayments(
     bep20Address,
     trc20Address,
   };
+}
+
+export type CryptoPayee = {
+  readonly enabled: boolean;
+  readonly address: string | null;
+  readonly notice: string | null;
+};
+
+/**
+ * Address a crypto top-up may use.
+ * The owner bot uses the owner address. A reseller bot uses only that reseller’s
+ * own address. It does not fall back to the owner, so reseller buyers cannot
+ * be told to pay the owner while their credit stays on the reseller store.
+ */
+export async function resolveCryptoPayee(supabase: DbClient, tenantId: string | null): Promise<CryptoPayee> {
+  if (tenantId === null) {
+    const platform = await getPlatformSettings(supabase);
+    const address =
+      platform.bep20Enabled && platform.platformUsdtWalletBep20
+        ? normalizeEthAddress(platform.platformUsdtWalletBep20)
+        : null;
+    if (!address) {
+      return {
+        enabled: false,
+        address: null,
+        notice: 'Save a valid BEP20 address in owner payment settings before buyers can top up with crypto.',
+      };
+    }
+    return { enabled: true, address, notice: null };
+  }
+  const tenant = await getTenantPaymentSource(supabase, tenantId);
+  const own = tenant.useOwnUsdtWallet ? normalizeEthAddress(tenant.usdtWalletBep20 ?? '') : null;
+  if (!own) {
+    return { enabled: false, address: null, notice: RESELLER_CRYPTO_DISABLED };
+  }
+  return { enabled: true, address: own, notice: null };
 }

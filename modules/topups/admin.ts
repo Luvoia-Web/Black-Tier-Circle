@@ -9,7 +9,7 @@ import { AppError, ValidationError } from '@/lib/errors';
 import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { TX_HASH_REGEX } from '@/lib/validations/payments';
-import { resolveOrderPayments } from '@/modules/payments/resolve';
+import { resolveCryptoPayee } from '@/modules/payments/resolve';
 
 const PAGE_SIZE = 20;
 const READ_CAP = 1000;
@@ -46,6 +46,8 @@ export type TopupListItem = {
 export type TopupHealth = {
   readonly address: string | null;
   readonly addressValid: boolean;
+  readonly cryptoEnabled: boolean;
+  readonly notice: string | null;
   readonly provider: 'ok' | 'down';
   readonly confirmations: number;
 };
@@ -142,12 +144,13 @@ export async function topupHealth(
   tenantId: string | null,
   probe: () => Promise<'ok' | 'down'> = async () => 'down',
 ): Promise<TopupHealth> {
-  const resolved = await resolveOrderPayments(supabase, tenantId);
-  const address = normalizeEthAddress(resolved.bep20Address ?? '');
-  const provider = address ? await probe() : 'down';
+  const payee = await resolveCryptoPayee(supabase, tenantId);
+  const provider = payee.address ? await probe() : 'down';
   return {
-    address,
-    addressValid: address !== null,
+    address: payee.address,
+    addressValid: payee.address !== null,
+    cryptoEnabled: payee.enabled,
+    notice: payee.notice,
     provider,
     confirmations: bep20MinConfirmations(),
   };
@@ -283,8 +286,8 @@ export async function reviewWalletTopup(
       throw new ValidationError('INVALID_HASH', 'Paste the transaction hash, or leave it blank for a manual credit.');
     }
     const stored = normalizeEthAddress(topup.pay_to_address ?? '');
-    const resolved = stored ? null : await resolveOrderPayments(supabase, input.tenantId);
-    const address = stored ?? normalizeEthAddress(resolved?.bep20Address ?? '');
+    const payee = stored ? null : await resolveCryptoPayee(supabase, input.tenantId);
+    const address = stored ?? payee?.address ?? null;
     if (!address) {
       throw new ValidationError('PAYMENTS_UNAVAILABLE', 'Save a valid public BEP20 address before approving a chain payment.');
     }

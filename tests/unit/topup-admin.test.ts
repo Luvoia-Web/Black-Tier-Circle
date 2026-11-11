@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
-import { reviewWalletTopup } from '@/modules/topups/admin';
+import { reviewWalletTopup, topupHealth } from '@/modules/topups/admin';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const CUSTOMER = '00000000-0000-4000-8000-000000000301';
@@ -47,6 +47,27 @@ function verified(amountMinor: bigint): VerifyUsdtTransferResult {
     fromAddress: '0x2222222222222222222222222222222222222222',
   };
 }
+
+describe('top-up health', () => {
+  it('tells a reseller without their own wallet that crypto is off', async () => {
+    const memory = createMemoryDb({
+      platform_settings: [
+        {
+          id: '00000000-0000-4000-8000-000000000099',
+          platform_usdt_wallet_bep20: ADDRESS,
+          bep20_enabled: true,
+        },
+      ],
+      tenant_settings: [{ tenant_id: 'tenant-1', use_own_usdt_wallet: false }],
+    });
+    const health = await topupHealth(memory, 'tenant-1', async () => 'ok');
+    expect(health.cryptoEnabled).toBe(false);
+    expect(health.address).toBeNull();
+    expect(health.provider).toBe('down');
+    expect(health.notice).toContain('Crypto payments are not enabled for this store.');
+    expect(health.notice).toContain('Use my own USDT wallet');
+  });
+});
 
 describe('top-up review', () => {
   it('credits a checked hash once and ignores the same approval again', async () => {

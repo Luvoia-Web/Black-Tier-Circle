@@ -280,7 +280,9 @@ export default function ResellerSettingsPage(): JSX.Element {
             <div className="my-4 border-t border-[var(--border)]" />
             <Toggle label="Use my own USDT wallet" checked={useOwnWallet} onChange={setUseOwnWallet} />
             <p className="mt-2 text-sm text-[var(--text-3)]">
-              {useOwnWallet ? 'Customers send USDT to your address.' : 'Using platform wallet'}
+              {useOwnWallet
+                ? 'Customers send USDT to your address.'
+                : 'Crypto payments are not enabled for this store. Turn on “Use my own USDT wallet” and save your BEP20 address.'}
             </p>
             {useOwnWallet ? (
               <>

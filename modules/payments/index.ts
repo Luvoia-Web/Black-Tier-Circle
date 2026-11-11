@@ -43,8 +43,8 @@ import type {
   SubmitBinancePayClaimInput,
 } from './types';
 
-export { resolveOrderPayments } from '@/modules/payments/resolve';
-export type { ResolvedPayments } from '@/modules/payments/resolve';
+export { resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
+export type { CryptoPayee, ResolvedPayments } from '@/modules/payments/resolve';
 
 export type {
   CreateBinancePayOrderResult,

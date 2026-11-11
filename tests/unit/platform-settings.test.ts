@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { decrypt } from '@/lib/encryption';
 import { updatePaymentSettings } from '@/modules/platform';
-import { resolveOrderPayments } from '@/modules/payments/resolve';
+import { RESELLER_CRYPTO_DISABLED, resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
+import { checkoutButtons } from '@/modules/catalog/shop-screen';
 import { updateTenantSettings } from '@/modules/tenant-settings';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
@@ -70,6 +71,49 @@ describe('platform payment settings', () => {
     expect(resolved.binance).toBeNull();
     expect(resolved.bep20Address).toBe('0xplatform');
     expect(resolved.demo).toBe(false);
+  });
+
+  it('enables crypto for a reseller only when their own wallet is on', async () => {
+    const owner = '0x1111111111111111111111111111111111111111';
+    const reseller = '0x2222222222222222222222222222222222222222';
+    const db = createMemoryDb({
+      platform_settings: [
+        {
+          id: '00000000-0000-4000-8000-000000000099',
+          platform_usdt_wallet_bep20: owner,
+          bep20_enabled: true,
+        },
+      ],
+      tenant_settings: [
+        { tenant_id: TENANT_ID, use_own_usdt_wallet: false, usdt_wallet_bep20: reseller },
+      ],
+    });
+    const blocked = await resolveCryptoPayee(db, TENANT_ID);
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.address).toBeNull();
+    expect(blocked.notice).toBe(RESELLER_CRYPTO_DISABLED);
+    expect(blocked.notice).toContain('Crypto payments are not enabled for this store.');
+    const row = db.tables.tenant_settings?.[0];
+    if (!row) {
+      throw new Error('missing tenant settings');
+    }
+    row.use_own_usdt_wallet = true;
+    const own = await resolveCryptoPayee(db, TENANT_ID);
+    expect(own).toEqual({ enabled: true, address: reseller, notice: null });
+    const platform = await resolveCryptoPayee(db, null);
+    expect(platform).toEqual({ enabled: true, address: owner, notice: null });
+    const buttons = checkoutButtons({
+      orderId: '00000000-0000-4000-8000-000000000701',
+      productId: '00000000-0000-4000-8000-000000000401',
+      totalMinor: 1_000_000n,
+      balanceMinor: 0n,
+      minimumDepositMinor: 1_000_000n,
+      binance: false,
+      bep20: false,
+      trc20: false,
+      demo: false,
+    });
+    expect(buttons.some((button) => button.data.startsWith('pay_bep20'))).toBe(false);
   });
 
   it('uses demo mode when nothing is configured', async () => {

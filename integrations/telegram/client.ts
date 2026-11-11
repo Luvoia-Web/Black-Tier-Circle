@@ -838,9 +838,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       ...(current.studio ? { shortfallTemplate: current.studio.config.catalog.templates.checkoutShortfall } : {}),
       minimumDepositMinor: current.minimumDepositMinor,
       ...(config.demoEnabled ? { demoNotice: 'Demo mode. No real payment is required.' } : {}),
-      ...(!config.bep20Enabled && !config.binancePayEnabled && !config.demoEnabled
-        ? { paymentsNotice: 'Crypto payments are temporarily unavailable.' }
-        : {}),
+      ...(current.cryptoNotice && !current.bep20Enabled
+        ? { paymentsNotice: current.cryptoNotice }
+        : !config.bep20Enabled && !config.binancePayEnabled && !config.demoEnabled
+          ? { paymentsNotice: 'Crypto payments are temporarily unavailable.' }
+          : {}),
     });
     await show(bot, screen, text, await paymentKeyboard(order), 'HTML');
   }
