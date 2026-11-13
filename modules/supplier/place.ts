@@ -20,6 +20,8 @@ export type SupplierFulfillment = {
   readonly status: 'delivered' | 'paid' | 'failed';
   readonly amountUsdt: number;
   readonly activationEta: string | null;
+  /** Keys or activated emails actually returned. Zero until the supplier delivers. */
+  readonly deliveredCount: number;
 };
 
 type SupplierRow = {
@@ -44,12 +46,36 @@ function deliveryText(order: ProdSellerOrder): string | null {
   return null;
 }
 
+export function countDeliveredItems(content: string | null | undefined): number {
+  if (!content) {
+    return 0;
+  }
+  return content.split('\n').filter((line) => line.trim().length > 0).length;
+}
+
+function deliveredItemCount(order: ProdSellerOrder): number {
+  if (order.status !== 'delivered') {
+    return 0;
+  }
+  if (order.deliveredKeys && order.deliveredKeys.length > 0) {
+    return order.deliveredKeys.length;
+  }
+  if (order.deliveredKey) {
+    return 1;
+  }
+  if (order.activation && order.activation.emails.length > 0) {
+    return order.activation.emails.length;
+  }
+  return 0;
+}
+
 export function mapSupplierOrder(order: ProdSellerOrder): SupplierFulfillment {
   const content = deliveryText(order);
   const shared = {
     supplierOrderId: order.orderId,
     amountUsdt: order.amount,
     activationEta: order.activation?.eta ?? null,
+    deliveredCount: deliveredItemCount(order),
   };
   if (order.status === 'delivered' && content) {
     return {
@@ -94,8 +120,12 @@ export async function fulfillViaSupplier(
   supabase: DbClient,
   orderId: string,
   productId: string,
+  quantity: number,
   customerEmail?: string,
 ): Promise<SupplierFulfillment> {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    throw new AppError('INVALID_QUANTITY', 'Quantity must be a whole number of at least 1', 400);
+  }
   const productResult = await supabase
     .from('products')
     .select('supplier_id, supplier_sku, requires_email_activation')
@@ -128,18 +158,21 @@ export async function fulfillViaSupplier(
     const placed = await adapterByName('canboso').createOrder(
       decrypt(saved.api_key_encrypted),
       product.supplier_sku,
-      1,
+      quantity,
       customerEmail,
       orderId,
       saved.base_url,
     );
+    const status = placed.status === 'delivered' ? 'delivered' : placed.status === 'failed' ? 'failed' : 'paid';
+    const deliveryContent = placed.deliveredContent ?? null;
     return {
       supplierOrderId: placed.externalOrderId,
-      deliveryContent: placed.deliveredContent ?? null,
+      deliveryContent,
       requiresPolling: placed.status === 'pending',
-      status: placed.status === 'delivered' ? 'delivered' : placed.status === 'failed' ? 'failed' : 'paid',
+      status,
       amountUsdt: 0,
       activationEta: placed.estimatedDelivery ?? null,
+      deliveredCount: status === 'delivered' ? countDeliveredItems(deliveryContent) : 0,
     };
   }
   const client = await loadSupplierClient(supabase, product.supplier_id);
@@ -156,7 +189,7 @@ export async function fulfillViaSupplier(
       })
       .eq('id', product.supplier_id);
     if (priceMinor !== null && priceMinor !== undefined) {
-      const needed = Number(priceMinor) / 1_000_000;
+      const needed = (Number(priceMinor) / 1_000_000) * quantity;
       if (balance.balance < needed) {
         throw new SupplierError(
           'INSUFFICIENT_SUPPLIER_BALANCE',
@@ -176,7 +209,7 @@ export async function fulfillViaSupplier(
   }
   const placed = await client.createOrder({
     productId: product.supplier_sku,
-    quantity: 1,
+    quantity,
     idempotencyKey: orderId,
     ...(customerEmail ? { email: customerEmail } : {}),
   });

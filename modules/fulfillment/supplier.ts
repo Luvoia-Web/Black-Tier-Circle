@@ -447,6 +447,13 @@ async function markSupplierOrderFailed(
   await releaseIfReserved(supabase, latest, reason);
 }
 
+function countDeliveryLines(content: string | null | undefined): number {
+  if (!content) {
+    return 0;
+  }
+  return content.split('\n').filter((line) => line.trim().length > 0).length;
+}
+
 async function notifyCustomerOutOfStock(supabase: DbClient, order: Order): Promise<void> {
   if (!order.customerId) {
     return;
@@ -461,7 +468,7 @@ async function notifyCustomerOutOfStock(supabase: DbClient, order: Order): Promi
     await sendHtmlNotice(
       token,
       customer.telegramChatId,
-      `😔 <b>Product Unavailable</b>\n\nOrder <code>${shortId}</code> could not be fulfilled.\nThe product is currently out of stock at our supplier.\n\nYour payment has NOT been deducted.\nPlease contact /support for a refund or alternative.`,
+      `😔 <b>Product Unavailable</b>\n\nOrder <code>${shortId}</code> could not be fulfilled.\nThe product is currently out of stock at our supplier.\n\nThe money has been returned to your wallet balance.`,
     );
   } catch (error: unknown) {
     logger.error('out of stock notice failed', {
@@ -547,12 +554,19 @@ export async function fulfillSupplier(
   const product = await getProduct(supabase, order.productId);
   const connector = getSupplierConnector();
   let result: SupplierOrderResult;
+  let deliveredCount = 0;
 
   try {
     if (product.supplierId) {
       const email = await orderCustomerEmail(supabase, order.id);
       const supplierStarted = Date.now();
-      const placed = await fulfillViaSupplier(supabase, order.id, product.id, email);
+      const placed = await fulfillViaSupplier(supabase, order.id, product.id, order.quantity, email);
+      deliveredCount =
+        placed.status === 'delivered'
+          ? typeof placed.deliveredCount === 'number'
+            ? placed.deliveredCount
+            : countDeliveryLines(placed.deliveryContent)
+          : 0;
       logger.info('supplier order placed', {
         orderId: order.id,
         ms: Date.now() - supplierStarted,
@@ -583,9 +597,10 @@ export async function fulfillSupplier(
       result = await connector.createOrder({
         internalOrderId: order.id,
         supplierProductSku: supplierSkuForProduct(product),
-        quantity: 1,
+        quantity: order.quantity,
         ...(order.externalOrderRef ? { customerRef: order.externalOrderRef } : {}),
       });
+      deliveredCount = result.status === 'completed' ? countDeliveryLines(result.deliveryData) : 0;
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'supplier request error';
@@ -639,6 +654,18 @@ export async function fulfillSupplier(
   await patchFulfillmentAttempt(supabase, fulfillmentAttempt.id, {
     artifactPath: result.supplierOrderId,
   });
+
+  if (result.status === 'completed' && deliveredCount < order.quantity) {
+    const reason = `Supplier delivered ${deliveredCount} of ${order.quantity}. Nothing was sent to the buyer.`;
+    await patchFulfillmentAttempt(supabase, fulfillmentAttempt.id, {
+      status: 'failed',
+      error: reason,
+      completedAt: new Date(),
+    });
+    await markSupplierOrderFailed(supabase, await getOrder(supabase, order.id), reason, 'worker');
+    await notifyOwnerFulfillmentFailed(supabase, order.id, reason);
+    return;
+  }
 
   if (result.status === 'completed' && result.deliveryData) {
     await patchFulfillmentAttempt(supabase, fulfillmentAttempt.id, {

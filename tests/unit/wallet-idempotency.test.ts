@@ -12,6 +12,7 @@ vi.mock('@/modules/supplier/place', () => ({
     status: 'delivered' as const,
     amountUsdt: 1,
     activationEta: null,
+    deliveredCount: 1,
   })),
   loadSupplierClient: vi.fn(),
   orderCustomerEmail: vi.fn(async () => undefined),
@@ -117,6 +118,7 @@ beforeEach(() => {
     status: 'delivered',
     amountUsdt: 1,
     activationEta: null,
+    deliveredCount: 1,
   });
 });
 
