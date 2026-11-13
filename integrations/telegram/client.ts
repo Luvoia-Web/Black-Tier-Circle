@@ -35,6 +35,7 @@ import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
+import { isListedInBot } from '@/modules/catalog/visibility';
 import { loadSoldCounts } from '@/modules/catalog/sold-count';
 import {
   BALANCE_ADDED_TEXT,
@@ -447,12 +448,14 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     return withCache(cacheKey, PRODUCT_CACHE_MS, async () => {
       const items =
         context.tenantId === null
-          ? (await listProducts(context.supabase, { status: 'published' })).map((product) => ({
+          ? (await listProducts(context.supabase, { status: 'published' }))
+              .filter((product) => isListedInBot(product.status))
+              .map((product) => ({
               product,
               priceMinor: product.retailPriceMinor,
             }))
           : (await listResellerListings(context.supabase, context.tenantId))
-              .filter((listing) => listing.isVisible && listing.product.status === 'published')
+              .filter((listing) => listing.isVisible && isListedInBot(listing.product.status))
               .map((listing) => ({ product: listing.product, priceMinor: listing.retailPriceMinor }));
       const sold = await loadSoldCounts(
         context.supabase,

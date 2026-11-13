@@ -117,6 +117,13 @@ export const UpdateProductSchema = z
     durationText: cardText,
     warrantyText: cardText,
     typeLabel: cardText,
+    pricingMode: z.enum(['manual', 'markup']).optional(),
+    wholesaleMarkupKind: z.enum(['percent', 'fixed']).optional(),
+    wholesaleMarkupPercent: z.number().min(0).max(999.99).nullable().optional(),
+    wholesaleMarkupMinor: minorPriceString.nullable().optional(),
+    retailMarkupKind: z.enum(['percent', 'fixed']).optional(),
+    retailMarkupPercent: z.number().min(0).max(999.99).nullable().optional(),
+    retailMarkupMinor: minorPriceString.nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (

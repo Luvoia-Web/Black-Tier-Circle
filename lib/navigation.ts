@@ -84,6 +84,7 @@ export const API_ROUTES = {
   resellers: `${API_PREFIX}/resellers`,
   resellerStatus: (tenantId: string) => `${API_PREFIX}/resellers/${tenantId}/status`,
   products: `${API_PREFIX}/products`,
+  productBulk: `${API_PREFIX}/products/bulk`,
   product: (productId: string) => `${API_PREFIX}/products/${productId}`,
   productTiers: (productId: string) => `${API_PREFIX}/products/${productId}/tiers`,
   productStatus: (productId: string) => `${API_PREFIX}/products/${productId}/status`,

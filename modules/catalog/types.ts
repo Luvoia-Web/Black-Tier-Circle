@@ -100,6 +100,13 @@ export type UpdateProductInput = {
   durationText?: string | null;
   warrantyText?: string | null;
   typeLabel?: string | null;
+  pricingMode?: 'manual' | 'markup';
+  wholesaleMarkupKind?: 'percent' | 'fixed';
+  wholesaleMarkupPercent?: number | null;
+  wholesaleMarkupMinor?: bigint | null;
+  retailMarkupKind?: 'percent' | 'fixed';
+  retailMarkupPercent?: number | null;
+  retailMarkupMinor?: bigint | null;
 };
 
 export type ProductWithAssets = Product & {

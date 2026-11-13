@@ -11,7 +11,8 @@ import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { CreateProductSchema } from '@/lib/validations/catalog';
 import { productTypeLabel } from '@/lib/product-labels';
-import { createProduct, listProducts, type ProductStatus } from '@/modules/catalog';
+import { createProduct, type ProductStatus } from '@/modules/catalog';
+import { listOwnerProducts } from '@/modules/catalog/manage';
 import { createNotification, notifyResellersOfProduct } from '@/modules/notifications';
 
 export const dynamic = 'force-dynamic';
@@ -31,15 +32,23 @@ export async function GET(request: Request): Promise<Response> {
       statusParam !== null && STATUSES.includes(statusParam as ProductStatus)
         ? (statusParam as ProductStatus)
         : undefined;
-    const filters =
-      status === undefined && (category === null || category === '')
-        ? undefined
-        : {
-            ...(status !== undefined ? { status } : {}),
-            ...(category !== null && category !== '' ? { category } : {}),
-          };
+    const page = Math.max(1, Number(url.searchParams.get('page') ?? '1') || 1);
+    const requestedLimit = Number(url.searchParams.get('limit') ?? '24') || 24;
+    const limit = [24, 48, 96].includes(requestedLimit) ? requestedLimit : 24;
+    const stockParam = url.searchParams.get('stock');
+    const sortParam = url.searchParams.get('sort');
     const db = asDbClient(session.admin);
-    const products = await listProducts(db, filters);
+    const listed = await listOwnerProducts(db, {
+      page,
+      limit,
+      status: status ?? 'all',
+      ...(category ? { category } : {}),
+      ...(url.searchParams.get('supplierId') ? { supplierId: url.searchParams.get('supplierId') ?? '' } : {}),
+      ...(url.searchParams.get('search') ? { search: url.searchParams.get('search') ?? '' } : {}),
+      stock: stockParam === 'in' || stockParam === 'out' ? stockParam : 'all',
+      sort: sortParam === 'retail' || sortParam === 'stock' || sortParam === 'created' ? sortParam : 'title',
+    });
+    const products = listed.products;
     const supplierIds = [...new Set(products.map((product) => product.supplierId).filter((id): id is string => Boolean(id)))];
     const supplierNames = new Map<string, string>();
     if (supplierIds.length > 0) {
@@ -60,19 +69,27 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
     return jsonSuccess(
-      products.map((product) => {
-        const supplierName = product.supplierId ? supplierNames.get(product.supplierId) ?? null : null;
-        return {
-          ...product,
-          supplierName,
-          typeLabel: productTypeLabel({
-            deliveryType: product.deliveryType,
-            supplierId: product.supplierId,
+      {
+        products: products.map((product) => {
+          const supplierName = product.supplierId ? supplierNames.get(product.supplierId) ?? null : null;
+          return {
+            ...product,
+            wholesalePriceMinor: product.wholesalePriceMinor.toString(),
+            retailPriceMinor: product.retailPriceMinor.toString(),
             supplierName,
-          }),
-          salesCount: sales.get(product.id) ?? 0,
-        };
-      }),
+            typeLabel: productTypeLabel({
+              deliveryType: product.deliveryType,
+              supplierId: product.supplierId,
+              supplierName,
+            }),
+            salesCount: sales.get(product.id) ?? 0,
+          };
+        }),
+        total: listed.total,
+        page: listed.page,
+        limit: listed.limit,
+        counts: listed.counts,
+      },
       200,
       { cache: 'short' },
     );

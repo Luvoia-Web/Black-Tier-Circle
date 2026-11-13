@@ -98,8 +98,29 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       ...(parsed.durationText !== undefined ? { durationText: parsed.durationText } : {}),
       ...(parsed.warrantyText !== undefined ? { warrantyText: parsed.warrantyText } : {}),
       ...(parsed.typeLabel !== undefined ? { typeLabel: parsed.typeLabel } : {}),
+      ...(parsed.pricingMode !== undefined ? { pricingMode: parsed.pricingMode } : {}),
+      ...(parsed.wholesaleMarkupKind !== undefined ? { wholesaleMarkupKind: parsed.wholesaleMarkupKind } : {}),
+      ...(parsed.wholesaleMarkupPercent !== undefined ? { wholesaleMarkupPercent: parsed.wholesaleMarkupPercent } : {}),
+      ...(parsed.wholesaleMarkupMinor !== undefined ? { wholesaleMarkupMinor: parsed.wholesaleMarkupMinor } : {}),
+      ...(parsed.retailMarkupKind !== undefined ? { retailMarkupKind: parsed.retailMarkupKind } : {}),
+      ...(parsed.retailMarkupPercent !== undefined ? { retailMarkupPercent: parsed.retailMarkupPercent } : {}),
+      ...(parsed.retailMarkupMinor !== undefined ? { retailMarkupMinor: parsed.retailMarkupMinor } : {}),
     });
     return jsonSuccess(product);
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
+  try {
+    const session = await requireUser();
+    if (session.profile.role !== 'owner') {
+      throw new AuthError('FORBIDDEN', 'Owner access required', 403);
+    }
+    const { removeOrArchiveProduct } = await import('@/modules/catalog/manage');
+    const result = await removeOrArchiveProduct(asDbClient(session.admin), context.params.productId);
+    return jsonSuccess(result);
   } catch (error: unknown) {
     return handleRouteError(error);
   }

@@ -374,6 +374,27 @@ export async function updateProduct(
   if (input.status !== undefined) {
     patch.status = input.status;
   }
+  if (input.pricingMode !== undefined) {
+    patch.pricing_mode = input.pricingMode;
+  }
+  if (input.wholesaleMarkupKind !== undefined) {
+    patch.wholesale_markup_kind = input.wholesaleMarkupKind;
+  }
+  if (input.wholesaleMarkupPercent !== undefined) {
+    patch.wholesale_markup_percent = input.wholesaleMarkupPercent;
+  }
+  if (input.wholesaleMarkupMinor !== undefined) {
+    patch.wholesale_markup_minor = input.wholesaleMarkupMinor === null ? null : input.wholesaleMarkupMinor.toString();
+  }
+  if (input.retailMarkupKind !== undefined) {
+    patch.retail_markup_kind = input.retailMarkupKind;
+  }
+  if (input.retailMarkupPercent !== undefined) {
+    patch.retail_markup_percent = input.retailMarkupPercent;
+  }
+  if (input.retailMarkupMinor !== undefined) {
+    patch.retail_markup_minor = input.retailMarkupMinor === null ? null : input.retailMarkupMinor.toString();
+  }
 
   if (existing.supplierId && input.deliveryType !== undefined && input.deliveryType !== 'supplier_api') {
     throw new ValidationError('SUPPLIER_DELIVERY_LOCKED', 'Supplier products stay on supplier API delivery');
