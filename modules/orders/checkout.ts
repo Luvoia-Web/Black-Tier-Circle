@@ -21,7 +21,11 @@ export const UNLIMITED_STOCK_MAX_QTY = 50;
 export function maxOrderQuantity(product: {
   readonly stockUnlimited: boolean;
   readonly stockCount: number | null;
+  readonly supplierInStock?: boolean;
 }): number {
+  if (product.supplierInStock === false) {
+    return 0;
+  }
   if (!product.stockUnlimited) {
     return Math.max(0, product.stockCount ?? 0);
   }

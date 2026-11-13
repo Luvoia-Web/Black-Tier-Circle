@@ -51,6 +51,7 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
   const [search, setSearch] = useState('');
   const [prices, setPrices] = useState<Record<string, { wholesale: string; retail: string }>>({});
   const [loading, setLoading] = useState(true);
+  const [syncNote, setSyncNote] = useState('');
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -118,12 +119,18 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ supplierId: params.supplierId }),
     });
-    const json = (await response.json()) as { success: boolean };
-    if (!json.success) {
+    const json = (await response.json()) as {
+      success: boolean;
+      data?: { results: Array<{ ok: boolean; stockChanged?: number; repriced?: number; autoPaused?: number }> };
+    };
+    const summary = json.data?.results?.[0];
+    if (!json.success || !summary?.ok) {
       toast.error('Sync failed');
       return;
     }
-    toast.success('Sync finished');
+    const note = `Stock changes ${summary.stockChanged ?? 0}. Repriced ${summary.repriced ?? 0}. Auto-paused ${summary.autoPaused ?? 0}.`;
+    setSyncNote(note);
+    toast.success(note);
     await load();
   }
 
@@ -143,6 +150,7 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
       <Link href={ROUTES.owner.supplier} className="mb-4 inline-flex text-sm text-[var(--accent)] hover:underline">
         ← Back to Suppliers
       </Link>
+      {syncNote ? <p className="mb-4 text-sm text-[var(--text-2)]">{syncNote}</p> : null}
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map(([id, label]) => (
           <button

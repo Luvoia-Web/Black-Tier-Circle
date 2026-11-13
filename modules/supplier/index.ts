@@ -13,6 +13,14 @@ import { readCardHints } from '@/modules/catalog/card-text';
 import { adapterByName, detectAdapter, testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { createProdSellerClient } from '@/integrations/prodseller/client';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
+import {
+  catalogWriteForChange,
+  flushCatalogWrites,
+  loadSyncPolicy,
+  missingSyncColumn,
+  normalizeLinkedProduct,
+  notifyOwnerAutoPaused,
+} from './catalog-sync';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
 export { fulfillViaSupplier, mapSupplierOrder, supplierArtifact, supplierCostMinor, supplierOrderIdFromArtifact } from './place';
@@ -284,6 +292,8 @@ type ExistingSupplierProduct = {
   readonly supplier_sku: string;
   readonly review_status: string;
   readonly in_stock: boolean;
+  readonly product_id: string | null;
+  readonly supplier_price: string | number | null;
 };
 
 type SyncSummary = {
@@ -291,8 +301,15 @@ type SyncSummary = {
   newProducts: number;
   updatedProducts: number;
   outOfStock: number;
+  stockChanged: number;
+  repriced: number;
+  autoPaused: number;
   errors: string[];
 };
+
+function emptySync(partial: Omit<SyncSummary, 'stockChanged' | 'repriced' | 'autoPaused'>): SyncSummary {
+  return { ...partial, stockChanged: 0, repriced: 0, autoPaused: 0 };
+}
 
 function chunkList<T>(items: readonly T[], size: number): T[][] {
   const pages: T[][] = [];
@@ -471,7 +488,7 @@ async function loadExistingProducts(
     const page = asRows<ExistingSupplierProduct>(
       await supabase
         .from('supplier_products')
-        .select('id, supplier_sku, review_status, in_stock')
+        .select('id, supplier_sku, review_status, in_stock, product_id, supplier_price')
         .eq('supplier_id', supplierId)
         .order('id')
         .range(offset, offset + EXISTING_PAGE - 1),
@@ -547,7 +564,7 @@ export async function syncSupplierProducts(
     } catch {
       // The empty catalog is still reported below. Nothing is marked out of stock.
     }
-    return { synced: 0, newProducts: 0, updatedProducts: 0, outOfStock: 0, errors: [EMPTY_CATALOG_ERROR] };
+    return emptySync({ synced: 0, newProducts: 0, updatedProducts: 0, outOfStock: 0, errors: [EMPTY_CATALOG_ERROR] });
   }
 
   const existing = await loadExistingProducts(supabase, supplierId);
@@ -564,6 +581,7 @@ export async function syncSupplierProducts(
   let newProducts = 0;
   let updatedProducts = 0;
   const errors: string[] = [];
+  const updatedItems: RemoteCatalogItem[] = [];
 
   // The table has unique (supplier_id, supplier_sku). Upsert is not used:
   // a payload that sets review_status for new rows would also reset it on existing rows.
@@ -603,13 +621,17 @@ export async function syncSupplierProducts(
         }
       }),
     );
-    for (const outcome of outcomes) {
+    outcomes.forEach((outcome, index) => {
       if (outcome) {
         errors.push(outcome);
       } else {
         updatedProducts += 1;
+        const item = batch[index];
+        if (item) {
+          updatedItems.push(item);
+        }
       }
-    }
+    });
   }
 
   const staleIds: string[] = [];
@@ -619,6 +641,7 @@ export async function syncSupplierProducts(
     }
   }
   let outOfStock = 0;
+  const hiddenIds: string[] = [];
   for (const chunk of chunkList(staleIds, OUT_OF_STOCK_CHUNK)) {
     try {
       const hidden = asWrite(
@@ -631,6 +654,7 @@ export async function syncSupplierProducts(
         errors.push(safeSupplierSyncMessage(hidden.error.message));
       } else {
         outOfStock += chunk.length;
+        hiddenIds.push(...chunk);
       }
     } catch (error: unknown) {
       errors.push(safeSupplierSyncMessage(error));
@@ -655,7 +679,133 @@ export async function syncSupplierProducts(
     errors.push(safeSupplierSyncMessage(error));
   }
 
-  return { synced: seen.size, newProducts, updatedProducts, outOfStock, errors };
+  const catalog = await writeCatalogChanges(supabase, supplierId, existing, updatedItems, hiddenIds, now, errors);
+
+  return {
+    synced: seen.size,
+    newProducts,
+    updatedProducts,
+    outOfStock,
+    stockChanged: catalog.stockChanged,
+    repriced: catalog.repriced,
+    autoPaused: catalog.autoPaused,
+    errors,
+  };
+}
+
+async function loadLinkedCatalog(
+  supabase: DbClient,
+  supplierId: string,
+): Promise<Map<string, ReturnType<typeof normalizeLinkedProduct>>> {
+  const found = new Map<string, ReturnType<typeof normalizeLinkedProduct>>();
+  let offset = 0;
+  for (;;) {
+    const page = asRows<{ id: string; retail_price: string | number; wholesale_price: string | number }>(
+      await supabase
+        .from('products')
+        .select(
+          'id, supplier_price_minor, retail_price, wholesale_price, pricing_mode, markup_percent, supplier_in_stock, status, version, auto_paused_reason',
+        )
+        .eq('supplier_id', supplierId)
+        .order('id')
+        .range(offset, offset + EXISTING_PAGE - 1),
+    );
+    if (page.error) {
+      if (missingSyncColumn(page.error.message)) {
+        return found;
+      }
+      throw new AppError('SUPPLIER_SYNC_FAILED', safeSupplierSyncMessage(page.error.message), 500);
+    }
+    for (const row of page.data) {
+      found.set(row.id, normalizeLinkedProduct(row));
+    }
+    if (page.data.length < EXISTING_PAGE) {
+      break;
+    }
+    offset += EXISTING_PAGE;
+  }
+  return found;
+}
+
+async function writeCatalogChanges(
+  supabase: DbClient,
+  supplierId: string,
+  existing: Map<string, ExistingSupplierProduct>,
+  updatedItems: readonly RemoteCatalogItem[],
+  hiddenIds: readonly string[],
+  now: string,
+  errors: string[],
+): Promise<{ stockChanged: number; repriced: number; autoPaused: number }> {
+  const none = { stockChanged: 0, repriced: 0, autoPaused: 0 };
+  let linked: Map<string, ReturnType<typeof normalizeLinkedProduct>>;
+  try {
+    linked = await loadLinkedCatalog(supabase, supplierId);
+  } catch (error: unknown) {
+    errors.push(safeSupplierSyncMessage(error));
+    return none;
+  }
+  if (linked.size === 0) {
+    return none;
+  }
+  const policy = await loadSyncPolicy(supabase);
+  const writes = [];
+  for (const item of updatedItems) {
+    const row = existing.get(item.id);
+    const product = row?.product_id ? linked.get(row.product_id) : undefined;
+    if (!product) {
+      continue;
+    }
+    let costMinor: bigint | null = null;
+    try {
+      costMinor = supplierCostMinor(item.price);
+    } catch {
+      costMinor = null;
+    }
+    const write = catalogWriteForChange({
+      product,
+      name: item.name,
+      inStock: item.inStock,
+      costMinor,
+      policy,
+      considerCost: costMinor !== null,
+    });
+    if (write) {
+      writes.push(write);
+    }
+  }
+  const hidden = new Set(hiddenIds);
+  for (const row of existing.values()) {
+    if (!hidden.has(row.id) || !row.product_id) {
+      continue;
+    }
+    const product = linked.get(row.product_id);
+    if (!product) {
+      continue;
+    }
+    const write = catalogWriteForChange({
+      product,
+      name: row.supplier_sku,
+      inStock: false,
+      costMinor: null,
+      policy,
+      considerCost: false,
+    });
+    if (write) {
+      writes.push(write);
+    }
+  }
+  try {
+    const flushed = await flushCatalogWrites(supabase, writes, now);
+    errors.push(...flushed.errors.map((message) => safeSupplierSyncMessage(message)));
+    const notices = flushed.notices.filter((notice): notice is NonNullable<typeof notice> => notice !== null);
+    if (notices.length > 0) {
+      await notifyOwnerAutoPaused(supabase, notices);
+    }
+    return { stockChanged: flushed.stockChanged, repriced: flushed.repriced, autoPaused: flushed.autoPaused };
+  } catch (error: unknown) {
+    errors.push(safeSupplierSyncMessage(error));
+    return none;
+  }
 }
 
 export async function listSupplierProducts(

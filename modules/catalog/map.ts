@@ -40,6 +40,7 @@ export function mapProductRow(row: ProductRow): Product {
     retailPriceMinor: asMinorUnits(row.retail_price),
     stockUnlimited: row.stock_unlimited,
     stockCount: row.stock_count,
+    supplierInStock: row.supplier_in_stock !== false,
     resellerEligible: row.reseller_eligible,
     maxPurchaseQty: row.max_purchase_qty,
     estimatedDeliveryMinutes: row.estimated_delivery_minutes,

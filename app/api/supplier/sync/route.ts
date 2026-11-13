@@ -42,6 +42,9 @@ export async function POST(req: NextRequest): Promise<Response> {
           newProducts: summary.newProducts,
           updatedProducts: summary.updatedProducts,
           outOfStock: summary.outOfStock,
+          stockChanged: summary.stockChanged,
+          repriced: summary.repriced,
+          autoPaused: summary.autoPaused,
           errors: summary.errors,
           durationMs: Date.now() - started,
         });
@@ -66,6 +69,9 @@ export async function POST(req: NextRequest): Promise<Response> {
           newProducts: 0,
           updatedProducts: 0,
           outOfStock: 0,
+          stockChanged: 0,
+          repriced: 0,
+          autoPaused: 0,
           errors: [message],
           durationMs: Date.now() - started,
         });

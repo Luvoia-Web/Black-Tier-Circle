@@ -119,6 +119,9 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
   }
 
   const quantity = input.quantity ?? 1;
+  if (product.supplierInStock === false) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
+  }
   const { maxOrderQuantity } = await import('@/modules/orders/checkout');
   if (quantity < 1 || quantity > maxOrderQuantity(product)) {
     throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Requested quantity is not available');
@@ -251,6 +254,9 @@ export async function updateOrderQuantity(supabase: DbClient, orderId: string, q
     throw new ValidationError('ORDER_NOT_PAYABLE', 'This order is not waiting for payment');
   }
   const product = await getProduct(supabase, order.productId);
+  if (product.supplierInStock === false) {
+    throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Product is not available for purchase');
+  }
   const { maxOrderQuantity } = await import('@/modules/orders/checkout');
   if (quantity < 1 || quantity > maxOrderQuantity(product)) {
     throw new ValidationError('PRODUCT_NOT_AVAILABLE', 'Requested quantity is not available');

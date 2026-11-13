@@ -47,6 +47,7 @@ import {
   productCardButtons,
   productCardText,
   quantityText,
+  isSoldOut,
   bulkOfferText,
   bulkSavingsSentence,
   renderShop,
@@ -202,7 +203,7 @@ function clip(text: string, max: number): string {
 }
 
 function soldOut(product: Product): boolean {
-  return !product.stockUnlimited && (product.stockCount ?? 0) <= 0;
+  return isSoldOut(product);
 }
 
 function customerFacingStatus(order: Order): string {
@@ -896,7 +897,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function showQuantityPicker(screen: Screen, item: CatalogItem): Promise<void> {
     const maxQty = maxOrderQuantity(item.product);
-    if (maxQty <= 1) {
+    if (maxQty < 1) {
+      await show(bot, screen, ERROR_TEXT.OUT_OF_STOCK ?? ERROR_TEXT.DEFAULT ?? '', homeKeyboard(await storeContext()));
+      return;
+    }
+    if (maxQty === 1) {
       await placeOrder(screen, item, 1);
       return;
     }

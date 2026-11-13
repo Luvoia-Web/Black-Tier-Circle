@@ -123,6 +123,9 @@ describe('shop screens', () => {
     expect(button?.data).toBe('soldout:');
     expect(button?.style).toBe('danger');
     expect(button?.text).toContain('Sold out');
+    const supplierSold = product({ stockUnlimited: true, stockCount: null, supplierInStock: false });
+    expect(productCardButtons(supplierSold)[0]?.text).toContain('Sold out');
+    expect(productCardText(supplierSold)).toContain('Stock: Sold out');
     const row = renderShop({ products: [sold], showAll: true }).rows.flat().find((entry) => entry.text.includes('Sample'));
     expect(row?.data).toBe('soldout:');
     expect(row?.data).not.toContain(sold.id);

@@ -33,6 +33,7 @@ export type ShopProduct = {
   readonly priceMinor: bigint;
   readonly stockUnlimited: boolean;
   readonly stockCount: number | null;
+  readonly supplierInStock?: boolean;
   readonly soldCount: number | null;
   readonly description: string | null;
   readonly durationText: string | null;
@@ -48,7 +49,12 @@ export function categoryToken(name: string): string {
   return sha256Hex(name).slice(0, 12);
 }
 
-export function isSoldOut(product: Pick<ShopProduct, 'stockUnlimited' | 'stockCount'>): boolean {
+export function isSoldOut(
+  product: Pick<ShopProduct, 'stockUnlimited' | 'stockCount'> & { readonly supplierInStock?: boolean },
+): boolean {
+  if (product.supplierInStock === false) {
+    return true;
+  }
   return !product.stockUnlimited && (product.stockCount ?? 0) <= 0;
 }
 
@@ -431,7 +437,9 @@ export function productCardText(
   if (hints.warranty) {
     lines.push(`Warranty: ${escapeHtml(hints.warranty)}`);
   }
-  if (product.stockUnlimited) {
+  if (isSoldOut(product)) {
+    lines.push('Stock: Sold out');
+  } else if (product.stockUnlimited) {
     lines.push('Stock: Unlimited');
   } else {
     const count = product.stockCount ?? 0;
@@ -472,7 +480,7 @@ export function productCardButtons(product: ShopProduct, buyable = true): Screen
 }
 
 export function quantityText(product: ShopProduct, priceMinor: bigint, maxQty: number, bulkSection?: string): string {
-  const stock = product.stockUnlimited ? 'Unlimited' : String(product.stockCount ?? 0);
+  const stock = isSoldOut(product) ? 'Sold out' : product.stockUnlimited ? 'Unlimited' : String(product.stockCount ?? 0);
   const lines = [
     `<b>${escapeHtml(product.title)}</b>`,
     `Unit price: <b>${escapeHtml(formatUsdt(priceMinor))}</b>`,
@@ -633,6 +641,7 @@ export function shopProductFrom(product: Product, priceMinor: bigint, soldCount:
     priceMinor,
     stockUnlimited: product.stockUnlimited,
     stockCount: product.stockCount,
+    supplierInStock: product.supplierInStock,
     soldCount,
     description: product.description,
     durationText: product.durationText,

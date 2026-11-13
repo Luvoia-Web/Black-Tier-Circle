@@ -59,6 +59,7 @@ const SANDBOX_PRODUCTS: readonly Product[] = [
     retailPriceMinor: usdtToMinor('10'),
     stockUnlimited: true,
     stockCount: null,
+    supplierInStock: true,
     resellerEligible: true,
     maxPurchaseQty: 1,
     estimatedDeliveryMinutes: null,

@@ -55,9 +55,11 @@ type SyncCall = {
 function createSyncDb(options: {
   readonly supplier: Record<string, unknown>;
   readonly products: Array<Record<string, unknown>>;
+  readonly catalog?: Array<Record<string, unknown>>;
   readonly failInsert?: (rows: Array<Record<string, unknown>>) => boolean;
-}): { client: DbClient; products: Array<Record<string, unknown>>; calls: SyncCall[]; maxInFlight: () => number } {
+}): { client: DbClient; products: Array<Record<string, unknown>>; catalog: Array<Record<string, unknown>>; calls: SyncCall[]; maxInFlight: () => number } {
   const products = options.products;
+  const catalog = options.catalog ?? [];
   const calls: SyncCall[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
@@ -132,6 +134,41 @@ function createSyncDb(options: {
             Object.assign(row, patch);
           }
         }
+        return { data: null, error: null };
+      }
+      if (table === 'products' && op === 'select') {
+        let rows = catalog.filter(matching);
+        if (range) {
+          rows = rows.slice(range.from, range.to + 1);
+        }
+        if (columns !== '*') {
+          const keys = columns.split(',').map((key) => key.trim());
+          rows = rows.map((row) => {
+            const picked: Record<string, unknown> = {};
+            for (const key of keys) {
+              picked[key] = row[key];
+            }
+            return picked;
+          });
+        }
+        return { data: rows, error: null };
+      }
+      if (table === 'products' && op === 'update') {
+        const patch = payload as Record<string, unknown>;
+        for (const row of catalog) {
+          if (matching(row)) {
+            Object.assign(row, patch);
+          }
+        }
+        return { data: null, error: null };
+      }
+      if (table === 'platform_settings' && op === 'select') {
+        return { data: [], error: null };
+      }
+      if (table === 'profiles' && op === 'select') {
+        return { data: [], error: null };
+      }
+      if (table === 'notifications' && op === 'insert') {
         return { data: null, error: null };
       }
       return { data: null, error: { message: `unexpected ${table} ${op}` } };
@@ -218,6 +255,7 @@ function createSyncDb(options: {
   return {
     client: { from, rpc: async () => ({ data: null, error: null }) } as unknown as DbClient,
     products,
+    catalog,
     calls,
     maxInFlight: () => maxInFlight,
   };
@@ -269,6 +307,24 @@ function remoteRow(index: number) {
     requiresEmailActivation: false,
     inStock: true,
     sold: 3,
+  };
+}
+
+function catalogProduct(id: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    supplier_id: SUPPLIER_ID,
+    title: id,
+    retail_price: '20000000',
+    wholesale_price: '15000000',
+    supplier_price_minor: '10000000',
+    pricing_mode: 'manual',
+    markup_percent: null,
+    supplier_in_stock: true,
+    status: 'published',
+    version: 1,
+    auto_paused_reason: null,
+    ...overrides,
   };
 }
 
@@ -480,5 +536,106 @@ describe('syncSupplierProducts', () => {
       { from: 1000, to: 1999 },
     ]);
     expect(db.maxInFlight()).toBe(20);
+  });
+
+  it('reprices a markup product when cost rises and leaves a manual price alone', async () => {
+    listProducts.mockResolvedValue([
+      { ...remoteRow(0), price: 12, inStock: true },
+      { ...remoteRow(1), price: 12, inStock: true },
+    ]);
+    const db = createSyncDb({
+      supplier: supplierRow('psk_unitkey'),
+      products: [existingRow(0), existingRow(1)],
+      catalog: [
+        catalogProduct('prod-0', {
+          pricing_mode: 'markup',
+          markup_percent: 50,
+          retail_price: '15000000',
+          wholesale_price: '15000000',
+        }),
+        catalogProduct('prod-1', { pricing_mode: 'manual', retail_price: '20000000', wholesale_price: '15000000' }),
+      ],
+    });
+
+    const result = await syncSupplierProducts(db.client, SUPPLIER_ID);
+
+    expect(result).toMatchObject({ repriced: 1, autoPaused: 0, stockChanged: 0, errors: [] });
+    expect(db.catalog.find((row) => row.id === 'prod-0')).toMatchObject({
+      supplier_price_minor: '12000000',
+      wholesale_price: '18000000',
+      retail_price: '18000000',
+      version: 2,
+      status: 'published',
+    });
+    expect(db.catalog.find((row) => row.id === 'prod-1')).toMatchObject({
+      supplier_price_minor: '12000000',
+      wholesale_price: '15000000',
+      retail_price: '20000000',
+      version: 1,
+      status: 'published',
+    });
+  });
+
+  it('pauses a manual product that would sell below the new supplier cost', async () => {
+    listProducts.mockResolvedValue([{ ...remoteRow(0), price: 12, inStock: true }]);
+    const db = createSyncDb({
+      supplier: supplierRow('psk_unitkey'),
+      products: [existingRow(0)],
+      catalog: [catalogProduct('prod-0', { pricing_mode: 'manual', retail_price: '10000000', wholesale_price: '10000000' })],
+    });
+
+    const result = await syncSupplierProducts(db.client, SUPPLIER_ID);
+
+    expect(result.autoPaused).toBe(1);
+    expect(result.repriced).toBe(0);
+    expect(db.catalog[0]).toMatchObject({
+      retail_price: '10000000',
+      wholesale_price: '10000000',
+      supplier_price_minor: '12000000',
+      status: 'paused',
+      auto_paused_reason: 'Retail is at or below the supplier cost',
+    });
+  });
+
+  it('marks a vanished supplier product out of stock and restores one that returns', async () => {
+    listProducts.mockResolvedValue([{ ...remoteRow(1), price: 11, inStock: true }]);
+    const gone = createSyncDb({
+      supplier: supplierRow('psk_unitkey'),
+      products: [existingRow(0), existingRow(1)],
+      catalog: [
+        catalogProduct('prod-0', { supplier_in_stock: true, supplier_price_minor: '10000000' }),
+        catalogProduct('prod-1', { supplier_in_stock: true, supplier_price_minor: '11000000', retail_price: '20000000' }),
+      ],
+    });
+    const hidden = await syncSupplierProducts(gone.client, SUPPLIER_ID);
+    expect(hidden.stockChanged).toBe(1);
+    expect(gone.catalog.find((row) => row.id === 'prod-0')?.supplier_in_stock).toBe(false);
+    expect(gone.products.find((row) => row.supplier_sku === 'sku-0')?.in_stock).toBe(false);
+
+    listProducts.mockResolvedValue([{ ...remoteRow(0), price: 10, inStock: true }]);
+    const back = createSyncDb({
+      supplier: supplierRow('psk_unitkey'),
+      products: [{ ...existingRow(0), in_stock: false }],
+      catalog: [catalogProduct('prod-0', { supplier_in_stock: false, supplier_price_minor: '10000000' })],
+    });
+    const restored = await syncSupplierProducts(back.client, SUPPLIER_ID);
+    expect(restored.stockChanged).toBe(1);
+    expect(restored.repriced).toBe(0);
+    expect(back.catalog[0]?.supplier_in_stock).toBe(true);
+  });
+
+  it('does not write catalog rows when stock and cost are unchanged', async () => {
+    listProducts.mockResolvedValue([{ ...remoteRow(0), price: 10, inStock: true }]);
+    const db = createSyncDb({
+      supplier: supplierRow('psk_unitkey'),
+      products: [existingRow(0)],
+      catalog: [catalogProduct('prod-0')],
+    });
+
+    const result = await syncSupplierProducts(db.client, SUPPLIER_ID);
+
+    expect(result).toMatchObject({ stockChanged: 0, repriced: 0, autoPaused: 0, errors: [] });
+    expect(db.calls.filter((call) => call.table === 'products' && call.op === 'update')).toHaveLength(0);
+    expect(db.catalog[0]?.retail_price).toBe('20000000');
   });
 });

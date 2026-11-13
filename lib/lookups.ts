@@ -15,13 +15,16 @@ export const PRODUCT_LIST_COLUMNS =
 
 export const PRODUCT_COLUMNS_BUYER = `${PRODUCT_LIST_COLUMNS}, buyer_category`;
 
-export const PRODUCT_COLUMNS_FULL = `${PRODUCT_COLUMNS_BUYER}, duration_text, warranty_text, type_label`;
+export const PRODUCT_COLUMNS_FULL = `${PRODUCT_COLUMNS_BUYER}, duration_text, warranty_text, type_label, supplier_in_stock`;
 
 /**
  * Picks the next column list when a migration has not been applied yet.
  * Card columns are dropped first so buyer_category still loads.
  */
 export function productColumnsAfterError(previous: string, message: string): string | null {
+  if (/supplier_in_stock/i.test(message) && previous.includes('supplier_in_stock')) {
+    return previous.replace(', supplier_in_stock', '');
+  }
   if (
     /duration_text|warranty_text|type_label/i.test(message) &&
     previous !== PRODUCT_COLUMNS_BUYER &&

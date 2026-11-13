@@ -27,6 +27,8 @@ export type Product = {
   retailPriceMinor: bigint;
   stockUnlimited: boolean;
   stockCount: number | null;
+  /** False when the linked supplier row is out of stock. Missing means in stock. */
+  supplierInStock: boolean;
   resellerEligible: boolean;
   maxPurchaseQty: number;
   estimatedDeliveryMinutes: number | null;
@@ -117,6 +119,7 @@ export type ProductRow = {
   readonly retail_price: string | number | bigint;
   readonly stock_unlimited: boolean;
   readonly stock_count: number | null;
+  readonly supplier_in_stock?: boolean | null;
   readonly reseller_eligible: boolean;
   readonly max_purchase_qty: number;
   readonly estimated_delivery_minutes: number | null;

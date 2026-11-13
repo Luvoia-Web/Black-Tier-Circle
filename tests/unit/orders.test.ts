@@ -15,6 +15,7 @@ import {
   createOrder,
   recordTransition,
 } from '@/modules/orders';
+import { maxOrderQuantity } from '@/modules/orders/checkout';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000010';
@@ -107,6 +108,27 @@ describe('createOrder', () => {
         idempotencyKey: 'missing-product',
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('rejects a supplier product that is out of stock at the supplier', async () => {
+    const db = seedOrderDb();
+    const row = db.tables.products?.[0];
+    if (row) {
+      row.stock_unlimited = true;
+      row.supplier_in_stock = false;
+    }
+    expect(maxOrderQuantity({ stockUnlimited: true, stockCount: null, supplierInStock: false })).toBe(0);
+    await expect(
+      createOrder(db, {
+        channel: 'owner_store',
+        botId: 'owner',
+        customerId: CUSTOMER_ID,
+        productId: PRODUCT_ID,
+        quantity: 1,
+        idempotencyKey: 'supplier-sold-out',
+      }),
+    ).rejects.toMatchObject({ code: 'PRODUCT_NOT_AVAILABLE' });
+    expect(db.tables.orders ?? []).toHaveLength(0);
   });
 
   it('returns the existing order for the same idempotency key', async () => {
