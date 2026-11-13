@@ -605,9 +605,13 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
     let pendingUpdate: MemoryRow | null = null;
     let orderColumn: string | null = null;
     let ascending = true;
+    let wantCount = false;
+    let headOnly = false;
+    let orGroups: Array<{ readonly column: string; readonly pattern: string }> = [];
     let rangeFrom: number | null = null;
     let rangeTo: number | null = null;
     let limitCount: number | null = null;
+    let filteredCount = 0;
     let insertError: { message: string; code: string } | null = null;
 
     function pendingClash(row: MemoryRow): { message: string; code: string } | null {
@@ -647,8 +651,11 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         if (filter.kind === 'lte') {
           return actual <= filter.value;
         }
+        if (filter.kind === 'eq') {
+          return actual === filter.value;
+        }
         return actual === filter.value;
-      });
+      }) && (orGroups.length === 0 || orGroups.some((group) => String(row[group.column] ?? '').toLowerCase().includes(group.pattern)));
     }
 
     function apply(): MemoryRow[] {
@@ -692,6 +699,7 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         return deleted;
       }
       let rows = table.filter(matches);
+      filteredCount = rows.length;
       if (orderColumn) {
         const column = orderColumn;
         rows = [...rows].sort((left, right) => {
@@ -699,6 +707,9 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
           const bv = String(right[column] ?? '');
           return ascending ? av.localeCompare(bv) : bv.localeCompare(av);
         });
+      }
+      if (headOnly) {
+        return [];
       }
       if (rangeFrom !== null && rangeTo !== null) {
         rows = rows.slice(rangeFrom, rangeTo + 1);
@@ -709,7 +720,9 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
     }
 
     const builder: QueryBuilder<unknown> = {
-      select(): QueryBuilder<unknown> {
+      select(_columns?: string, options?: { count?: 'exact'; head?: boolean }): QueryBuilder<unknown> {
+        wantCount = options?.count === 'exact';
+        headOnly = options?.head === true;
         return builder;
       },
       insert(values): QueryBuilder<unknown> {
@@ -727,7 +740,7 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         return builder;
       },
       eq(column, value): QueryBuilder<unknown> {
-        filters.push({ kind: 'eq', column, value });
+        filters.push({ kind: 'eq', column, value: String(value) });
         return builder;
       },
       in(column, values): QueryBuilder<unknown> {
@@ -760,6 +773,16 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         rangeTo = toIndex;
         return builder;
       },
+      or(expression: string): QueryBuilder<unknown> {
+        orGroups = expression
+          .split(',')
+          .map((part) => {
+            const match = part.match(/^([a-z0-9_]+)\.ilike\.%(.*)%$/i);
+            return match?.[1] && match[2] !== undefined ? { column: match[1], pattern: match[2].toLowerCase() } : null;
+          })
+          .filter((group): group is { column: string; pattern: string } => group !== null);
+        return builder;
+      },
       async maybeSingle(): Promise<QueryResult<unknown | null>> {
         const rows = apply();
         return { data: rows[0] ?? null, error: null };
@@ -778,7 +801,10 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         return { data: row, error: null };
       },
       then(onfulfilled, onrejected) {
-        return Promise.resolve({ data: apply(), error: null }).then(onfulfilled, onrejected);
+        return Promise.resolve({ data: apply(), error: null, count: wantCount ? filteredCount : null }).then(
+          onfulfilled,
+          onrejected,
+        );
       },
     };
     return builder;

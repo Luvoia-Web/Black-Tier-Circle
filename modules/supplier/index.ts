@@ -20,8 +20,8 @@ import {
   missingSyncColumn,
   normalizeLinkedProduct,
   notifyOwnerAutoPaused,
-  priceWithMarkup,
 } from './catalog-sync';
+import { priceWithRule, type MarkupSide } from './markup-rules';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
 export { fulfillViaSupplier, mapSupplierOrder, supplierArtifact, supplierCostMinor, supplierOrderIdFromArtifact } from './place';
@@ -72,6 +72,12 @@ export type SupplierProductRecord = {
   readonly deliveryType: string;
   readonly requiresEmailActivation: boolean;
   readonly inStock: boolean;
+  readonly stockCount: number | null;
+  readonly soldCount: number;
+  readonly durationText: string | null;
+  readonly warrantyText: string | null;
+  readonly typeLabel: string | null;
+  readonly lastSyncedAt: string | null;
   readonly reviewStatus: string;
   readonly wholesalePriceMinor: string | null;
   readonly retailPriceMinor: string | null;
@@ -91,13 +97,16 @@ type CatalogRow = {
   readonly delivery_type: string;
   readonly requires_email_activation: boolean;
   readonly in_stock: boolean;
+  readonly stock_count?: number | null;
+  readonly sold_count?: number | null;
+  readonly duration_text?: string | null;
+  readonly warranty_text?: string | null;
+  readonly type_label?: string | null;
+  readonly last_synced_at?: string | null;
   readonly review_status: string;
   readonly wholesale_price_minor: string | number | null;
   readonly retail_price_minor: string | number | null;
   readonly product_id: string | null;
-  readonly duration_text?: string | null;
-  readonly warranty_text?: string | null;
-  readonly type_label?: string | null;
 };
 
 function mapSupplier(row: SupplierDbRow): SupplierRecord {
@@ -118,7 +127,7 @@ function mapSupplier(row: SupplierDbRow): SupplierRecord {
   };
 }
 
-function mapCatalog(row: CatalogRow): SupplierProductRecord {
+function mapCatalog(row: CatalogRow, linkedProductId: string | null = null): SupplierProductRecord {
   return {
     id: row.id,
     supplierId: row.supplier_id,
@@ -132,10 +141,16 @@ function mapCatalog(row: CatalogRow): SupplierProductRecord {
     deliveryType: row.delivery_type,
     requiresEmailActivation: row.requires_email_activation,
     inStock: row.in_stock,
+    stockCount: row.stock_count === undefined || row.stock_count === null ? null : Number(row.stock_count),
+    soldCount: Number(row.sold_count ?? 0),
+    durationText: row.duration_text ?? null,
+    warrantyText: row.warranty_text ?? null,
+    typeLabel: row.type_label ?? null,
+    lastSyncedAt: row.last_synced_at ?? null,
     reviewStatus: row.review_status,
     wholesalePriceMinor: row.wholesale_price_minor === null ? null : String(row.wholesale_price_minor),
     retailPriceMinor: row.retail_price_minor === null ? null : String(row.retail_price_minor),
-    productId: row.product_id,
+    productId: row.product_id ?? linkedProductId,
   };
 }
 
@@ -817,24 +832,170 @@ async function writeCatalogChanges(
   }
 }
 
-export async function listSupplierProducts(
+const STATUS_KEYS = ['pending_review', 'published', 'rejected', 'paused'] as const;
+const LIST_PAGE_MAX = 96;
+const RANGE_PAGE = 1000;
+
+export type SupplierCatalogQuery = {
+  readonly supplierId: string;
+  readonly page?: number;
+  readonly limit?: number;
+  readonly status?: string;
+  readonly search?: string;
+  readonly sort?: 'name' | 'cost' | 'stock' | 'synced';
+  readonly stock?: 'all' | 'in' | 'out';
+  readonly pushed?: 'all' | 'published' | 'not_published';
+};
+
+export type SupplierCatalogPage = {
+  readonly products: SupplierProductRecord[];
+  readonly total: number;
+  readonly page: number;
+  readonly limit: number;
+  readonly counts: Record<(typeof STATUS_KEYS)[number], number>;
+};
+
+type ListedResult = {
+  readonly data: CatalogRow[] | null;
+  readonly error: { message: string } | null;
+  readonly count?: number | null;
+};
+
+function sortColumn(sort: SupplierCatalogQuery['sort']): { column: string; ascending: boolean } {
+  if (sort === 'cost') {
+    return { column: 'supplier_price', ascending: false };
+  }
+  if (sort === 'stock') {
+    return { column: 'stock_count', ascending: false };
+  }
+  if (sort === 'synced') {
+    return { column: 'last_synced_at', ascending: false };
+  }
+  return { column: 'name', ascending: true };
+}
+
+function applyListFilters(
   supabase: DbClient,
-  filters: { readonly supplierId: string; readonly status?: string; readonly search?: string },
-): Promise<SupplierProductRecord[]> {
-  let query = supabase.from('supplier_products').select('*').eq('supplier_id', filters.supplierId).order('name');
+  filters: SupplierCatalogQuery,
+): ReturnType<DbClient['from']> {
+  let query = supabase.from('supplier_products').select('*').eq('supplier_id', filters.supplierId);
   if (filters.status && filters.status !== 'all') {
     query = query.eq('review_status', filters.status);
   }
-  const { data, error } = await query;
-  if (error) {
-    throw new AppError('SUPPLIER_PRODUCT_LIST_FAILED', error.message, 500);
+  if (filters.stock === 'in' || filters.stock === 'out') {
+    query = query.eq('in_stock', filters.stock === 'in');
   }
-  const rows = ((data ?? []) as CatalogRow[]).map(mapCatalog);
-  const search = filters.search?.trim().toLowerCase();
-  if (!search) {
-    return rows;
+  const search = filters.search?.trim().replace(/[%_,]/g, '') ?? '';
+  if (search) {
+    query = query.or(`name.ilike.%${search}%,supplier_sku.ilike.%${search}%`);
   }
-  return rows.filter((row) => row.name.toLowerCase().includes(search) || row.supplierSku.toLowerCase().includes(search));
+  return query;
+}
+
+async function linkedCatalog(supabase: DbClient, supplierId: string): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  let offset = 0;
+  for (;;) {
+    const page = (await supabase
+      .from('products')
+      .select('id, supplier_sku')
+      .eq('supplier_id', supplierId)
+      .order('id')
+      .range(offset, offset + RANGE_PAGE - 1)) as ListedResult;
+    if (page.error) {
+      return found;
+    }
+    const rows = page.data ?? [];
+    for (const row of rows) {
+      const sku = (row as { supplier_sku?: string | null }).supplier_sku;
+      const id = (row as { id?: string }).id;
+      if (sku && id) {
+        found.set(sku, id);
+      }
+    }
+    if (rows.length < RANGE_PAGE) {
+      break;
+    }
+    offset += RANGE_PAGE;
+  }
+  return found;
+}
+
+async function statusCounts(
+  supabase: DbClient,
+  supplierId: string,
+): Promise<SupplierCatalogPage['counts']> {
+  const counts = { pending_review: 0, published: 0, rejected: 0, paused: 0 };
+  await Promise.all(
+    STATUS_KEYS.map(async (status) => {
+      const result = (await supabase
+        .from('supplier_products')
+        .select('id', { count: 'exact', head: true })
+        .eq('supplier_id', supplierId)
+        .eq('review_status', status)) as ListedResult;
+      counts[status] = result.error ? 0 : (result.count ?? 0);
+    }),
+  );
+  return counts;
+}
+
+export async function listSupplierProducts(
+  supabase: DbClient,
+  filters: SupplierCatalogQuery,
+): Promise<SupplierCatalogPage> {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(LIST_PAGE_MAX, Math.max(1, filters.limit ?? 24));
+  const offset = (page - 1) * limit;
+  const ordering = sortColumn(filters.sort);
+  const [links, counts] = await Promise.all([
+    linkedCatalog(supabase, filters.supplierId),
+    statusCounts(supabase, filters.supplierId),
+  ]);
+  const pushed = filters.pushed ?? 'all';
+  if (pushed === 'all') {
+    const result = (await applyListFilters(supabase, filters)
+      .order(ordering.column, { ascending: ordering.ascending })
+      .range(offset, offset + limit - 1)) as ListedResult & { count?: number | null };
+    if (result.error) {
+      throw new AppError('SUPPLIER_PRODUCT_LIST_FAILED', result.error.message, 500);
+    }
+    const counted = (await applyListFilters(supabase, filters).select('*', { count: 'exact', head: true })) as ListedResult;
+    return {
+      products: (result.data ?? []).map((row) => mapCatalog(row, links.get(row.supplier_sku) ?? null)),
+      total: counted.count ?? result.data?.length ?? 0,
+      page,
+      limit,
+      counts,
+    };
+  }
+  const matched: CatalogRow[] = [];
+  let cursor = 0;
+  for (;;) {
+    const chunk = (await applyListFilters(supabase, filters)
+      .order(ordering.column, { ascending: ordering.ascending })
+      .range(cursor, cursor + RANGE_PAGE - 1)) as ListedResult;
+    if (chunk.error) {
+      throw new AppError('SUPPLIER_PRODUCT_LIST_FAILED', chunk.error.message, 500);
+    }
+    const rows = chunk.data ?? [];
+    for (const row of rows) {
+      const isPushed = links.has(row.supplier_sku);
+      if (pushed === 'published' ? isPushed : !isPushed) {
+        matched.push(row);
+      }
+    }
+    if (rows.length < RANGE_PAGE) {
+      break;
+    }
+    cursor += RANGE_PAGE;
+  }
+  return {
+    products: matched.slice(offset, offset + limit).map((row) => mapCatalog(row, links.get(row.supplier_sku) ?? null)),
+    total: matched.length,
+    page,
+    limit,
+    counts,
+  };
 }
 
 async function getCatalogRow(supabase: DbClient, id: string): Promise<CatalogRow> {
@@ -847,6 +1008,14 @@ async function getCatalogRow(supabase: DbClient, id: string): Promise<CatalogRow
 
 const PUBLISH_BATCH_LIMIT = 200;
 
+function markupColumns(prefix: 'wholesale' | 'retail', rule: MarkupSide): Record<string, string | number | null> {
+  return {
+    [`${prefix}_markup_kind`]: rule.kind,
+    [`${prefix}_markup_percent`]: rule.kind === 'percent' ? rule.percent : null,
+    [`${prefix}_markup_minor`]: rule.kind === 'fixed' && rule.minor !== null ? rule.minor.toString() : null,
+  };
+}
+
 export async function publishSupplierProduct(
   supabase: DbClient,
   supplierProductId: string,
@@ -854,6 +1023,8 @@ export async function publishSupplierProduct(
     readonly wholesalePriceMinor?: bigint;
     readonly retailPriceMinor?: bigint;
     readonly markupPercent?: number;
+    readonly wholesaleRule?: MarkupSide;
+    readonly retailRule?: MarkupSide;
     readonly buyerCategory?: string | null;
   },
 ): Promise<{ productId: string }> {
@@ -861,15 +1032,23 @@ export async function publishSupplierProduct(
   const cost = supplierCostMinor(String(row.supplier_price));
   const hasPrices = input.wholesalePriceMinor !== undefined && input.retailPriceMinor !== undefined;
   const hasMarkup = input.markupPercent !== undefined;
-  if (hasPrices === hasMarkup) {
-    throw new ValidationError('PUBLISH_PRICE_REQUIRED', 'Provide wholesale and retail prices, or a markup percent');
+  const hasRules = input.wholesaleRule !== undefined && input.retailRule !== undefined;
+  if (Number(hasPrices) + Number(hasMarkup) + Number(hasRules) !== 1) {
+    throw new ValidationError('PUBLISH_PRICE_REQUIRED', 'Provide wholesale and retail prices, or a markup rule');
   }
-  const pricingMode = hasMarkup ? 'markup' : 'manual';
-  const priced = hasMarkup
-    ? priceWithMarkup(cost, input.markupPercent ?? 0)
-    : null;
-  const wholesale = priced ?? (input.wholesalePriceMinor as bigint);
-  const retail = priced ?? (input.retailPriceMinor as bigint);
+  const pricingMode = hasPrices ? 'manual' : 'markup';
+  const wholesaleRule = hasRules
+    ? input.wholesaleRule
+    : hasMarkup
+      ? { kind: 'percent' as const, percent: input.markupPercent ?? 0, minor: null }
+      : null;
+  const retailRule = hasRules
+    ? input.retailRule
+    : hasMarkup
+      ? { kind: 'percent' as const, percent: input.markupPercent ?? 0, minor: null }
+      : null;
+  const wholesale = wholesaleRule ? priceWithRule(cost, wholesaleRule) : (input.wholesalePriceMinor as bigint);
+  const retail = retailRule ? priceWithRule(cost, retailRule) : (input.retailPriceMinor as bigint);
   assertPublishPrices(cost, wholesale, retail);
   const now = new Date().toISOString();
   let productId = row.product_id;
@@ -886,6 +1065,8 @@ export async function publishSupplierProduct(
     supplier_price_minor: cost.toString(),
     pricing_mode: pricingMode,
     markup_percent: hasMarkup ? input.markupPercent : null,
+    ...(wholesaleRule ? markupColumns('wholesale', wholesaleRule) : {}),
+    ...(retailRule ? markupColumns('retail', retailRule) : {}),
     supplier_in_stock: row.in_stock !== false,
     requires_email_activation: row.requires_email_activation,
     supplier_metadata: {
@@ -945,6 +1126,8 @@ export async function bulkPublishSupplierProducts(
   input: {
     readonly supplierProductIds: readonly string[];
     readonly markupPercent?: number;
+    readonly wholesaleRule?: MarkupSide;
+    readonly retailRule?: MarkupSide;
     readonly buyerCategory?: string | null;
   },
 ): Promise<{ results: Array<{ id: string; ok: boolean; productId?: string; error?: string }> }> {
@@ -960,7 +1143,9 @@ export async function bulkPublishSupplierProducts(
   for (const id of input.supplierProductIds) {
     try {
       const published = await publishSupplierProduct(supabase, id, {
-        markupPercent: markup,
+        ...(input.wholesaleRule && input.retailRule
+          ? { wholesaleRule: input.wholesaleRule, retailRule: input.retailRule }
+          : { markupPercent: markup }),
         ...(input.buyerCategory ? { buyerCategory: input.buyerCategory } : {}),
       });
       results.push({ id, ok: true, productId: published.productId });

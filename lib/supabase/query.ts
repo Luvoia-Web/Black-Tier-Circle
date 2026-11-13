@@ -15,6 +15,7 @@ export type QueryError = {
 export type QueryResult<T> = {
   readonly data: T;
   readonly error: QueryError | null;
+  readonly count?: number | null;
 };
 
 export type SignedUrlResult = {
@@ -43,11 +44,11 @@ export type StorageAdapter = {
  * Chainable subset of the Supabase JS query builder used in Phase 1 and 2.
  */
 export type QueryBuilder<T> = {
-  select: (columns?: string) => QueryBuilder<T>;
+  select: (columns?: string, options?: { readonly count?: 'exact'; readonly head?: boolean }) => QueryBuilder<T>;
   insert: (values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>) => QueryBuilder<T>;
   update: (values: Record<string, unknown>) => QueryBuilder<T>;
   delete: () => QueryBuilder<T>;
-  eq: (column: string, value: string) => QueryBuilder<T>;
+  eq: (column: string, value: string | number | boolean) => QueryBuilder<T>;
   in: (column: string, values: ReadonlyArray<string>) => QueryBuilder<T>;
   is: (column: string, value: null) => QueryBuilder<T>;
   gte: (column: string, value: string) => QueryBuilder<T>;
@@ -55,6 +56,7 @@ export type QueryBuilder<T> = {
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
   range: (from: number, to: number) => QueryBuilder<T>;
+  or: (filters: string) => QueryBuilder<T>;
   maybeSingle: () => Promise<QueryResult<T | null>>;
   single: () => Promise<QueryResult<T>>;
   then: (
