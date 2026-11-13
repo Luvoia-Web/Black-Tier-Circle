@@ -16,6 +16,7 @@ import { usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult, StorageAdapter } from '@/lib/supabase/query';
 import { normalizeCardText } from './card-text';
 import { mapProductAssetRow, mapProductRow, toPublicAsset } from './map';
+import { loadSyncPolicy, missingSyncColumn, storeMarkupColumns } from '@/modules/supplier/markup-rules';
 import type {
   CreateProductInput,
   Product,
@@ -165,29 +166,31 @@ export async function createProduct(supabase: DbClient, input: CreateProductInpu
     }
   }
 
-  const { data, error } = await supabase
-    .from('products')
-    .insert({
-      sku,
-      title: input.title,
-      description: input.description ?? null,
-      category: input.category ?? null,
-      delivery_type: input.deliveryType,
-      status: 'draft',
-      wholesale_price: input.wholesalePriceMinor.toString(),
-      retail_price: input.retailPriceMinor.toString(),
-      stock_unlimited: stockUnlimited,
-      stock_count: stockUnlimited ? null : (input.stockCount ?? null),
-      reseller_eligible: input.resellerEligible ?? true,
-      max_purchase_qty: input.maxPurchaseQty ?? 1,
-      estimated_delivery_minutes: input.estimatedDeliveryMinutes ?? null,
-      supplier_sku: input.deliveryType === 'supplier_api' ? (input.supplierSku ?? null) : (input.supplierSku ?? null),
-      supplier_metadata: input.supplierMetadata ?? {},
-      ...cardColumnPatch(input),
-      version: 1,
-    })
-    .select('*')
-    .single();
+  const row = {
+    sku,
+    title: input.title,
+    description: input.description ?? null,
+    category: input.category ?? null,
+    delivery_type: input.deliveryType,
+    status: 'draft' as const,
+    wholesale_price: input.wholesalePriceMinor.toString(),
+    retail_price: input.retailPriceMinor.toString(),
+    stock_unlimited: stockUnlimited,
+    stock_count: stockUnlimited ? null : (input.stockCount ?? null),
+    reseller_eligible: input.resellerEligible ?? true,
+    max_purchase_qty: input.maxPurchaseQty ?? 1,
+    estimated_delivery_minutes: input.estimatedDeliveryMinutes ?? null,
+    supplier_sku: input.deliveryType === 'supplier_api' ? (input.supplierSku ?? null) : (input.supplierSku ?? null),
+    supplier_metadata: input.supplierMetadata ?? {},
+    ...cardColumnPatch(input),
+    version: 1,
+  };
+  const inherited = storeMarkupColumns(await loadSyncPolicy(supabase));
+  let inserted = await supabase.from('products').insert({ ...row, ...inherited }).select('*').single();
+  if (inserted.error && missingSyncColumn(inserted.error.message)) {
+    inserted = await supabase.from('products').insert(row).select('*').single();
+  }
+  const { data, error } = inserted;
 
   if (error || data === null) {
     throw new AppError('PRODUCT_CREATE_FAILED', error?.message ?? 'Unable to create product', 500);

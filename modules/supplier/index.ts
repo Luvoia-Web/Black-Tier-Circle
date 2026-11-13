@@ -694,24 +694,32 @@ export async function syncSupplierProducts(
   };
 }
 
+const LINKED_COLUMNS =
+  'id, supplier_price_minor, retail_price, wholesale_price, pricing_mode, markup_percent, supplier_in_stock, status, version, auto_paused_reason';
+const LINKED_MARKUP_COLUMNS =
+  ', wholesale_markup_kind, wholesale_markup_percent, wholesale_markup_minor, retail_markup_kind, retail_markup_percent, retail_markup_minor';
+
 async function loadLinkedCatalog(
   supabase: DbClient,
   supplierId: string,
 ): Promise<Map<string, ReturnType<typeof normalizeLinkedProduct>>> {
   const found = new Map<string, ReturnType<typeof normalizeLinkedProduct>>();
   let offset = 0;
+  let includeMarkup = true;
   for (;;) {
     const page = asRows<{ id: string; retail_price: string | number; wholesale_price: string | number }>(
       await supabase
         .from('products')
-        .select(
-          'id, supplier_price_minor, retail_price, wholesale_price, pricing_mode, markup_percent, supplier_in_stock, status, version, auto_paused_reason',
-        )
+        .select(includeMarkup ? `${LINKED_COLUMNS}${LINKED_MARKUP_COLUMNS}` : LINKED_COLUMNS)
         .eq('supplier_id', supplierId)
         .order('id')
         .range(offset, offset + EXISTING_PAGE - 1),
     );
     if (page.error) {
+      if (includeMarkup && missingSyncColumn(page.error.message)) {
+        includeMarkup = false;
+        continue;
+      }
       if (missingSyncColumn(page.error.message)) {
         return found;
       }

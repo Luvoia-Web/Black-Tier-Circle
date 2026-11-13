@@ -5,20 +5,28 @@
 
 import { logger } from '@/lib/logger';
 import type { DbClient } from '@/lib/supabase/query';
+import {
+  marginBelowMinimum,
+  markupSideFromColumns,
+  missingSyncColumn,
+  priceWithRule,
+  resolveMarkupSides,
+  type MarkupSide,
+  type SyncPolicy,
+} from './markup-rules';
 
-export type SyncPolicy = {
-  readonly autoStockSync: boolean;
-  readonly autoReprice: boolean;
-  readonly defaultMarkupPercent: number;
-  readonly minMarginPercent: number;
-};
-
-export const DEFAULT_SYNC_POLICY: SyncPolicy = {
-  autoStockSync: true,
-  autoReprice: true,
-  defaultMarkupPercent: 50,
-  minMarginPercent: 10,
-};
+export {
+  DEFAULT_SYNC_POLICY,
+  loadSyncPolicy,
+  marginBelowMinimum,
+  missingSyncColumn,
+  priceWithMarkup,
+  priceWithRule,
+  pricesForRules,
+  resolveMarkupSides,
+  storeMarkupColumns,
+} from './markup-rules';
+export type { MarkupKind, MarkupSide, SyncPolicy } from './markup-rules';
 
 const LOSS_REASON = 'Retail is at or below the supplier cost';
 const MARGIN_REASON = 'Supplier cost leaves less than the minimum margin';
@@ -30,6 +38,8 @@ export type LinkedCatalogProduct = {
   readonly wholesaleMinor: bigint;
   readonly pricingMode: 'manual' | 'markup';
   readonly markupPercent: number | null;
+  readonly wholesaleRule: MarkupSide | null;
+  readonly retailRule: MarkupSide | null;
   readonly supplierInStock: boolean;
   readonly status: string;
   readonly version: number;
@@ -52,32 +62,17 @@ type LinkedRow = {
   readonly wholesale_price: string | number;
   readonly pricing_mode?: string | null;
   readonly markup_percent?: string | number | null;
+  readonly wholesale_markup_kind?: string | null;
+  readonly wholesale_markup_percent?: string | number | null;
+  readonly wholesale_markup_minor?: string | number | null;
+  readonly retail_markup_kind?: string | null;
+  readonly retail_markup_percent?: string | number | null;
+  readonly retail_markup_minor?: string | number | null;
   readonly supplier_in_stock?: boolean | null;
   readonly status?: string | null;
   readonly version?: number | string | null;
   readonly auto_paused_reason?: string | null;
 };
-
-export function priceWithMarkup(costMinor: bigint, markupPercent: number): bigint {
-  const bounded = Math.max(0, Math.min(999.99, markupPercent));
-  const hundredths = BigInt(Math.round(bounded * 100));
-  const numerator = costMinor * (10000n + hundredths);
-  return (numerator + 9999n) / 10000n;
-}
-
-export function marginBelowMinimum(retailMinor: bigint, costMinor: bigint, minPercent: number): boolean {
-  if (retailMinor <= 0n || retailMinor <= costMinor) {
-    return true;
-  }
-  const bounded = Math.max(0, Math.min(100, minPercent));
-  const minHundredths = BigInt(Math.round(bounded * 100));
-  return (retailMinor - costMinor) * 10000n < retailMinor * minHundredths;
-}
-
-function finitePercent(value: unknown, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 export function normalizeLinkedProduct(row: LinkedRow): LinkedCatalogProduct {
   const markup = row.markup_percent;
@@ -92,6 +87,12 @@ export function normalizeLinkedProduct(row: LinkedRow): LinkedCatalogProduct {
     wholesaleMinor: BigInt(row.wholesale_price),
     pricingMode: row.pricing_mode === 'markup' ? 'markup' : 'manual',
     markupPercent: parsedMarkup !== null && Number.isFinite(parsedMarkup) ? parsedMarkup : null,
+    wholesaleRule: markupSideFromColumns(
+      row.wholesale_markup_kind,
+      row.wholesale_markup_percent,
+      row.wholesale_markup_minor,
+    ),
+    retailRule: markupSideFromColumns(row.retail_markup_kind, row.retail_markup_percent, row.retail_markup_minor),
     supplierInStock: row.supplier_in_stock !== false,
     status: row.status ?? 'published',
     version: Number(row.version ?? 1),
@@ -127,13 +128,24 @@ export function catalogWriteForChange(input: {
     const mode = product.pricingMode;
     let pauseReason: string | null = null;
     if (mode === 'markup' && input.policy.autoReprice) {
-      const percent = product.markupPercent ?? input.policy.defaultMarkupPercent;
-      const nextPrice = priceWithMarkup(nextCost, percent);
-      if (nextPrice <= nextCost) {
+      const sides = resolveMarkupSides(product, input.policy);
+      const nextWholesale = priceWithRule(nextCost, sides.wholesale);
+      const nextRetail = priceWithRule(nextCost, sides.retail);
+      if (nextRetail <= nextCost) {
         pauseReason = LOSS_REASON;
-      } else if (nextPrice !== product.retailMinor || nextPrice !== product.wholesaleMinor) {
-        patch.wholesale_price = nextPrice.toString();
-        patch.retail_price = nextPrice.toString();
+      } else if (marginBelowMinimum(nextRetail, nextCost, input.policy.minMarginPercent)) {
+        pauseReason = MARGIN_REASON;
+      } else if (nextWholesale !== product.wholesaleMinor || nextRetail !== product.retailMinor) {
+        patch.wholesale_price = nextWholesale.toString();
+        patch.retail_price = nextRetail.toString();
+        patch.wholesale_markup_kind = sides.wholesale.kind;
+        patch.wholesale_markup_percent = sides.wholesale.kind === 'percent' ? sides.wholesale.percent : null;
+        patch.wholesale_markup_minor =
+          sides.wholesale.kind === 'fixed' && sides.wholesale.minor !== null ? sides.wholesale.minor.toString() : null;
+        patch.retail_markup_kind = sides.retail.kind;
+        patch.retail_markup_percent = sides.retail.kind === 'percent' ? sides.retail.percent : null;
+        patch.retail_markup_minor =
+          sides.retail.kind === 'fixed' && sides.retail.minor !== null ? sides.retail.minor.toString() : null;
         patch.version = product.version + 1;
         repriced = true;
       }
@@ -160,39 +172,6 @@ export function catalogWriteForChange(input: {
   return { id: product.id, patch, stockChanged, repriced, autoPaused, notice };
 }
 
-export function missingSyncColumn(message: string): boolean {
-  return /supplier_in_stock|pricing_mode|markup_percent|supplier_cost_changed_at|auto_paused_reason|default_markup_percent|min_margin_percent|auto_stock_sync|auto_reprice_on_cost_change/i.test(
-    message,
-  );
-}
-
-export async function loadSyncPolicy(supabase: DbClient): Promise<SyncPolicy> {
-  try {
-    const result = await supabase
-      .from('platform_settings')
-      .select('default_markup_percent, min_margin_percent, auto_stock_sync, auto_reprice_on_cost_change')
-      .limit(1)
-      .maybeSingle();
-    if (result.error) {
-      return DEFAULT_SYNC_POLICY;
-    }
-    const row = result.data as Record<string, unknown> | null;
-    if (!row) {
-      return DEFAULT_SYNC_POLICY;
-    }
-    return {
-      autoStockSync: row.auto_stock_sync !== false,
-      autoReprice: row.auto_reprice_on_cost_change !== false,
-      defaultMarkupPercent: finitePercent(row.default_markup_percent, DEFAULT_SYNC_POLICY.defaultMarkupPercent),
-      minMarginPercent: finitePercent(row.min_margin_percent, DEFAULT_SYNC_POLICY.minMarginPercent),
-    };
-  } catch (error: unknown) {
-    logger.warn('supplier sync policy unavailable', {
-      message: error instanceof Error ? error.message : 'unknown',
-    });
-    return DEFAULT_SYNC_POLICY;
-  }
-}
 
 function isStockOnly(patch: Record<string, unknown>): boolean {
   const keys = Object.keys(patch);
