@@ -12,6 +12,7 @@ import {
   categorySettingSchema,
   customLinksSchema,
   linkSchema,
+  productCardSchema,
   referralConfigSchema,
 } from '@/modules/store-config/schema';
 import type {
@@ -176,6 +177,11 @@ function mergeCategories(stored: unknown): Record<string, CatalogCategorySetting
   return next;
 }
 
+function mergeProductCard(stored: unknown): StoreConfig['productCard'] {
+  const parsed = productCardSchema.safeParse(stored);
+  return parsed.success ? parsed.data : DEFAULT_STORE_CONFIG.productCard;
+}
+
 /**
  * Merges a stored JSON object over the defaults. Invalid pieces are dropped.
  */
@@ -213,6 +219,7 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
       categories: mergeCategories(catalog?.categories),
       templates: mergeTemplates(catalog?.templates),
     },
+    productCard: mergeProductCard(source.productCard),
     referrals: mergeReferrals(source.referrals),
   };
 }

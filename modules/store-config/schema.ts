@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BUTTON_KEYS } from '@/modules/store-config/types';
+import { BUTTON_KEYS, PRODUCT_CARD_FIELDS } from '@/modules/store-config/types';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
 
 const optionalUrl = z
@@ -86,6 +86,16 @@ export const referralConfigSchema = z.object({
   }),
 });
 
+export const productCardSchema = z.object({
+  fields: z
+    .array(z.enum(PRODUCT_CARD_FIELDS))
+    .min(1)
+    .max(8)
+    .refine((fields) => new Set(fields).size === fields.length, 'Each card field is listed once'),
+  showImage: z.boolean(),
+  fallbackEmoji: z.string().trim().min(1).max(8),
+});
+
 export const StoreConfigSchema = z
   .object({
     welcome: z.string().trim().min(1).max(2000),
@@ -106,6 +116,7 @@ export const StoreConfigSchema = z
       categories: z.record(z.string().trim().min(1).max(50), categorySettingSchema),
       templates: catalogTemplatesSchema,
     }),
+    productCard: productCardSchema,
     referrals: referralConfigSchema,
   })
   .strict()

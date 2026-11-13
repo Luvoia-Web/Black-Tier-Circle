@@ -41,6 +41,7 @@ export type ShopProduct = {
   readonly typeLabel: string | null;
   readonly deliveryType: Product['deliveryType'];
   readonly requiresEmailActivation: boolean;
+  readonly imageUrl?: string | null;
 };
 
 const EMPTY_WORDS = /^(n\/a|null|undefined|none)$/i;
@@ -423,32 +424,71 @@ function descriptionBlock(description: string | null): string | null {
   return `<b>Description</b>\n${body}`;
 }
 
+export type ProductCardField = 'image' | 'name' | 'price' | 'duration' | 'warranty' | 'stock' | 'sold' | 'type';
+
+export type ProductCardSettings = {
+  readonly fields: readonly ProductCardField[];
+  readonly showImage: boolean;
+  readonly fallbackEmoji: string;
+};
+
+function stockLine(product: ShopProduct): string {
+  if (isSoldOut(product)) {
+    return 'Stock: Sold out';
+  }
+  if (product.stockUnlimited) {
+    return 'Stock: Unlimited';
+  }
+  const count = product.stockCount ?? 0;
+  return `Stock: ${count} ${count === 1 ? 'item' : 'items'}`;
+}
+
+function cardLine(product: ShopProduct, field: ProductCardField, card: ProductCardSettings, hints: ReturnType<typeof hintsOf>): string | null {
+  if (field === 'image') {
+    if (!card.showImage) {
+      return null;
+    }
+    return product.imageUrl ? null : card.fallbackEmoji;
+  }
+  if (field === 'name') {
+    return `<b>${escapeHtml(product.title)}</b>`;
+  }
+  if (field === 'price') {
+    return `Price: <b>${escapeHtml(formatUsdt(product.priceMinor))}</b>`;
+  }
+  if (field === 'duration') {
+    return hints.duration ? `Duration: ${escapeHtml(hints.duration)}` : null;
+  }
+  if (field === 'warranty') {
+    return hints.warranty ? `Warranty: ${escapeHtml(hints.warranty)}` : null;
+  }
+  if (field === 'stock') {
+    return stockLine(product);
+  }
+  if (field === 'sold') {
+    return typeof product.soldCount === 'number' && Number.isFinite(product.soldCount) ? `Sold: ${product.soldCount}` : null;
+  }
+  return `Type: ${escapeHtml(buyerTypeLabel(product))}`;
+}
+
 export function productCardText(
   product: ShopProduct & { supplierMetadata?: Record<string, unknown> },
   templates?: Partial<CatalogTemplates>,
   bulk?: string,
+  card?: ProductCardSettings,
 ): string {
   const hints = hintsOf(product);
-  const lines = [`<b>${escapeHtml(product.title)}</b>`];
-  lines.push(`Price: <b>${escapeHtml(formatUsdt(product.priceMinor))}</b>`);
-  if (hints.duration) {
-    lines.push(`Duration: ${escapeHtml(hints.duration)}`);
-  }
-  if (hints.warranty) {
-    lines.push(`Warranty: ${escapeHtml(hints.warranty)}`);
-  }
-  if (isSoldOut(product)) {
-    lines.push('Stock: Sold out');
-  } else if (product.stockUnlimited) {
-    lines.push('Stock: Unlimited');
-  } else {
-    const count = product.stockCount ?? 0;
-    lines.push(`Stock: ${count} ${count === 1 ? 'item' : 'items'}`);
-  }
-  lines.push(`Type: ${escapeHtml(buyerTypeLabel(product))}`);
-  if (typeof product.soldCount === 'number' && Number.isFinite(product.soldCount)) {
-    lines.push(`Sold: ${product.soldCount}`);
-  }
+  const lines: Array<string | null> = card
+    ? card.fields.map((field) => cardLine(product, field, card, hints))
+    : [
+        `<b>${escapeHtml(product.title)}</b>`,
+        `Price: <b>${escapeHtml(formatUsdt(product.priceMinor))}</b>`,
+        hints.duration ? `Duration: ${escapeHtml(hints.duration)}` : null,
+        hints.warranty ? `Warranty: ${escapeHtml(hints.warranty)}` : null,
+        stockLine(product),
+        `Type: ${escapeHtml(buyerTypeLabel(product))}`,
+        typeof product.soldCount === 'number' && Number.isFinite(product.soldCount) ? `Sold: ${product.soldCount}` : null,
+      ];
   const description = descriptionBlock(product.description);
   if (description) {
     lines.push('', description);

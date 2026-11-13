@@ -19,7 +19,7 @@ import {
 import { layoutHomeButtons } from '@/modules/store-config/keyboard';
 import { freebieListText, referralHomeText } from '@/modules/referrals/screens';
 import { renderTemplate } from '@/modules/store-config/template';
-import { BUTTON_KEYS, COMING_SOON_BUTTONS, type ButtonKey, type StoreConfig } from '@/modules/store-config/types';
+import { BUTTON_KEYS, COMING_SOON_BUTTONS, PRODUCT_CARD_FIELDS, type ButtonKey, type ProductCardField, type StoreConfig } from '@/modules/store-config/types';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
 
 type Scope = 'owner' | 'reseller';
@@ -31,7 +31,7 @@ type StudioPayload = {
   readonly buyerCategories?: readonly string[];
 };
 
-const TABS = ['Home', 'Buttons', 'Links', 'Messages', 'Catalog'] as const;
+const TABS = ['Home', 'Buttons', 'Links', 'Messages', 'Catalog', 'Product card', 'Preview'] as const;
 
 function cloneConfig(config: StoreConfig): StoreConfig {
   return JSON.parse(JSON.stringify(config)) as StoreConfig;
@@ -50,6 +50,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
   const [success, setSuccess] = useState('');
   const [conflict, setConflict] = useState(false);
   const [buyerCategories, setBuyerCategories] = useState<readonly string[]>([]);
+  const [catalog, setCatalog] = useState<readonly ShopProduct[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,12 +67,13 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
       setDefaults(body.data.defaults);
       setVersion(body.data.version);
       setBuyerCategories(body.data.buyerCategories ?? []);
+      setCatalog(await loadStudioProducts(scope));
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load Bot Studio');
     } finally {
       setLoading(false);
     }
-  }, [route]);
+  }, [route, scope]);
 
   useEffect(() => {
     void load();
@@ -173,7 +175,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
                 type="button"
                 role="tab"
                 aria-selected={tab === item}
-                className={tab === item ? 'btc-btn-primary' : 'btc-btn-secondary'}
+                className={`${tab === item ? 'btc-btn-primary' : 'btc-btn-secondary'} ${item === 'Preview' ? 'lg:hidden' : ''}`}
                 onClick={() => setTab(item)}
               >
                 {item}
@@ -196,23 +198,24 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
             </button>
           ) : null}
           {tab === 'Buttons' ? (
-            <div className="space-y-4">
-              {BUTTON_KEYS.map((key) => (
-                <ButtonEditor
-                  key={key}
-                  buttonKey={key}
-                  draft={draft}
-                  defaults={defaults}
-                  onChange={setDraft}
-                />
+            <div className="space-y-2">
+              {BUTTON_KEYS.map((key, index) => (
+                <details key={key} open={index === 0} className="border-b border-[var(--border)] py-2">
+                  <summary className="cursor-pointer text-sm text-[var(--text-1)]">{key}</summary>
+                  <ButtonEditor buttonKey={key} draft={draft} defaults={defaults} onChange={setDraft} />
+                </details>
               ))}
-              <CustomLinks draft={draft} onChange={setDraft} />
+              <details className="border-b border-[var(--border)] py-2">
+                <summary className="cursor-pointer text-sm text-[var(--text-1)]">Custom links</summary>
+                <CustomLinks draft={draft} onChange={setDraft} />
+              </details>
             </div>
           ) : null}
           {tab === 'Links' ? (
             <div>
-              {(['channel', 'group', 'website'] as const).map((key) => (
-                <div key={key} className="mb-4">
+              {(['channel', 'group', 'website'] as const).map((key, index) => (
+                <details key={key} open={index === 0} className="mb-2 border-b border-[var(--border)] py-2">
+                  <summary className="cursor-pointer text-sm capitalize text-[var(--text-1)]">{key}</summary>
                   <FormField
                     label={`${key} label`}
                     value={draft.links[key].label}
@@ -237,7 +240,7 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
                   >
                     Reset {key}
                   </button>
-                </div>
+                </details>
               ))}
             </div>
           ) : null}
@@ -250,8 +253,9 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
                   ['orderProcessing', 'Order processing'],
                   ['orderDelivered', 'Order delivered'],
                 ] as const
-              ).map(([key, label]) => (
-                <div key={key}>
+              ).map(([key, label], index) => (
+                <details key={key} open={index === 0} className="border-b border-[var(--border)] py-2">
+                  <summary className="cursor-pointer text-sm text-[var(--text-1)]">{label}</summary>
                   <FormField
                     label={label}
                     multiline
@@ -268,15 +272,30 @@ export function BotStudio({ scope }: { readonly scope: Scope }): JSX.Element {
                   >
                     Reset {label}
                   </button>
-                </div>
+                </details>
               ))}
             </div>
           ) : null}
           {tab === 'Catalog' ? (
             <CatalogTab draft={draft} defaults={defaults} categories={buyerCategories} onChange={setDraft} />
           ) : null}
+          {tab === 'Product card' ? (
+            <ProductCardTab draft={draft} defaults={defaults} onChange={setDraft} />
+          ) : null}
+          {tab === 'Preview' ? (
+            <div className="lg:hidden">
+              <TelegramPreview config={draft} categories={buyerCategories} catalog={catalog} />
+            </div>
+          ) : null}
+          <div className="sticky bottom-0 mt-4 border-t border-[var(--border)] bg-[var(--bg-card)] py-3">
+            <button type="button" className="btc-btn-primary" disabled={saving || !dirty} onClick={() => void save()}>
+              {saving ? 'Saving…' : dirty ? 'Save unsaved changes' : 'Saved'}
+            </button>
+          </div>
         </section>
-        <TelegramPreview config={draft} categories={buyerCategories} />
+        <div className="hidden lg:block">
+          <TelegramPreview config={draft} categories={buyerCategories} catalog={catalog} />
+        </div>
       </div>
     </div>
   );
@@ -398,6 +417,142 @@ function CustomLinks({
 
 const PREVIEW_SCREENS = ['Home', 'Shop', 'Category', 'Product', 'Checkout', 'Refer & Earn', 'Freebies'] as const;
 
+function minorOf(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) {
+    return BigInt(value);
+  }
+  return 0n;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toShopProduct(row: Record<string, unknown>, price: unknown): ShopProduct | null {
+  if (typeof row.id !== 'string' || typeof row.title !== 'string') {
+    return null;
+  }
+  const delivery = row.deliveryType === 'supplier_api' || row.deliveryType === 'manual' || row.deliveryType === 'file_reusable' ? row.deliveryType : 'inventory_unit';
+  return {
+    id: row.id,
+    title: row.title,
+    category: typeof row.category === 'string' ? row.category : null,
+    priceMinor: minorOf(price),
+    stockUnlimited: row.stockUnlimited === true,
+    stockCount: typeof row.stockCount === 'number' ? row.stockCount : null,
+    soldCount: typeof row.salesCount === 'number' ? row.salesCount : typeof row.soldCount === 'number' ? row.soldCount : null,
+    description: typeof row.description === 'string' ? row.description : null,
+    durationText: typeof row.durationText === 'string' ? row.durationText : null,
+    warrantyText: typeof row.warrantyText === 'string' ? row.warrantyText : null,
+    typeLabel: typeof row.typeLabel === 'string' ? row.typeLabel : null,
+    deliveryType: delivery,
+    requiresEmailActivation: row.requiresEmailActivation === true,
+    imageUrl: typeof row.imageUrl === 'string' ? row.imageUrl : null,
+  };
+}
+
+async function loadStudioProducts(scope: Scope): Promise<ShopProduct[]> {
+  try {
+    const response = await fetch(
+      scope === 'owner' ? `${API_ROUTES.products}?status=published&limit=24` : API_ROUTES.resellerListings,
+    );
+    const body = (await response.json()) as { success?: boolean; data?: { products?: unknown[]; listings?: unknown[] } };
+    if (!response.ok || !body.success || !body.data) {
+      return [];
+    }
+    const source = scope === 'owner' ? (body.data.products ?? []) : (body.data.listings ?? []);
+    return source.flatMap((row) => {
+      const record = asRecord(row);
+      if (!record) {
+        return [];
+      }
+      const product = scope === 'owner' ? record : asRecord(record.product);
+      if (!product) {
+        return [];
+      }
+      const mapped = toShopProduct(product, scope === 'owner' ? record.retailPriceMinor : (record.retailPriceMinor ?? product.retailPriceMinor));
+      return mapped ? [mapped] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function ProductCardTab({
+  draft,
+  defaults,
+  onChange,
+}: {
+  readonly draft: StoreConfig;
+  readonly defaults: StoreConfig;
+  readonly onChange: (config: StoreConfig) => void;
+}): JSX.Element {
+  const card = draft.productCard;
+  function setCard(next: StoreConfig['productCard']): void {
+    onChange({ ...draft, productCard: next });
+  }
+  function toggle(field: ProductCardField): void {
+    const fields = card.fields.includes(field) ? card.fields.filter((item) => item !== field) : [...card.fields, field];
+    if (fields.length === 0) {
+      return;
+    }
+    setCard({ ...card, fields });
+  }
+  function move(field: ProductCardField, direction: -1 | 1): void {
+    const fields = [...card.fields];
+    const index = fields.indexOf(field);
+    const target = index + direction;
+    const swapped = fields[target];
+    if (index < 0 || !swapped) {
+      return;
+    }
+    fields[index] = swapped;
+    fields[target] = field;
+    setCard({ ...card, fields });
+  }
+  return (
+    <div>
+      <details open className="border-b border-[var(--border)] py-2">
+        <summary className="cursor-pointer text-sm text-[var(--text-1)]">Fields and order</summary>
+        {PRODUCT_CARD_FIELDS.map((field) => (
+          <div key={field} className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--text-1)]">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={card.fields.includes(field)} onChange={() => toggle(field)} />
+              {field}
+            </label>
+            <button type="button" className="btc-btn-secondary" onClick={() => move(field, -1)}>
+              Up
+            </button>
+            <button type="button" className="btc-btn-secondary" onClick={() => move(field, 1)}>
+              Down
+            </button>
+          </div>
+        ))}
+      </details>
+      <details className="border-b border-[var(--border)] py-2">
+        <summary className="cursor-pointer text-sm text-[var(--text-1)]">Image</summary>
+        <label className="mt-2 flex items-center gap-2 text-sm text-[var(--text-1)]">
+          <input type="checkbox" checked={card.showImage} onChange={(event) => setCard({ ...card, showImage: event.target.checked })} />
+          Show the product image
+        </label>
+        <FormField label="Fallback emoji" value={card.fallbackEmoji} onChange={(fallbackEmoji) => setCard({ ...card, fallbackEmoji })} />
+        <button type="button" className="btc-btn-secondary mt-2" onClick={() => setCard(defaults.productCard)}>
+          Reset product card
+        </button>
+      </details>
+    </div>
+  );
+}
+
 function sampleProduct(id: string, category: string | null, soldOut = false): ShopProduct {
   return {
     id,
@@ -430,20 +585,24 @@ function buttonClass(style?: 'success' | 'danger'): string {
 function TelegramPreview({
   config,
   categories,
+  catalog,
 }: {
   readonly config: StoreConfig;
   readonly categories: readonly string[];
+  readonly catalog: readonly ShopProduct[];
 }): JSX.Element {
   const [screen, setScreen] = useState<(typeof PREVIEW_SCREENS)[number]>('Home');
+  const [productId, setProductId] = useState('');
   const channel = config.links.channel.url ? `${config.links.channel.label}: ${config.links.channel.url}` : '';
   const group = config.links.group.url ? `${config.links.group.label}: ${config.links.group.url}` : '';
   const website = config.links.website.url ? `${config.links.website.label}: ${config.links.website.url}` : '';
+  const usingSample = catalog.length === 0;
   const names = categories.length > 0 ? categories.slice(0, 4) : ['Sample category'];
-  const products = [
-    ...names.map((name, index) => sampleProduct(`sample-${index}`, name, index === 1)),
-    sampleProduct('loose', null),
-  ];
-  const firstName = names[0] ?? 'Sample category';
+  const products = usingSample
+    ? [...names.map((name, index) => sampleProduct(`sample-${index}`, name, index === 1)), sampleProduct('loose', null)]
+    : catalog;
+  const firstName = products[0]?.category ?? names[0] ?? 'Sample category';
+  const chosen = products.find((item) => item.id === productId) ?? products[0] ?? sampleProduct('card', firstName);
   let html = '';
   let rows: ReadonlyArray<ReadonlyArray<{ readonly text: string; readonly style?: 'success' | 'danger' }>> = [];
   if (screen === 'Home') {
@@ -474,9 +633,8 @@ function TelegramPreview({
     html = view.text;
     rows = view.rows;
   } else if (screen === 'Product') {
-    const sample = sampleProduct('card', firstName);
-    html = productCardText(sample, config.catalog.templates);
-    rows = layoutScreenButtons(productCardButtons(sample));
+    html = productCardText(chosen, config.catalog.templates, undefined, config.productCard);
+    rows = layoutScreenButtons(productCardButtons(chosen));
   } else if (screen === 'Refer & Earn') {
     html = referralHomeText({
       template: config.referrals.templates.home,
@@ -498,10 +656,10 @@ function TelegramPreview({
   } else {
     html = checkoutText({
       title: config.messages.checkoutHeader,
-      productTitle: 'Sample product',
+      productTitle: chosen.title,
       quantity: 1,
-      warranty: '30 days',
-      totalMinor: 400_000n,
+      warranty: chosen.warrantyText ?? '30 days',
+      totalMinor: chosen.priceMinor,
       balanceMinor: 0n,
       windowLine: 'You have 15 minutes to complete this payment.',
       shortfallTemplate: config.catalog.templates.checkoutShortfall,
@@ -510,8 +668,8 @@ function TelegramPreview({
     rows = layoutScreenButtons(
       checkoutButtons({
         orderId: 'sample',
-        productId: 'card',
-        totalMinor: 400_000n,
+        productId: chosen.id,
+        totalMinor: chosen.priceMinor,
         balanceMinor: 0n,
         minimumDepositMinor: 1_000_000n,
         binance: true,
@@ -524,6 +682,17 @@ function TelegramPreview({
   return (
     <aside className="btc-card p-4" aria-label="Telegram preview">
       <p className="mb-3 text-sm text-[var(--text-2)]">Preview</p>
+      {usingSample ? <p className="mb-3 text-sm text-[var(--text-2)]">Sample data. This store has no products yet.</p> : null}
+      <label className="mb-3 block text-sm text-[var(--text-2)]">
+        Product
+        <select className="btc-input mt-1 w-full" value={chosen.id} onChange={(event) => setProductId(event.target.value)}>
+          {products.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.title}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Preview screen">
         {PREVIEW_SCREENS.map((item) => (
           <button
@@ -539,6 +708,11 @@ function TelegramPreview({
         ))}
       </div>
       <div className="rounded-2xl bg-[var(--bg-raised)] p-3 text-sm text-[var(--text-1)]">
+        {screen === 'Product' && config.productCard.showImage && config.productCard.fields.includes('image') && chosen.imageUrl ? (
+          // Supplier image hosts are not in the Next image allowlist.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={chosen.imageUrl} alt="" className="mb-3 h-24 w-24 rounded-lg object-cover" />
+        ) : null}
         <PreviewHtml html={html} />
         <div className="mt-3 space-y-2">
           {rows.map((row, index) => (

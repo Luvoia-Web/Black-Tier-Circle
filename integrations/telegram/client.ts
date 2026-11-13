@@ -761,7 +761,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       ...(templates ? { templates } : {}),
       heading: 'card',
     });
-    const text = productCardText(view, templates, bulk);
+    const text = productCardText(view, templates, bulk, current.studio?.config.productCard);
     await show(
       bot,
       screen,

@@ -101,6 +101,16 @@ export type CatalogConfig = {
   readonly templates: CatalogTemplates;
 };
 
+export const PRODUCT_CARD_FIELDS = ['image', 'name', 'price', 'duration', 'warranty', 'stock', 'sold', 'type'] as const;
+
+export type ProductCardField = (typeof PRODUCT_CARD_FIELDS)[number];
+
+export type ProductCardConfig = {
+  readonly fields: readonly ProductCardField[];
+  readonly showImage: boolean;
+  readonly fallbackEmoji: string;
+};
+
 export type StoreConfig = {
   readonly welcome: string;
   readonly buttons: Record<ButtonKey, StoreButton>;
@@ -112,6 +122,7 @@ export type StoreConfig = {
   };
   readonly messages: StoreMessages;
   readonly catalog: CatalogConfig;
+  readonly productCard: ProductCardConfig;
   readonly referrals: ReferralConfig;
 };
 

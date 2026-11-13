@@ -89,6 +89,11 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
     categories: {},
     templates: DEFAULT_CATALOG_TEMPLATES,
   },
+  productCard: {
+    fields: ['name', 'price', 'duration', 'warranty', 'stock', 'type', 'sold'],
+    showImage: true,
+    fallbackEmoji: '📦',
+  },
   referrals: DEFAULT_REFERRAL_CONFIG,
 };
 

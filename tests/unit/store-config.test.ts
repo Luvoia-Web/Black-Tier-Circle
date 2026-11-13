@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/lib/errors';
 import { DEFAULT_STORE_CONFIG } from '@/modules/store-config/defaults';
-import { getStoreConfig, mergeStoreConfig, saveStoreConfig } from '@/modules/store-config';
+import { getStoreConfig, mergeStoreConfig, parseStoreConfig, saveStoreConfig } from '@/modules/store-config';
 import { tenantIdForStudio, writeStudio } from '@/modules/store-config/access';
 import { AuthError } from '@/lib/errors';
 import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
@@ -173,5 +173,26 @@ describe('store config', () => {
     expect(owner.source).toBe('default');
     expect(stranger.source).toBe('default');
     expect(reseller.source).toBe('stored');
+  });
+});
+
+describe('product card config', () => {
+  it('round-trips a card and rejects a field that is not on the card', () => {
+    const stored = mergeStoreConfig({
+      welcome: 'Hello {name}',
+      productCard: { fields: ['price', 'name'], showImage: false, fallbackEmoji: '🎁' },
+    });
+    expect(stored.productCard).toEqual({ fields: ['price', 'name'], showImage: false, fallbackEmoji: '🎁' });
+    const parsed = parseStoreConfig({ ...DEFAULT_STORE_CONFIG, productCard: stored.productCard });
+    expect(parsed.productCard.fields).toEqual(['price', 'name']);
+    expect(() =>
+      parseStoreConfig({
+        ...DEFAULT_STORE_CONFIG,
+        productCard: { fields: ['price', 'nope'], showImage: true, fallbackEmoji: '📦' },
+      }),
+    ).toThrow(ValidationError);
+    expect(mergeStoreConfig({ welcome: 'Hello {name}', productCard: { fields: [] } }).productCard).toEqual(
+      DEFAULT_STORE_CONFIG.productCard,
+    );
   });
 });

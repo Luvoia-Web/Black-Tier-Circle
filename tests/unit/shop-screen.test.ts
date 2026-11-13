@@ -126,6 +126,15 @@ describe('shop screens', () => {
     const supplierSold = product({ stockUnlimited: true, stockCount: null, supplierInStock: false });
     expect(productCardButtons(supplierSold)[0]?.text).toContain('Sold out');
     expect(productCardText(supplierSold)).toContain('Stock: Sold out');
+    const ordered = productCardText(
+      product({ title: 'Real key', durationText: '12 months', warrantyText: '30 days', soldCount: 9 }),
+      undefined,
+      undefined,
+      { fields: ['price', 'name', 'image'], showImage: true, fallbackEmoji: '🎁' },
+    );
+    expect(ordered.indexOf('Price:')).toBeLessThan(ordered.indexOf('Real key'));
+    expect(ordered).toContain('🎁');
+    expect(ordered).not.toContain('Duration');
     const row = renderShop({ products: [sold], showAll: true }).rows.flat().find((entry) => entry.text.includes('Sample'));
     expect(row?.data).toBe('soldout:');
     expect(row?.data).not.toContain(sold.id);
