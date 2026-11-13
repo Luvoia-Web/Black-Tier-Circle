@@ -52,6 +52,9 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
   const [prices, setPrices] = useState<Record<string, { wholesale: string; retail: string }>>({});
   const [loading, setLoading] = useState(true);
   const [syncNote, setSyncNote] = useState('');
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [markupInput, setMarkupInput] = useState('50');
+  const [buyerCategory, setBuyerCategory] = useState('');
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -61,6 +64,7 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
       const json = (await response.json()) as { success: boolean; data?: { products: Item[] } };
       if (json.success && json.data) {
         setItems(json.data.products);
+        setSelected(new Set());
         setPrices((current) => {
           const next = { ...current };
           for (const item of json.data?.products ?? []) {
@@ -135,6 +139,79 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
   }
 
   const counts = useMemo(() => items.length, [items.length]);
+  const allFilteredSelected = items.length > 0 && items.every((item) => selected.has(item.id));
+  const previewSource = items.find((item) => selected.has(item.id)) ?? items[0];
+
+  function previewPrice(costText: string, markupText: string): string {
+    const percent = Number(markupText);
+    if (!Number.isFinite(percent)) {
+      return '';
+    }
+    try {
+      const cost = usdtToMinor(costText);
+      const hundredths = BigInt(Math.round(Math.max(0, Math.min(999.99, percent)) * 100));
+      return formatUsdt((cost * (10000n + hundredths) + 9999n) / 10000n);
+    } catch {
+      return '';
+    }
+  }
+
+  const preview = previewSource ? previewPrice(previewSource.supplierPrice, markupInput) : '';
+
+  function toggleOne(id: string): void {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleFiltered(): void {
+    setSelected(allFilteredSelected ? new Set() : new Set(items.map((item) => item.id)));
+  }
+
+  async function publishSelected(): Promise<void> {
+    const ids = items.filter((item) => selected.has(item.id)).map((item) => item.id);
+    if (ids.length === 0) {
+      toast.error('Select at least one product');
+      return;
+    }
+    const markup = Number(markupInput);
+    if (!Number.isFinite(markup) || markup < 0 || markup > 999.99) {
+      toast.error('Enter a markup between 0 and 999.99');
+      return;
+    }
+    const response = await fetch(API_ROUTES.supplierBulkPublish, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        supplierProductIds: ids,
+        markupPercent: markup,
+        ...(buyerCategory.trim() ? { buyerCategory: buyerCategory.trim() } : {}),
+      }),
+    });
+    const json = (await response.json()) as {
+      success: boolean;
+      error?: { message: string };
+      data?: { results: Array<{ ok: boolean }> };
+    };
+    if (!json.success || !json.data) {
+      toast.error(json.error?.message ?? 'Unable to publish');
+      return;
+    }
+    const failed = json.data.results.filter((result) => !result.ok).length;
+    if (failed === 0) {
+      toast.success(`Published ${json.data.results.length}`);
+    } else {
+      toast.error(`${failed} of ${json.data.results.length} could not be published`);
+    }
+    setSelected(new Set());
+    await load();
+  }
 
   return (
     <>
@@ -151,6 +228,33 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
         ← Back to Suppliers
       </Link>
       {syncNote ? <p className="mb-4 text-sm text-[var(--text-2)]">{syncNote}</p> : null}
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={allFilteredSelected} onChange={toggleFiltered} />
+          Select all filtered
+        </label>
+        <label className="text-sm">
+          Markup %
+          <input
+            className="btc-input mt-1 w-28"
+            inputMode="decimal"
+            value={markupInput}
+            onChange={(event) => setMarkupInput(event.target.value)}
+          />
+        </label>
+        <label className="text-sm">
+          Buyer category
+          <input
+            className="btc-input mt-1 w-48"
+            value={buyerCategory}
+            placeholder="Optional"
+            onChange={(event) => setBuyerCategory(event.target.value)}
+          />
+        </label>
+        <button type="button" className="btc-btn-primary" onClick={() => void publishSelected()}>
+          Publish selected{preview ? ` · ${preview}` : ''}
+        </button>
+      </div>
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map(([id, label]) => (
           <button
@@ -194,6 +298,10 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
             }
             return (
               <article key={item.id} className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
+                <label className="mb-2 flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleOne(item.id)} />
+                  Select
+                </label>
                 {item.imageUrl ? <p className="mb-2 text-xs text-[var(--text-3)]">Image on file</p> : null}
                 <h2 className="font-medium">{item.name}</h2>
                 <p className="text-sm text-[var(--text-2)]">{item.deliveryType} · {item.inStock ? 'In stock' : 'Out of stock'}</p>
@@ -234,6 +342,9 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
           <table className="w-full text-left text-sm">
             <thead className="bg-[var(--bg-raised)]">
               <tr>
+                <th className="p-3">
+                  <span className="sr-only">Select</span>
+                </th>
                 <th className="p-3">Product</th>
                 <th className="p-3">Supplier cost</th>
                 <th className="p-3">Wholesale</th>
@@ -244,6 +355,14 @@ export default function SupplierCatalogPage({ params }: { readonly params: { sup
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className="border-t border-[var(--border)]">
+                  <td className="p-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${item.name}`}
+                      checked={selected.has(item.id)}
+                      onChange={() => toggleOne(item.id)}
+                    />
+                  </td>
                   <td className="p-3">{item.name}</td>
                   <td className="p-3">{item.supplierPrice}</td>
                   <td className="p-3">{moneyOrBlank(item.wholesalePriceMinor) || '—'}</td>

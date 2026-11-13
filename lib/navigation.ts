@@ -125,6 +125,7 @@ export const API_ROUTES = {
   supplierBalance: `${API_PREFIX}/supplier/balance`,
   supplierCatalog: `${API_PREFIX}/supplier/products`,
   supplierPublish: (id: string) => `${API_PREFIX}/supplier/products/${id}/publish`,
+  supplierBulkPublish: `${API_PREFIX}/supplier/products/bulk-publish`,
   supplierPrice: (id: string) => `${API_PREFIX}/supplier/products/${id}/price`,
   supplierReject: (id: string) => `${API_PREFIX}/supplier/products/${id}/reject`,
   supplierPause: (id: string) => `${API_PREFIX}/supplier/products/${id}/pause`,

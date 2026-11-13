@@ -20,6 +20,7 @@ import {
   missingSyncColumn,
   normalizeLinkedProduct,
   notifyOwnerAutoPaused,
+  priceWithMarkup,
 } from './catalog-sync';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
@@ -836,27 +837,48 @@ async function getCatalogRow(supabase: DbClient, id: string): Promise<CatalogRow
   return data as CatalogRow;
 }
 
+const PUBLISH_BATCH_LIMIT = 200;
+
 export async function publishSupplierProduct(
   supabase: DbClient,
   supplierProductId: string,
-  prices: { readonly wholesalePriceMinor: bigint; readonly retailPriceMinor: bigint },
+  input: {
+    readonly wholesalePriceMinor?: bigint;
+    readonly retailPriceMinor?: bigint;
+    readonly markupPercent?: number;
+    readonly buyerCategory?: string | null;
+  },
 ): Promise<{ productId: string }> {
   const row = await getCatalogRow(supabase, supplierProductId);
   const cost = supplierCostMinor(String(row.supplier_price));
-  assertPublishPrices(cost, prices.wholesalePriceMinor, prices.retailPriceMinor);
+  const hasPrices = input.wholesalePriceMinor !== undefined && input.retailPriceMinor !== undefined;
+  const hasMarkup = input.markupPercent !== undefined;
+  if (hasPrices === hasMarkup) {
+    throw new ValidationError('PUBLISH_PRICE_REQUIRED', 'Provide wholesale and retail prices, or a markup percent');
+  }
+  const pricingMode = hasMarkup ? 'markup' : 'manual';
+  const priced = hasMarkup
+    ? priceWithMarkup(cost, input.markupPercent ?? 0)
+    : null;
+  const wholesale = priced ?? (input.wholesalePriceMinor as bigint);
+  const retail = priced ?? (input.retailPriceMinor as bigint);
+  assertPublishPrices(cost, wholesale, retail);
   const now = new Date().toISOString();
   let productId = row.product_id;
   const supplierFields = {
     delivery_type: 'supplier_api' as const,
     status: 'published' as const,
-    wholesale_price: prices.wholesalePriceMinor.toString(),
-    retail_price: prices.retailPriceMinor.toString(),
+    wholesale_price: wholesale.toString(),
+    retail_price: retail.toString(),
     stock_unlimited: true,
     stock_count: null,
     reseller_eligible: true,
     supplier_id: row.supplier_id,
     supplier_sku: row.supplier_sku,
     supplier_price_minor: cost.toString(),
+    pricing_mode: pricingMode,
+    markup_percent: hasMarkup ? input.markupPercent : null,
+    supplier_in_stock: row.in_stock !== false,
     requires_email_activation: row.requires_email_activation,
     supplier_metadata: {
       requiresEmailActivation: row.requires_email_activation,
@@ -864,6 +886,8 @@ export async function publishSupplierProduct(
       ...(row.warranty_text ? { warranty: row.warranty_text } : {}),
       ...(row.type_label ? { typeLabel: row.type_label } : {}),
     },
+    ...(row.category ? { category: row.category } : {}),
+    ...(input.buyerCategory ? { buyer_category: input.buyerCategory } : {}),
     updated_at: now,
   };
   if (!productId) {
@@ -874,7 +898,7 @@ export async function publishSupplierProduct(
       sku,
       title: row.name,
       description: row.description,
-      category: null,
+      category: row.category,
       max_purchase_qty: 1,
       version: 1,
       created_at: now,
@@ -884,7 +908,11 @@ export async function publishSupplierProduct(
       throw new AppError('PRODUCT_CREATE_FAILED', inserted.error.message, 500);
     }
   } else {
-    const updated = await supabase.from('products').update(supplierFields).eq('id', productId);
+    const updated = await supabase.from('products').update({
+      ...supplierFields,
+      title: row.name,
+      description: row.description,
+    }).eq('id', productId);
     if (updated.error) {
       throw new AppError('PRODUCT_UPDATE_FAILED', updated.error.message, 500);
     }
@@ -894,14 +922,49 @@ export async function publishSupplierProduct(
     .update({
       review_status: 'published',
       product_id: productId,
-      wholesale_price_minor: prices.wholesalePriceMinor.toString(),
-      retail_price_minor: prices.retailPriceMinor.toString(),
+      wholesale_price_minor: wholesale.toString(),
+      retail_price_minor: retail.toString(),
     })
     .eq('id', row.id);
   if (linked.error) {
     throw new AppError('SUPPLIER_PUBLISH_FAILED', linked.error.message, 500);
   }
   return { productId };
+}
+
+export async function bulkPublishSupplierProducts(
+  supabase: DbClient,
+  input: {
+    readonly supplierProductIds: readonly string[];
+    readonly markupPercent?: number;
+    readonly buyerCategory?: string | null;
+  },
+): Promise<{ results: Array<{ id: string; ok: boolean; productId?: string; error?: string }> }> {
+  if (input.supplierProductIds.length === 0) {
+    throw new ValidationError('PUBLISH_IDS_REQUIRED', 'Choose at least one supplier product');
+  }
+  if (input.supplierProductIds.length > PUBLISH_BATCH_LIMIT) {
+    throw new ValidationError('PUBLISH_BATCH_TOO_LARGE', 'Publish at most 200 products at a time');
+  }
+  const policy = await loadSyncPolicy(supabase);
+  const markup = input.markupPercent ?? policy.defaultMarkupPercent;
+  const results: Array<{ id: string; ok: boolean; productId?: string; error?: string }> = [];
+  for (const id of input.supplierProductIds) {
+    try {
+      const published = await publishSupplierProduct(supabase, id, {
+        markupPercent: markup,
+        ...(input.buyerCategory ? { buyerCategory: input.buyerCategory } : {}),
+      });
+      results.push({ id, ok: true, productId: published.productId });
+    } catch (error: unknown) {
+      results.push({
+        id,
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unable to publish',
+      });
+    }
+  }
+  return { results };
 }
 
 export async function updateSupplierProductPrices(
