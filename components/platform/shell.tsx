@@ -9,6 +9,7 @@
 
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { CommandPalette } from '@/components/platform/command-palette';
+import { DrawerBodyContext } from '@/components/platform/drawer-body';
 import { PlatformDrawer } from '@/components/platform/drawer';
 import { PlatformMesh } from '@/components/platform/mesh';
 import { PlatformRail } from '@/components/platform/rail';
@@ -25,6 +26,7 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [drawerBody, setDrawerBody] = useState<ReactNode>(null);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -38,29 +40,31 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
   }, []);
 
   return (
-    <div className="min-h-screen text-ink">
-      <PlatformMesh />
-      <div className="relative z-10 flex min-h-screen">
-        {mobileOpen ? (
-          <button type="button" aria-label="Close areas" className="fixed inset-0 z-20 bg-[color-mix(in_srgb,var(--base)_55%,transparent)] md:hidden" onClick={() => setMobileOpen(false)} />
-        ) : null}
-        <PlatformRail collapsed={collapsed} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <PlatformTopBar
-            displayName={displayName}
-            role={role}
-            collapsed={collapsed}
-            onOpenRail={() => setMobileOpen(true)}
-            onToggleCollapsed={() => setCollapsed((current) => !current)}
-            onOpenPalette={() => setPalette(true)}
-          />
-          <main className="min-w-0 flex-1 overflow-x-hidden bg-plane px-4 py-5 md:px-6">{children}</main>
+    <DrawerBodyContext.Provider value={setDrawerBody}>
+      <div className="min-h-screen text-ink">
+        <PlatformMesh />
+        <div className="relative z-10 flex min-h-screen">
+          {mobileOpen ? (
+            <button type="button" aria-label="Close areas" className="fixed inset-0 z-20 bg-[color-mix(in_srgb,var(--base)_55%,transparent)] md:hidden" onClick={() => setMobileOpen(false)} />
+          ) : null}
+          <PlatformRail collapsed={collapsed} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <PlatformTopBar
+              displayName={displayName}
+              role={role}
+              collapsed={collapsed}
+              onOpenRail={() => setMobileOpen(true)}
+              onToggleCollapsed={() => setCollapsed((current) => !current)}
+              onOpenPalette={() => setPalette(true)}
+            />
+            <main className="min-w-0 flex-1 overflow-x-hidden bg-plane px-4 py-5 md:px-6">{children}</main>
+          </div>
         </div>
+        <Suspense fallback={null}>
+          <PlatformDrawer>{drawerBody}</PlatformDrawer>
+        </Suspense>
+        <CommandPalette role={role} open={palette} onClose={() => setPalette(false)} />
       </div>
-      <Suspense fallback={null}>
-        <PlatformDrawer />
-      </Suspense>
-      <CommandPalette role={role} open={palette} onClose={() => setPalette(false)} />
-    </div>
+    </DrawerBodyContext.Provider>
   );
 }

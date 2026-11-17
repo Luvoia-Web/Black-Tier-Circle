@@ -1,5 +1,11 @@
-import { AreaFrame } from '@/components/platform/area-frame';
+import { Suspense } from 'react';
+import { Skeleton } from '@/components/platform/ui';
+import { CatalogView } from './view';
 
 export default function CatalogPage(): JSX.Element {
-  return <AreaFrame title="Catalog" lede="Every supplier item and published product will share one table, with stage, stock, and markup on the row." />;
+  return (
+    <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <CatalogView />
+    </Suspense>
+  );
 }

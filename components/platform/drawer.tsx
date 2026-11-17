@@ -8,7 +8,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { DRAWER_PARAMS, type DrawerParam } from '@/components/platform/areas';
 
 const LABELS: Record<DrawerParam, string> = {
@@ -29,7 +29,7 @@ function activeDrawer(params: URLSearchParams): { key: DrawerParam; id: string }
   return null;
 }
 
-export function PlatformDrawer(): JSX.Element | null {
+export function PlatformDrawer({ children }: { readonly children?: ReactNode }): JSX.Element | null {
   const params = useSearchParams();
   const router = useRouter();
   const panelRef = useRef<HTMLElement>(null);
@@ -118,7 +118,7 @@ export function PlatformDrawer(): JSX.Element | null {
           </button>
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-4 text-sm text-ink-soft">
-          <p>The list stays where you left it. This record’s full detail loads in its area.</p>
+          {children ?? <p>The list stays where you left it. This record’s full detail loads in its area.</p>}
         </div>
       </aside>
     </div>

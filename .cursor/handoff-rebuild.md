@@ -19,8 +19,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 1 Migration 0032 | DONE | 295bf98d877283180b1976f897f8628b2d6a60e0 | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
 | 2 Tokens and glass | DONE | 490800161f75c7fe85a8186d5e048c538237a2fe | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
 | 3 Shell, nav, palette, drawer | DONE | 3c452b3f348cb8ef7c5af51542337a02cb341e42 | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. Owner customer search and the mobile sheet landed in the Phase 4 commit. |
-| 4 Component kit and data hook | DONE | filled after commit | Shared controls, table, overlays, and `useData`. |
-| 5 Today and Catalog | | | |
+| 4 Component kit and data hook | DONE | 7bc853a4d6c9f8fc92320c400ca564c34335203f | Shared controls, table, overlays, and `useData`. |
+| 5 Today and Catalog | DONE | filled after commit | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
 | 6 Orders | | | |
 | 7 Money | | | |
 | 8 People and support | | | |
@@ -352,3 +352,20 @@ Checks:
 - build: `npx next build` exit 0.
 
 Files in this commit: `components/platform/ui/**`, `components/platform/areas.ts`, `components/platform/command-palette.tsx`, `components/platform/rail.tsx`, `components/platform/top-bar.tsx`, `app/globals.css`, `app/api/platform/search/route.ts`, `lib/hooks/parse-data.ts`, `lib/hooks/use-data.ts`, `tests/unit/parse-data.test.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 5 — Today and Catalog
+
+Today loads `/api/platform/today` through `useData`. The list is failed orders, fulfillment that has sat past the manual reminder, supplier items that are out of stock, suppliers under 20 USDT, resellers waiting for approval, and unread support. Each row has the action that fixes it: retry delivery, approve the reseller, or open the record. When the support tables are missing, the page says migration 0032 is required and the other rows still load. When nothing is wrong, the page says so and shows today’s order count, verified revenue, and new buyers.
+
+Catalog loads `/api/platform/catalog` through `useData`. The owner list is supplier items plus products that have no supplier row, paged with a real total. Filters for supplier, stage, stock, category, search, and sort are in the URL. A reseller sees only their listings. Each row shows and edits the wholesale and retail rule. A row that is not imported yet publishes with that rule. Bulk publish, pause, delete, and set category call the existing product and supplier routes. Opening a row sets `?item=` and the shell drawer shows the item and its recent orders. The list stays mounted.
+
+What looks wrong: I could not screenshot the signed-in pages in either theme. `/today` redirects to `/login?next=/today` without a session, and there is no local account in this run. The first dev server also 404’d `/today` because the file watcher hit EMFILE; `next build` and `next start` both serve the route. From the markup, catalog rows are too tall: every pricing control is 44px, so a phone shows a few rows and the table scroller, not a dense list. The live and out-of-stock filters can return a short page because stock is classified after the database page is read, so the total can be higher than the rows on that page.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0. `/today` and `/catalog` are in the route table.
+
+Files in this commit: `app/(platform)/today/page.tsx`, `app/(platform)/catalog/page.tsx`, `app/(platform)/catalog/view.tsx`, `app/api/platform/today/route.ts`, `app/api/platform/catalog/route.ts`, `app/api/platform/catalog/detail/route.ts`, `modules/platform/today.ts`, `modules/platform/catalog.ts`, `lib/hooks/use-action.ts`, `components/platform/shell.tsx`, `components/platform/drawer.tsx`, `components/platform/drawer-body.tsx`, `.cursor/handoff-rebuild.md`.
