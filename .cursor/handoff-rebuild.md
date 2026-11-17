@@ -20,8 +20,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 2 Tokens and glass | DONE | 490800161f75c7fe85a8186d5e048c538237a2fe | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
 | 3 Shell, nav, palette, drawer | DONE | 3c452b3f348cb8ef7c5af51542337a02cb341e42 | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. Owner customer search and the mobile sheet landed in the Phase 4 commit. |
 | 4 Component kit and data hook | DONE | 7bc853a4d6c9f8fc92320c400ca564c34335203f | Shared controls, table, overlays, and `useData`. |
-| 5 Today and Catalog | DONE | filled after commit | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
-| 6 Orders | | | |
+| 5 Today and Catalog | DONE | e2985cc6d856e07653dd7f6430bd2ab1fa68a287 | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
+| 6 Orders | DONE | filled after commit | One list, one timeline, bulk retry, CSV. |
 | 7 Money | | | |
 | 8 People and support | | | |
 | 9 Store | | | |
@@ -369,3 +369,16 @@ Checks:
 - build: `npx next build` exit 0. `/today` and `/catalog` are in the route table.
 
 Files in this commit: `app/(platform)/today/page.tsx`, `app/(platform)/catalog/page.tsx`, `app/(platform)/catalog/view.tsx`, `app/api/platform/today/route.ts`, `app/api/platform/catalog/route.ts`, `app/api/platform/catalog/detail/route.ts`, `modules/platform/today.ts`, `modules/platform/catalog.ts`, `lib/hooks/use-action.ts`, `components/platform/shell.tsx`, `components/platform/drawer.tsx`, `components/platform/drawer-body.tsx`, `.cursor/handoff-rebuild.md`.
+
+## Phase 6 — Orders
+
+`/orders` loads `/api/platform/orders` through `useData`. The query filters state, channel, store, product, customer, and a date range, and searches by order id or customer name. Paging uses a real count. Each row shows payment, fulfillment, and delivery. Opening a row sets `?order=` and the drawer shows those three steps, the supplier reference, the last attempt, the failure when there is one, and the delivered content. Retry, Mark fulfilled, Refund, and Cancel call the existing fulfillment, wallet-refund, and cancel routes. Refund is `refundWalletPaymentOnce`. It does not add a new money calculation. Bulk retry runs the existing retry route for up to 25 selected failed orders and lists each result. Export CSV downloads the filtered set, capped at 2000 rows.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0. `/orders` and `/api/orders/[orderId]/refund` are in the route table.
+
+Files in this commit: `app/(platform)/orders/page.tsx`, `app/(platform)/orders/view.tsx`, `app/api/platform/orders/route.ts`, `app/api/orders/[orderId]/refund/route.ts`, `modules/platform/orders.ts`, `lib/navigation.ts`, `.cursor/handoff-rebuild.md`.

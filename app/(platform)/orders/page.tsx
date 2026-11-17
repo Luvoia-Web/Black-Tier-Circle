@@ -1,5 +1,11 @@
-import { AreaFrame } from '@/components/platform/area-frame';
+import { Suspense } from 'react';
+import { OrdersView } from './view';
+import { Skeleton } from '@/components/platform/ui';
 
 export default function OrdersPage(): JSX.Element {
-  return <AreaFrame title="Orders" lede="One list for every order. Open a row to see payment, the supplier order, and delivery on a single timeline." />;
+  return (
+    <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <OrdersView />
+    </Suspense>
+  );
 }

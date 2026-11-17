@@ -149,6 +149,7 @@ export const API_ROUTES = {
   supplierManualFail: (orderId: string) => `${API_PREFIX}/supplier/${orderId}/manual-fail`,
   supplierResubmit: (orderId: string) => `${API_PREFIX}/supplier/${orderId}/resubmit`,
   orderCancel: (orderId: string) => `${API_PREFIX}/orders/${orderId}/cancel`,
+  orderRefund: (orderId: string) => `${API_PREFIX}/orders/${orderId}/refund`,
   orderNote: (orderId: string) => `${API_PREFIX}/orders/${orderId}/note`,
   orderDetail: (orderId: string) => `${API_PREFIX}/orders/${orderId}/detail`,
   ownerOrders: `${API_PREFIX}/owner/orders`,
