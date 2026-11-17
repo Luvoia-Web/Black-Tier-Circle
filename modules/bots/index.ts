@@ -460,19 +460,39 @@ export async function setCustomerBlocked(
   supabase: DbClient,
   customerId: string,
   blocked: boolean,
-): Promise<void> {
-  const { data, error } = await supabase
-    .from('customers')
-    .update({ is_blocked: blocked, updated_at: new Date().toISOString() })
-    .eq('id', customerId)
-    .select('id')
-    .maybeSingle();
-  if (error) {
-    throw new AppError('CUSTOMER_UPDATE_FAILED', error.message, 500);
+  reason?: string,
+): Promise<{ readonly storedReason: boolean }> {
+  const stamp = new Date().toISOString();
+  const full = blocked
+    ? { is_blocked: true, blocked_at: stamp, blocked_reason: reason?.slice(0, 200) || 'Blocked from People', updated_at: stamp }
+    : { is_blocked: false, blocked_at: null, blocked_reason: null, updated_at: stamp };
+  const first = await supabase.from('customers').update(full).eq('id', customerId).select('id').maybeSingle();
+  const missing =
+    first.error?.code === '42703' ||
+    (first.error?.message.toLowerCase().includes('does not exist') ?? false) ||
+    (first.error?.message.toLowerCase().includes('schema cache') ?? false);
+  if (first.error && missing) {
+    const second = await supabase
+      .from('customers')
+      .update({ is_blocked: blocked, updated_at: stamp })
+      .eq('id', customerId)
+      .select('id')
+      .maybeSingle();
+    if (second.error) {
+      throw new AppError('CUSTOMER_UPDATE_FAILED', second.error.message, 500);
+    }
+    if (second.data === null) {
+      throw new NotFoundError('customer');
+    }
+    return { storedReason: false };
   }
-  if (data === null) {
+  if (first.error) {
+    throw new AppError('CUSTOMER_UPDATE_FAILED', first.error.message, 500);
+  }
+  if (first.data === null) {
     throw new NotFoundError('customer');
   }
+  return { storedReason: true };
 }
 
 /**
@@ -514,8 +534,8 @@ export async function adjustCustomerCredit(
  * @param supabase - Database client
  * @param customerId - Customer UUID
  */
-export async function blockCustomer(supabase: DbClient, customerId: string): Promise<void> {
-  await setCustomerBlocked(supabase, customerId, true);
+export async function blockCustomer(supabase: DbClient, customerId: string, reason = 'Blocked from People'): Promise<{ readonly storedReason: boolean }> {
+  return setCustomerBlocked(supabase, customerId, true, reason);
 }
 
 /**

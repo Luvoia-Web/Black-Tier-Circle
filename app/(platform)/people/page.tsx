@@ -1,5 +1,11 @@
-import { AreaFrame } from '@/components/platform/area-frame';
+import { Suspense } from 'react';
+import { PeopleView } from './view';
+import { Skeleton } from '@/components/platform/ui';
 
 export default function PeoplePage(): JSX.Element {
-  return <AreaFrame title="People" lede="Buyers and resellers share this directory. Support threads open beside the person they belong to." />;
+  return (
+    <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <PeopleView />
+    </Suspense>
+  );
 }

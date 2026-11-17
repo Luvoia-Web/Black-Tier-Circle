@@ -33,6 +33,7 @@ import {
 } from '@/modules/topups/screens';
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
+import { ensureSupportThread, recordCustomerSupport } from '@/modules/platform/support';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { isListedInBot } from '@/modules/catalog/visibility';
@@ -108,6 +109,7 @@ const awaitingTopupHash = new Set<string>();
 const awaitingTopupAmount = new Set<string>();
 const awaitingBinanceManual = new Map<string, string>();
 const awaitingFind = new Set<string>();
+const awaitingSupport = new Set<string>();
 
 function emailKey(botId: string, chatId: string | number): string {
   return `${botId}:${chatId}`;
@@ -2051,10 +2053,23 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function showSupport(screen: Screen): Promise<void> {
     const current = await storeContext();
+    const supportKey = emailKey(context.botConnection.id, screen.chatId);
+    awaitingSupport.add(supportKey);
+    if (customer) {
+      const opened = await ensureSupportThread(context.supabase, {
+        tenantId: context.tenantId,
+        customerId: customer.id,
+        botId: context.botConnection.id === OWNER_STORE_BOT_ID ? null : context.botConnection.id,
+      });
+      if (!opened.ok) {
+        await show(bot, screen, 'Support needs migration 0032 before messages can be stored.', new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
+        return;
+      }
+    }
     const contact = current.supportContact ? `Contact: ${escHtml(current.supportContact)}\n` : '';
     const telegram = current.supportTelegramUrl ? `Telegram: ${escHtml(current.supportTelegramUrl)}\n` : '';
     const legacySupport =
-      `❓ <b>Support</b>\n\n${contact}${telegram}\nInclude your <b>Order ID</b> when asking about an order.\nUse /orders to find it.`;
+      `❓ <b>Support</b>\n\n${contact}${telegram}\nReply with your message and the store will see it.\nInclude your <b>Order ID</b> when asking about an order.`;
     const intro = current.studio
       ? renderStoreTemplate(
           current.studio.config.messages.supportIntro,
@@ -2065,7 +2080,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(
       bot,
       screen,
-      current.studio ? `${intro}\n\n${contact}${telegram}`.trim() : legacySupport,
+      current.studio ? `${intro}\n\n${contact}${telegram}\nReply with your message and the store will see it.`.trim() : legacySupport,
       new InlineKeyboard().text('📦 My Orders', 'orders:').text('🏠 Home', 'home:'),
     );
   }
@@ -2447,6 +2462,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
 
   async function onText(screen: Screen, text: string): Promise<void> {
     const trimmed = text.trim();
+    if (trimmed.startsWith('/') || trimmed.startsWith('🛍') || trimmed.startsWith('📦') || trimmed === '❓ Help') {
+      awaitingSupport.delete(emailKey(context.botConnection.id, screen.chatId));
+    }
     const pendingQty = awaitingQty.get(emailKey(context.botConnection.id, screen.chatId));
     if (pendingQty && /^[0-9]+$/.test(trimmed)) {
       const item = (await loadCatalog()).find((entry) => entry.product.id === pendingQty.productId);
@@ -2508,6 +2526,30 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     if (trimmed === '❓ Help') {
       await showSupport(screen);
+      return;
+    }
+    const supportKey = emailKey(context.botConnection.id, screen.chatId);
+    if (awaitingSupport.has(supportKey) && customer && !trimmed.startsWith('/')) {
+      awaitingSupport.delete(supportKey);
+      const saved = await recordCustomerSupport(context.supabase, {
+        tenantId: context.tenantId,
+        customerId: customer.id,
+        botId: context.botConnection.id === OWNER_STORE_BOT_ID ? null : context.botConnection.id,
+        body: trimmed,
+      });
+      if (!saved.ok && saved.reason === 'limited') {
+        await show(bot, screen, 'You have sent too many messages this minute. Wait a moment and try again.', homeKeyboard(await storeContext()), 'HTML');
+        return;
+      }
+      if (!saved.ok && saved.reason === 'needs-migration') {
+        await show(bot, screen, 'Support needs migration 0032 before this message can be stored.', homeKeyboard(await storeContext()), 'HTML');
+        return;
+      }
+      if (!saved.ok) {
+        await show(bot, screen, 'Write a message before sending it to the store.', homeKeyboard(await storeContext()), 'HTML');
+        return;
+      }
+      await show(bot, screen, 'Sent. The store will reply in this chat.', homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     const topupStateKey = topupKey(screen.chatId);

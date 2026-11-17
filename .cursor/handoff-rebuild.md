@@ -22,8 +22,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 4 Component kit and data hook | DONE | 7bc853a4d6c9f8fc92320c400ca564c34335203f | Shared controls, table, overlays, and `useData`. |
 | 5 Today and Catalog | DONE | e2985cc6d856e07653dd7f6430bd2ab1fa68a287 | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
 | 6 Orders | DONE | 7ae9776cb4eca2625f456dbd320bfc164452f627 | One list, one timeline, bulk retry, CSV. |
-| 7 Money | DONE | filled after commit | Balances, the existing top-up review, ledger, supplier warning. |
-| 8 People and support | | | |
+| 7 Money | DONE | a9623dece988d4c974fb5ce2c0d6d3a42bad4fc3 | Balances, the existing top-up review, ledger, supplier warning. |
+| 8 People and support | DONE | filled after commit | Directory, block, support threads, reseller approval and invites. |
 | 9 Store | | | |
 | 10 Growth | | | |
 | 11 Hidden buyer screens | | | |
@@ -397,3 +397,18 @@ Checks:
 - build: `npx next build` exit 0. `/money` and `/api/platform/money` are in the route table.
 
 Files in this commit: `app/(platform)/money/page.tsx`, `app/(platform)/money/view.tsx`, `app/api/platform/money/route.ts`, `modules/platform/money.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 8 — People and support
+
+`/people` loads `/api/platform/people` through `useData`. Buyers and resellers are one directory with a type filter, search, and a real page count. Opening a row sets `?person=`. The drawer shows orders, balance, referrals, and support threads. Block and unblock call `blockCustomer` and `setCustomerBlocked`. Those writes set `blocked_at` and `blocked_reason` when migration 0032 is applied, and fall back to `is_blocked` when the columns are missing. The bot already refuses `is_blocked` customers before any action. Support starts when the buyer taps Support. The next message is stored, rate limited to six a minute, capped at 2000 characters, and the store owner is notified. The inbox lists unread threads first. A reply is stored, then sent through that store's bot. A failed send is written to `audit_log` and can be retried. A reseller only sees their own buyers and threads. Reseller approval uses the existing status route. Invites use the existing invitation route.
+
+The inbox loads one preview query per thread, capped at 50. Buyer order counts on a page come from at most 1000 matching orders. The rate limit is still the in-memory limiter until Phase 12.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0. `/people`, `/api/platform/people`, and `/api/platform/support` are in the route table.
+
+Files in this commit: `app/(platform)/people/page.tsx`, `app/(platform)/people/view.tsx`, `app/api/platform/people/route.ts`, `app/api/platform/people/detail/route.ts`, `app/api/platform/support/route.ts`, `modules/platform/people.ts`, `modules/platform/support.ts`, `modules/bots/index.ts`, `integrations/telegram/client.ts`, `.cursor/handoff-rebuild.md`.
