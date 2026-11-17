@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
-import { Button, DataTable, ErrorState, FilterBar, Pagination, SelectField, StatusPill, TextField, type Column } from '@/components/platform/ui';
+import { Button, Card, DataTable, ErrorState, FilterBar, Pagination, SelectField, StatusPill, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
@@ -51,6 +51,7 @@ export function OrdersView(): JSX.Element {
   const setDrawer = useSetDrawerBody();
   const query = params.toString();
   const list = useData<PagePayload>(`/api/platform/orders${query ? `?${query}` : ''}`);
+  const replacements = useData<{ readonly needsMigration: boolean; readonly rows: readonly { readonly id: string; readonly orderId: string; readonly reason: string }[] }>('/api/platform/replacements');
   const orderId = params.get('order');
   const detail = useData<DetailPayload>(orderId ? API_ROUTES.orderDetail(orderId) : null);
   const { data: detailData, loading: detailLoading, error: detailError, refetch: refetchDetail } = detail;
@@ -150,6 +151,21 @@ export function OrdersView(): JSX.Element {
       {list.data ? (
         <Pagination page={list.data.page} pageSize={list.data.pageSize} total={list.data.total} onPage={(page) => setFilter('page', String(page))} onPageSize={(size) => setFilter('pageSize', String(size))} />
       ) : null}
+      <Card title="Replacements">
+        {replacements.data?.needsMigration ? <p className="text-sm text-ink">Replacements need migration 0032.</p> : null}
+        {(replacements.data?.rows.length ?? 0) === 0 && !replacements.data?.needsMigration ? <p className="text-sm text-ink-soft">No open replacement requests.</p> : null}
+        <ul className="space-y-2">
+          {(replacements.data?.rows ?? []).map((row) => (
+            <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-ink">{row.reason}</span>
+              <span className="flex gap-2">
+                <Button onClick={() => { void runAction('/api/platform/replacements', { method: 'POST', body: { id: row.id, decision: 'approved', note: '' } }).then(() => replacements.refetch()); }}>Approve</Button>
+                <Button variant="secondary" onClick={() => { void runAction('/api/platform/replacements', { method: 'POST', body: { id: row.id, decision: 'rejected', note: 'Rejected from Orders' } }).then(() => replacements.refetch()); }}>Reject</Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
     </section>
   );
 }

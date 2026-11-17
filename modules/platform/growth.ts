@@ -11,6 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getDecryptedOwnerBotToken } from '@/modules/platform/index';
 import { readStudio, writeStudio } from '@/modules/store-config/access';
+import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import type { StoreEvents } from '@/modules/store-config/types';
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
@@ -97,7 +98,18 @@ export async function setDiscountActive(db: DbClient, tenantId: string | null, i
 
 export async function saveEvents(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, actorId: string, events: StoreEvents): Promise<void> {
   const studio = await readStudio(db, role, tenantId);
-  await writeStudio(db, role, tenantId, { version: studio.version, config: { ...studio.config, events } }, actorId);
+  await writeStudio(db, role, tenantId, {
+    version: studio.version,
+    config: {
+      ...studio.config,
+      events: {
+        enabled: events.enabled,
+        title: sanitizeBotHtml(events.title).slice(0, 120),
+        body: sanitizeBotHtml(events.body).slice(0, 2000),
+        link: events.link.trim().slice(0, 300),
+      },
+    },
+  }, actorId);
 }
 
 async function tokenFor(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null): Promise<string | null> {

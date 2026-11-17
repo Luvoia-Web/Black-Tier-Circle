@@ -17,6 +17,11 @@ const CALLBACKS: Partial<Record<ButtonKey, string>> = {
   terms: 'terms:',
   reseller_signup: 'reseller_signup:',
   api: 'api_info:',
+  history: 'history:',
+  redeem: 'redeem_ask:',
+  events: 'events:',
+  discount: 'discount:',
+  replace: 'replace:',
 };
 
 export function layoutHomeButtons(

@@ -11,11 +11,13 @@ export const BUTTON_KEYS = [
   'terms',
   'reseller_signup',
   'api',
+  'discount',
+  'replace',
 ] as const;
 
 export type ButtonKey = (typeof BUTTON_KEYS)[number];
 
-export const COMING_SOON_BUTTONS: ReadonlySet<ButtonKey> = new Set(['history', 'redeem', 'events']);
+export const COMING_SOON_BUTTONS: ReadonlySet<ButtonKey> = new Set();
 
 export type ReferralTemplates = {
   readonly home: string;

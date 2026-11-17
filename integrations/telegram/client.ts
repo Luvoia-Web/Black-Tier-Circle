@@ -35,6 +35,9 @@ import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import { ensureSupportThread, recordCustomerSupport } from '@/modules/platform/support';
 import { redeemOpenCheckout } from '@/modules/pricing/discount';
+import { requestReplacement } from '@/modules/platform/replacements';
+import { isGenericDeliveryResult } from '@/lib/order-detail';
+import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { isListedInBot } from '@/modules/catalog/visibility';
@@ -111,6 +114,8 @@ const awaitingTopupAmount = new Set<string>();
 const awaitingBinanceManual = new Map<string, string>();
 const awaitingFind = new Set<string>();
 const awaitingSupport = new Set<string>();
+const awaitingDiscount = new Set<string>();
+const awaitingReplace = new Map<string, string>();
 
 function emailKey(botId: string, chatId: string | number): string {
   return `${botId}:${chatId}`;
@@ -1969,6 +1974,83 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     );
   }
 
+  async function showHistory(screen: Screen, page: number): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const current = Math.max(1, page);
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 50 });
+    const start = (current - 1) * 5;
+    const slice = orders.slice(start, start + 5);
+    if (slice.length === 0) {
+      await show(bot, screen, 'No orders yet. A purchase will show up here.', new InlineKeyboard().text('🛍 Browse Shop', 'shop:').text('🏠 Home', 'home:'), 'HTML');
+      return;
+    }
+    const keyboard = new InlineKeyboard();
+    for (const order of slice) {
+      keyboard.text(`${order.quantity} × ${formatUsdt(order.quotedRetailPriceMinor)} · ${orderRef(order.id)}`, `horder:${order.id}`).row();
+    }
+    if (start > 0) keyboard.text('Previous', `history:${current - 1}`);
+    if (start + 5 < orders.length) keyboard.text('Next', `history:${current + 1}`);
+    keyboard.row().text('🏠 Home', 'home:');
+    await show(bot, screen, `Your orders, newest first. Page ${current}.`, keyboard, 'HTML');
+  }
+
+  async function showHistoryOrder(screen: Screen, orderId: string): Promise<void> {
+    const order = await ownedOrder(orderId);
+    if (!order) {
+      await show(bot, screen, 'That order was not found.', homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
+    let delivered = '';
+    if (order.deliveryStatus === 'sent') {
+      const attempt = (await context.supabase.from('fulfillment_attempts').select('id, artifact_path').eq('order_id', order.id).order('started_at', { ascending: false }).limit(1).maybeSingle()) as { data: { id?: string; artifact_path?: string | null } | null };
+      const fulfillmentId = attempt.data?.id ?? '';
+      const deliveries = fulfillmentId
+        ? ((await context.supabase.from('delivery_attempts').select('status, result').eq('fulfillment_id', fulfillmentId)) as { data: Array<{ status?: string; result?: string | null }> | null })
+        : { data: [] };
+      const match = (deliveries.data ?? []).find((item) => item.status === 'success' && item.result && !isGenericDeliveryResult(item.result));
+      const content = attempt.data?.artifact_path || match?.result || '';
+      delivered = content ? `\n\nDelivered:\n<code>${escHtml(content).slice(0, 1500)}</code>` : '\n\nThe delivery was sent in this chat.';
+    }
+    await show(
+      bot,
+      screen,
+      `Order <code>${orderRef(order.id)}</code>\nQuantity: ${order.quantity}\nTotal: ${escHtml(formatUsdt(order.quotedRetailPriceMinor))}\nStatus: ${escHtml(order.deliveryStatus)}${delivered}`,
+      new InlineKeyboard().text('Back', 'history:1').text('🏠 Home', 'home:'),
+      'HTML',
+    );
+  }
+
+  async function showEvents(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    const events = current.studio?.config.events;
+    if (!events?.enabled || !events.title || !events.body) {
+      await show(bot, screen, 'No announcements right now.', homeKeyboard(current), 'HTML');
+      return;
+    }
+    const link = events.link ? `\n${escHtml(events.link)}` : '';
+    await show(bot, screen, `${sanitizeBotHtml(events.title)}\n\n${sanitizeBotHtml(events.body)}${link}`, homeKeyboard(current), 'HTML');
+  }
+
+  async function showReplaceList(screen: Screen): Promise<void> {
+    if (customer === null) {
+      throw new Error('missing customer');
+    }
+    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 20 });
+    const delivered = orders.filter((order) => order.deliveryStatus === 'sent').slice(0, 5);
+    if (delivered.length === 0) {
+      await show(bot, screen, 'You have no delivered orders to replace.', homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
+    const keyboard = new InlineKeyboard();
+    for (const order of delivered) {
+      keyboard.text(orderRef(order.id), `repl:${order.id}`).row();
+    }
+    keyboard.text('🏠 Home', 'home:');
+    await show(bot, screen, 'Pick the delivered order. Then send the reason.', keyboard, 'HTML');
+  }
+
   async function showOrders(screen: Screen): Promise<void> {
     if (customer === null) {
       throw new Error('missing customer');
@@ -2404,6 +2486,33 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showSupport(screen);
       return;
     }
+    if (data === 'history:' || data.startsWith('history:')) {
+      const page = Number(data.slice('history:'.length) || '1');
+      await showHistory(screen, Number.isFinite(page) && page > 0 ? page : 1);
+      return;
+    }
+    if (data.startsWith('horder:')) {
+      await showHistoryOrder(screen, data.slice('horder:'.length));
+      return;
+    }
+    if (data === 'events:') {
+      await showEvents(screen);
+      return;
+    }
+    if (data === 'discount:') {
+      awaitingDiscount.add(emailKey(context.botConnection.id, screen.chatId));
+      await show(bot, screen, 'Send the discount code for the order you are paying.', new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
+      return;
+    }
+    if (data === 'replace:') {
+      await showReplaceList(screen);
+      return;
+    }
+    if (data.startsWith('repl:')) {
+      awaitingReplace.set(emailKey(context.botConnection.id, screen.chatId), data.slice('repl:'.length));
+      await show(bot, screen, 'Send the reason for this replacement.', new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
+      return;
+    }
     if (data === 'terms:') {
       await showTerms(screen);
       return;
@@ -2464,7 +2573,10 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   async function onText(screen: Screen, text: string): Promise<void> {
     const trimmed = text.trim();
     if (trimmed.startsWith('/') || trimmed.startsWith('🛍') || trimmed.startsWith('📦') || trimmed === '❓ Help') {
-      awaitingSupport.delete(emailKey(context.botConnection.id, screen.chatId));
+      const key = emailKey(context.botConnection.id, screen.chatId);
+      awaitingSupport.delete(key);
+      awaitingDiscount.delete(key);
+      awaitingReplace.delete(key);
     }
     const pendingQty = awaitingQty.get(emailKey(context.botConnection.id, screen.chatId));
     if (pendingQty && /^[0-9]+$/.test(trimmed)) {
@@ -2585,6 +2697,26 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         const message = error instanceof ValidationError ? error.message : 'Could not submit that reference.';
         await show(bot, screen, `❌ ${escHtml(message)}`, homeKeyboard(await storeContext()), 'HTML');
       }
+      return;
+    }
+    const chatKey = emailKey(context.botConnection.id, screen.chatId);
+    const replaceOrderId = awaitingReplace.get(chatKey);
+    if (replaceOrderId && customer) {
+      awaitingReplace.delete(chatKey);
+      const requested = await requestReplacement(context.supabase, {
+        orderId: replaceOrderId,
+        customerId: customer.id,
+        tenantId: context.tenantId,
+        reason: trimmed,
+      });
+      await show(bot, screen, escHtml(requested.ok ? 'Request sent. The store will review it.' : requested.message), homeKeyboard(await storeContext()), 'HTML');
+      return;
+    }
+    if (awaitingDiscount.has(chatKey) && customer) {
+      awaitingDiscount.delete(chatKey);
+      const redeemed = await redeemOpenCheckout(context.supabase, { customerId: customer.id, tenantId: context.tenantId, code: trimmed });
+      const message = !redeemed.applied ? 'That code was not found for this checkout.' : redeemed.ok ? `Code applied. The total is now ${redeemed.total}.` : redeemed.message;
+      await show(bot, screen, escHtml(message), homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     if (/^\d{12}$/.test(trimmed) && !trimmed.startsWith('0')) {

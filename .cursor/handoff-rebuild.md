@@ -25,8 +25,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 7 Money | DONE | a9623dece988d4c974fb5ce2c0d6d3a42bad4fc3 | Balances, the existing top-up review, ledger, supplier warning. |
 | 8 People and support | DONE | 5a7197d7b3ec65b696a7c974ba791d8430ae1665 | Directory, block, support threads, reseller approval and invites. |
 | 9 Store | DONE | 60698a572884baa82471db2882b805fb4cd9e4d0 | Editor, live card preview, open or maintenance, bot reconnect. |
-| 10 Growth | DONE | filled after commit | Referrals unchanged, discount codes, announcements, broadcast. |
-| 11 Hidden buyer screens | | | |
+| 10 Growth | DONE | 18c4502363be1214b88bb2afe01f8a79a443beb4 | Codes, announcements, and broadcasts. |
+| 11 Hidden buyer screens | DONE | filled after commit | History, redeem, discount, events, and replacement. |
 | 12 Security | | | |
 | 13 Cleanup and audit | | | |
 
@@ -440,3 +440,16 @@ Checks:
 - build: `npx next build` exit 0. `/growth` and `/api/platform/growth` are in the route table.
 
 Files in this commit: `app/(platform)/growth/page.tsx`, `app/(platform)/growth/view.tsx`, `app/api/platform/growth/route.ts`, `modules/platform/growth.ts`, `modules/pricing/discount.ts`, `modules/store-config/schema.ts`, `modules/store-config/types.ts`, `modules/store-config/defaults.ts`, `modules/store-config/index.ts`, `integrations/telegram/client.ts`, `lib/hooks/use-action.ts`, `tests/unit/discount.test.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 11 — buyer screens
+
+History lists the buyer's own orders, newest first, five per page, with quantity, total, and the short id. The detail view shows delivered text when the delivery attempt stored it, and only for an order `ownedOrder` accepts. Redeem uses the existing token screen. Discount asks for a code and uses the Phase 10 redemption. Events shows the announcement from `store_config` after the sanitizer. Replace lets the buyer pick a delivered order and send a reason, limited to three requests an hour. The owner approves or rejects from Orders. Approval calls `retryDelivery` and then marks the request replaced. History, redeem, events, discount, and replace are no longer in `COMING_SOON_BUTTONS`. Their default buttons stay off until the store turns them on. Owner text for announcements is passed through `sanitizeBotHtml`.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 41 files, 324 tests passed.
+- build: `npx next build` exit 0.
+
+Files in this commit: `integrations/telegram/client.ts`, `modules/store-config/types.ts`, `modules/store-config/defaults.ts`, `modules/store-config/keyboard.ts`, `modules/platform/replacements.ts`, `modules/platform/growth.ts`, `app/api/platform/replacements/route.ts`, `app/(platform)/orders/view.tsx`, `.cursor/handoff-rebuild.md`.

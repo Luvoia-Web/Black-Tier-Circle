@@ -35,6 +35,8 @@ const BUTTONS: Record<ButtonKey, StoreButton> = {
   terms: button('Terms', '📜', 'full', 9, false),
   reseller_signup: button('Become a Reseller', '🤝', 'full', 10, false),
   api: button('My API', '🔑', 'half', 11, false),
+  discount: button('Discount', '🏷', 'half', 12, false),
+  replace: button('Replace', '♻️', 'half', 13, false),
 };
 
 export const DEFAULT_CATALOG_TEMPLATES: CatalogTemplates = {
