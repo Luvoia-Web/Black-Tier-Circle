@@ -1,5 +1,11 @@
-import { AreaFrame } from '@/components/platform/area-frame';
+import { Suspense } from 'react';
+import { MoneyView } from './view';
+import { Skeleton } from '@/components/platform/ui';
 
 export default function MoneyPage(): JSX.Element {
-  return <AreaFrame title="Money" lede="Balances, top-ups, reseller debts, supplier balance, and the credit ledger will live on this page." />;
+  return (
+    <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+      <MoneyView />
+    </Suspense>
+  );
 }

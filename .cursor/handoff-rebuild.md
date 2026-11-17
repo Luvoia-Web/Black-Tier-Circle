@@ -21,8 +21,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 3 Shell, nav, palette, drawer | DONE | 3c452b3f348cb8ef7c5af51542337a02cb341e42 | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. Owner customer search and the mobile sheet landed in the Phase 4 commit. |
 | 4 Component kit and data hook | DONE | 7bc853a4d6c9f8fc92320c400ca564c34335203f | Shared controls, table, overlays, and `useData`. |
 | 5 Today and Catalog | DONE | e2985cc6d856e07653dd7f6430bd2ab1fa68a287 | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
-| 6 Orders | DONE | filled after commit | One list, one timeline, bulk retry, CSV. |
-| 7 Money | | | |
+| 6 Orders | DONE | 7ae9776cb4eca2625f456dbd320bfc164452f627 | One list, one timeline, bulk retry, CSV. |
+| 7 Money | DONE | filled after commit | Balances, the existing top-up review, ledger, supplier warning. |
 | 8 People and support | | | |
 | 9 Store | | | |
 | 10 Growth | | | |
@@ -382,3 +382,18 @@ Checks:
 - build: `npx next build` exit 0. `/orders` and `/api/orders/[orderId]/refund` are in the route table.
 
 Files in this commit: `app/(platform)/orders/page.tsx`, `app/(platform)/orders/view.tsx`, `app/api/platform/orders/route.ts`, `app/api/orders/[orderId]/refund/route.ts`, `modules/platform/orders.ts`, `lib/navigation.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 7 — Money
+
+`/money` loads `/api/platform/money` through `useData`. The owner sees verified owner-store revenue, the sum of buyer credit, what resellers still owe on unfunded wholesale, and each reseller wallet. A reseller sees their own wallet, their own buyers' credit, and their own unfunded wholesale. Opening a wallet sets `?wallet=` and the drawer shows available and reserved. Supplier balances warn when one supplier's balance is below the pending supplier-order wholesale. The ledger is the latest 50 `ledger_transactions` rows, filtered by entry type, with a CSV of that set. Top-up review is the existing `TopupAdmin` panel, so approve, reject, and the audit log stay on the existing payment route.
+
+The ledger is not a full reconciliation of every inflow. Customer credit is summed from at most 1000 buyers. The supplier warning compares each balance with the whole pending total, so more than one supplier can all show the warning.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0. `/money` and `/api/platform/money` are in the route table.
+
+Files in this commit: `app/(platform)/money/page.tsx`, `app/(platform)/money/view.tsx`, `app/api/platform/money/route.ts`, `modules/platform/money.ts`, `.cursor/handoff-rebuild.md`.
