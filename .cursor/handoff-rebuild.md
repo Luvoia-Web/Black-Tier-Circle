@@ -16,8 +16,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | 0 Evidence and route map | DONE | 35940da85c035ad6b4ffe25a7241a6bbf03818d6 | `.cursor/handoff-rebuild.md` only |
-| 1 Migration 0032 | DONE | filled after commit | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
-| 2 Tokens and glass | | | rewrite `app/globals.css` |
+| 1 Migration 0032 | DONE | 295bf98d877283180b1976f897f8628b2d6a60e0 | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
+| 2 Tokens and glass | DONE | filled after commit | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
 | 3 Shell, nav, palette, drawer | | | |
 | 4 Component kit and data hook | | | |
 | 5 Today and Catalog | | | |
@@ -280,3 +280,28 @@ Checks, working tree, same unrelated dirty files as Phase 0 left out of the comm
 - build: `npx next build` exit 0.
 
 Files in this commit: `supabase/migrations/0032_platform_complete.sql` and `.cursor/handoff-rebuild.md`.
+
+## Phase 2 — tokens and glass
+
+`app/globals.css` is rewritten. It does not contain the old token names or the `btc-*` classes.
+
+Core colours on `:root`: `--base #0B0609`, `--crimson #E0304F`, `--crimson-deep #7A0B22`, `--ember #FF8A5B`, `--mint #3DDC97`, `--ice #E8EAF2`. Surfaces, borders, and text are `color-mix` of those. `--fault #8F1528` is the error red and is not crimson. Success is `--ok` from mint. Warning is `--warn` from ember.
+
+Four layers: `--page`, `--chrome` (glass), `--plane` at 95 percent of `--base`, `--raised`. `.glass-chrome` is the only glass recipe: translucent fill, 18px blur, a top edge lighter than the bottom, an inset top sheen. It falls back to `--chrome-solid` when `backdrop-filter` is unsupported or `prefers-reduced-transparency` is set.
+
+Danger rule is the comment at the top of the file. Tinted crimson is brand. A solid crimson fill is destructive. Text on that fill is `--on-crimson #1A060A`, which stays dark in both themes so the label clears WCAG AA on `#E0304F`.
+
+Type: Instrument Sans on `body` via `next/font` variable `--font-instrument`. JetBrains Mono via `--font-jetbrains`. `.font-num` sets the mono face and `tabular-nums`. Tailwind `font-mono` and `font-sans` point at the same variables in `tailwind.config.ts`. Colour utilities (`bg-page`, `text-ink`, `text-crimson`, and the rest) read the variables. Dark is `:root`. Light is `[data-theme="light"]` with the same names and a lighter glass recipe. `prefers-reduced-motion: reduce` zeros animation, transition, and smooth scroll.
+
+The design-system search recommended a navy and green Swiss dashboard with Fira Sans. It was not used. The palette and type in the task win. Density and the reduced-motion rule were kept.
+
+`app/legacy-dashboard.css` is the previous stylesheet, imported first from the root layout, so the current pages, the landing scope, and the auth screens keep their classes until Phase 13 deletes that file with the old pages. The landing page already redefines its colours on `.btc-landing`, so it does not read the new tokens.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 39 files, 319 tests passed.
+- build: first `npx next build` exit 1 because the legacy file used `@layer` without a Tailwind directive. The directives were put back. Second `npx next build` exit 0.
+
+Files in this commit: `app/globals.css`, `app/legacy-dashboard.css`, `app/layout.tsx`, `tailwind.config.ts`, `.cursor/handoff-rebuild.md`.

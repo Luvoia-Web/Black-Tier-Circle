@@ -11,10 +11,13 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Toaster } from 'sonner';
-import { Inter } from 'next/font/google';
+import { Instrument_Sans, Inter, JetBrains_Mono } from 'next/font/google';
+import './legacy-dashboard.css';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const instrument = Instrument_Sans({ subsets: ['latin'], variable: '--font-instrument' });
+const jetbrains = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains' });
 
 export const metadata: Metadata = {
   title: {
@@ -42,7 +45,7 @@ const THEME_BOOTSTRAP = `
 
 export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${instrument.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
@@ -53,10 +56,10 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
           toastOptions={{
             duration: 2000,
             style: {
-              background: 'var(--surface-2, var(--bg-card))',
-              border: '1px solid var(--border-soft)',
-              borderLeft: '3px solid var(--memory)',
-              color: 'var(--text-0, var(--text-1))',
+              background: 'var(--raised)',
+              border: '1px solid var(--stroke)',
+              borderLeft: '3px solid var(--crimson)',
+              color: 'var(--ink)',
             },
           }}
         />
