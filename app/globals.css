@@ -147,3 +147,70 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+@property --mesh-x {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 12%;
+}
+
+@property --mesh-y {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
+
+@property --mesh-x2 {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 88%;
+}
+
+.platform-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--page);
+  background-image:
+    radial-gradient(42rem 34rem at var(--mesh-x) var(--mesh-y), var(--mesh-a), transparent 70%),
+    radial-gradient(36rem 30rem at var(--mesh-x2) 78%, var(--mesh-b), transparent 68%),
+    radial-gradient(28rem 22rem at 46% 110%, var(--mesh-c), transparent 70%);
+  transition:
+    --mesh-x 1.6s ease,
+    --mesh-y 1.6s ease,
+    --mesh-x2 1.6s ease;
+}
+
+.platform-rail {
+  position: relative;
+  overflow: hidden;
+}
+
+.platform-rail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    12rem 12rem at var(--sheen-x, -20rem) var(--sheen-y, -20rem),
+    color-mix(in srgb, var(--ice) 16%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 160ms linear;
+}
+
+.platform-rail[data-sheen='on']:hover::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-mesh {
+    transition: none;
+  }
+
+  .platform-rail::after {
+    display: none;
+  }
+}

@@ -20,6 +20,7 @@ import {
   dashboardHomeForRole,
   isOnboardingRoute,
   isOwnerRoute,
+  isPlatformRoute,
   isPublicRoute,
   isResellerRoute,
   ROUTES,
@@ -126,7 +127,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const needsAuth = isOwnerRoute(pathname) || isResellerRoute(pathname) || isOnboardingRoute(pathname);
+  const needsAuth =
+    isOwnerRoute(pathname) || isResellerRoute(pathname) || isOnboardingRoute(pathname) || isPlatformRoute(pathname);
 
   if (!session) {
     if (needsAuth) {

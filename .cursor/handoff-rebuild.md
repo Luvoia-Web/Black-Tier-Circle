@@ -17,7 +17,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | --- | --- | --- | --- |
 | 0 Evidence and route map | DONE | 35940da85c035ad6b4ffe25a7241a6bbf03818d6 | `.cursor/handoff-rebuild.md` only |
 | 1 Migration 0032 | DONE | 295bf98d877283180b1976f897f8628b2d6a60e0 | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
-| 2 Tokens and glass | DONE | filled after commit | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
+| 2 Tokens and glass | DONE | 490800161f75c7fe85a8186d5e048c538237a2fe | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
+| 3 Shell, nav, palette, drawer | DONE | filled after commit | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. |
 | 3 Shell, nav, palette, drawer | | | |
 | 4 Component kit and data hook | | | |
 | 5 Today and Catalog | | | |
@@ -305,3 +306,25 @@ Checks:
 - build: first `npx next build` exit 1 because the legacy file used `@layer` without a Tailwind directive. The directives were put back. Second `npx next build` exit 0.
 
 Files in this commit: `app/globals.css`, `app/legacy-dashboard.css`, `app/layout.tsx`, `tailwind.config.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 3 — shell
+
+The eight areas are real routes: `/today`, `/catalog`, `/orders`, `/money`, `/people`, `/store`, `/growth`, `/settings`. They use `app/(platform)/layout.tsx` and `components/platform/shell.tsx`. The old `/owner` and `/reseller` pages still use the old shell.
+
+- Fixed mesh behind the page. A route change moves the three crimson gradients once, over 1.6s. `prefers-reduced-motion` drops that transition.
+- Glass rail and glass top bar. The content plane is solid `--plane`. The rail collapses to icons and becomes a sheet under `md`.
+- Command palette on Cmd+K and Ctrl+K. It jumps to an area, searches products, orders, and reseller customers, and can sync suppliers or publish the Catalog selection. Arrow keys, Enter, and Escape work.
+- Detail drawer opens from `?order=`, `?item=`, `?person=`, `?wallet=`, or `?thread=`. Escape clears the param, focus is trapped, and focus returns to the opener. The list route stays mounted.
+- Pointer sheen is on the rail only, and it is off when reduced motion is set.
+- Logged-out visits to these routes redirect to login. `isSafeNextPath` accepts them.
+
+The area pages are headings only. Today, Catalog, Orders, Money, People, Store, Growth, and Settings get their real screens in Phases 5 to 10.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 39 files, 319 tests passed.
+- build: `npx next build` exit 0. The eight new routes are in the route table.
+
+Files in this commit: `app/globals.css`, `app/(platform)/**`, `components/platform/**`, `lib/navigation.ts`, `middleware.ts`, `.cursor/handoff-rebuild.md`.

@@ -69,6 +69,16 @@ export const ROUTES = {
     intelligence: '/reseller/intelligence',
     bills: '/reseller/bills',
   },
+  platform: {
+    today: '/today',
+    catalog: '/catalog',
+    orders: '/orders',
+    money: '/money',
+    people: '/people',
+    store: '/store',
+    growth: '/growth',
+    settings: '/settings',
+  },
   public: {
     apiDocs: '/api-docs',
   },
@@ -250,6 +260,26 @@ export function isResellerRoute(pathname: string): boolean {
   return pathname === ROUTES.reseller.home || pathname.startsWith(`${ROUTES.reseller.home}/`);
 }
 
+const PLATFORM_PREFIXES = [
+  ROUTES.platform.today,
+  ROUTES.platform.catalog,
+  ROUTES.platform.orders,
+  ROUTES.platform.money,
+  ROUTES.platform.people,
+  ROUTES.platform.store,
+  ROUTES.platform.growth,
+  ROUTES.platform.settings,
+] as const;
+
+/**
+ * Returns whether a pathname is one of the eight new areas.
+ *
+ * @param pathname - Request pathname
+ */
+export function isPlatformRoute(pathname: string): boolean {
+  return PLATFORM_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 /**
  * Returns whether a pathname is the first-run onboarding flow.
  *
@@ -277,6 +307,9 @@ export function dashboardHomeForRole(role: UserRole): string {
 export function isSafeNextPath(nextPath: string, role: UserRole): boolean {
   if (!nextPath.startsWith('/') || nextPath.startsWith('//') || nextPath.includes('\\')) {
     return false;
+  }
+  if (isPlatformRoute(nextPath)) {
+    return true;
   }
   if (role === 'owner') {
     return isOwnerRoute(nextPath);
