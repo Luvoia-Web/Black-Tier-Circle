@@ -14,6 +14,7 @@ import {
   linkSchema,
   productCardSchema,
   referralConfigSchema,
+  eventsSchema,
 } from '@/modules/store-config/schema';
 import type {
   ButtonKey,
@@ -182,6 +183,17 @@ function mergeProductCard(stored: unknown): StoreConfig['productCard'] {
   return parsed.success ? parsed.data : DEFAULT_STORE_CONFIG.productCard;
 }
 
+function mergeEvents(stored: unknown): StoreConfig['events'] {
+  const parsed = eventsSchema.safeParse(stored);
+  if (!parsed.success) {
+    return DEFAULT_STORE_CONFIG.events;
+  }
+  if (parsed.data.enabled && (parsed.data.title.length === 0 || parsed.data.body.length === 0)) {
+    return { ...parsed.data, enabled: false };
+  }
+  return parsed.data;
+}
+
 /**
  * Merges a stored JSON object over the defaults. Invalid pieces are dropped.
  */
@@ -221,6 +233,7 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
     },
     productCard: mergeProductCard(source.productCard),
     referrals: mergeReferrals(source.referrals),
+    events: mergeEvents(source.events),
   };
 }
 

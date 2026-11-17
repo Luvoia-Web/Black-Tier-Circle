@@ -24,8 +24,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 6 Orders | DONE | 7ae9776cb4eca2625f456dbd320bfc164452f627 | One list, one timeline, bulk retry, CSV. |
 | 7 Money | DONE | a9623dece988d4c974fb5ce2c0d6d3a42bad4fc3 | Balances, the existing top-up review, ledger, supplier warning. |
 | 8 People and support | DONE | 5a7197d7b3ec65b696a7c974ba791d8430ae1665 | Directory, block, support threads, reseller approval and invites. |
-| 9 Store | DONE | filled after commit | Editor, live card preview, open or maintenance, bot reconnect. |
-| 10 Growth | | | |
+| 9 Store | DONE | 60698a572884baa82471db2882b805fb4cd9e4d0 | Editor, live card preview, open or maintenance, bot reconnect. |
+| 10 Growth | DONE | filled after commit | Referrals unchanged, discount codes, announcements, broadcast. |
 | 11 Hidden buyer screens | | | |
 | 12 Security | | | |
 | 13 Cleanup and audit | | | |
@@ -425,3 +425,18 @@ Checks:
 - build: `npx next build` exit 0. `/store` and `/api/platform/store` are in the route table.
 
 Files in this commit: `app/(platform)/store/page.tsx`, `app/(platform)/store/view.tsx`, `app/api/platform/store/route.ts`, `modules/platform/store.ts`, `modules/platform/index.ts`, `modules/bots/index.ts`, `integrations/telegram/bot-context.ts`, `lib/hooks/use-action.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 10 — Growth
+
+Referrals, points, and freebies stay on the existing `GrowthPanel` and its routes. Discount codes are created and turned on or off from `/growth`. At checkout, a buyer message that matches a code is applied after the bulk tier. The same order and code redeem once. An expired, exhausted, already-used, or below-minimum code is refused with a clear message. The price is clamped to the cost floor and is refused when the floor is unknown or the code cannot lower the price. Announcements are title, body, optional link, and an on-off switch stored in `store_config`. A broadcast shows the recipient count, asks for a second confirmation, skips blocked buyers, allows one send a minute, and reports how many were sent and how many failed. The send list is capped at 200 buyers.
+
+The used-count update is a compare-and-set after the redemption row is inserted. Two checkouts at the same moment can still both pass the count check. The buyer button for discounts is still a later phase. The code is accepted as a checkout message.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 41 files, 324 tests passed.
+- build: `npx next build` exit 0. `/growth` and `/api/platform/growth` are in the route table.
+
+Files in this commit: `app/(platform)/growth/page.tsx`, `app/(platform)/growth/view.tsx`, `app/api/platform/growth/route.ts`, `modules/platform/growth.ts`, `modules/pricing/discount.ts`, `modules/store-config/schema.ts`, `modules/store-config/types.ts`, `modules/store-config/defaults.ts`, `modules/store-config/index.ts`, `integrations/telegram/client.ts`, `lib/hooks/use-action.ts`, `tests/unit/discount.test.ts`, `.cursor/handoff-rebuild.md`.

@@ -95,6 +95,12 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
     fallbackEmoji: '📦',
   },
   referrals: DEFAULT_REFERRAL_CONFIG,
+  events: {
+    enabled: false,
+    title: '',
+    body: '',
+    link: '',
+  },
 };
 
 export const BUTTON_KEY_LIST: readonly ButtonKey[] = BUTTON_KEYS;

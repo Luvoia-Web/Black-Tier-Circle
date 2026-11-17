@@ -34,6 +34,7 @@ import {
 import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations/payments';
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import { ensureSupportThread, recordCustomerSupport } from '@/modules/platform/support';
+import { redeemOpenCheckout } from '@/modules/pricing/discount';
 import type { CustomerRecord } from '@/modules/bots/types';
 import { getProduct, listProducts } from '@/modules/catalog';
 import { isListedInBot } from '@/modules/catalog/visibility';
@@ -2589,6 +2590,18 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (/^\d{12}$/.test(trimmed) && !trimmed.startsWith('0')) {
       await redeemToken(screen, trimmed);
       return;
+    }
+    if (customer && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(trimmed)) {
+      const redeemed = await redeemOpenCheckout(context.supabase, {
+        customerId: customer.id,
+        tenantId: context.tenantId,
+        code: trimmed,
+      });
+      if (redeemed.applied) {
+        const message = redeemed.ok ? `Code applied. The total is now ${redeemed.total}.` : redeemed.message;
+        await show(bot, screen, escHtml(message), homeKeyboard(await storeContext()), 'HTML');
+        return;
+      }
     }
     const handled = await verifyReference(screen, trimmed);
     if (handled) {

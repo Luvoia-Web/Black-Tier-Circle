@@ -96,6 +96,19 @@ export const productCardSchema = z.object({
   fallbackEmoji: z.string().trim().min(1).max(8),
 });
 
+export const eventsSchema = z
+  .object({
+    enabled: z.boolean(),
+    title: z.string().trim().max(120),
+    body: z.string().trim().max(2000),
+    link: z.string().trim().max(300),
+  })
+  .superRefine((value, ctx) => {
+    if (value.enabled && (value.title.length === 0 || value.body.length === 0)) {
+      ctx.addIssue({ code: 'custom', message: 'An announcement needs a title and a body.' });
+    }
+  });
+
 export const StoreConfigSchema = z
   .object({
     welcome: z.string().trim().min(1).max(2000),
@@ -118,6 +131,7 @@ export const StoreConfigSchema = z
     }),
     productCard: productCardSchema,
     referrals: referralConfigSchema,
+    events: eventsSchema,
   })
   .strict()
   .refine((value) => JSON.stringify(value).length < 60_000, 'Config is too large');

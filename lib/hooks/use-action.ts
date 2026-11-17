@@ -6,7 +6,7 @@
 
 import { parseData, type DataError } from '@/lib/hooks/parse-data';
 
-export async function runAction(url: string, init?: { readonly method?: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; readonly body?: unknown }): Promise<{ ok: true } | { ok: false; error: DataError }> {
+export async function runAction<T = unknown>(url: string, init?: { readonly method?: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; readonly body?: unknown }): Promise<{ ok: true; data: T } | { ok: false; error: DataError }> {
   try {
     const headers = init?.body !== undefined ? { 'content-type': 'application/json' } : undefined;
     const response = await fetch(url, {
@@ -19,7 +19,7 @@ export async function runAction(url: string, init?: { readonly method?: 'POST' |
     if (!parsed.ok) {
       return parsed;
     }
-    return { ok: true };
+    return { ok: true, data: parsed.data as T };
   } catch (cause: unknown) {
     const message = cause instanceof Error && cause.message.length > 0
       ? cause.message

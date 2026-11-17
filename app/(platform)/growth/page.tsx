@@ -1,5 +1,5 @@
-import { AreaFrame } from '@/components/platform/area-frame';
+import { GrowthView } from './view';
 
 export default function GrowthPage(): JSX.Element {
-  return <AreaFrame title="Growth" lede="Referrals, points, freebies, discount codes, events, and broadcast will move here." />;
+  return <GrowthView />;
 }

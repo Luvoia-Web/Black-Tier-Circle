@@ -111,6 +111,13 @@ export type ProductCardConfig = {
   readonly fallbackEmoji: string;
 };
 
+export type StoreEvents = {
+  readonly enabled: boolean;
+  readonly title: string;
+  readonly body: string;
+  readonly link: string;
+};
+
 export type StoreConfig = {
   readonly welcome: string;
   readonly buttons: Record<ButtonKey, StoreButton>;
@@ -124,6 +131,7 @@ export type StoreConfig = {
   readonly catalog: CatalogConfig;
   readonly productCard: ProductCardConfig;
   readonly referrals: ReferralConfig;
+  readonly events: StoreEvents;
 };
 
 export type StoredStoreConfig = {
