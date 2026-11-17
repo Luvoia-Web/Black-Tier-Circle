@@ -18,6 +18,7 @@
  */
 
 import { AppError } from '@/lib/errors';
+import { safeSupplierFetch, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 import { SUPPLIER_CONFIG } from '@/lib/supplier-config';
 import type {
   SupplierConnector,
@@ -144,10 +145,8 @@ function createSupplier1Connector(): SupplierConnector {
     method: 'GET' | 'POST',
     body?: unknown,
   ): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${SUPPLIER_CONFIG.supplier_1.baseUrl}${path}`, {
+      const res = await safeSupplierFetch(`${SUPPLIER_CONFIG.supplier_1.baseUrl}${path}`, {
         method,
         headers: {
           Authorization: `Bearer ${SUPPLIER_CONFIG.supplier_1.apiKey}`,
@@ -155,19 +154,22 @@ function createSupplier1Connector(): SupplierConnector {
           'User-Agent': 'BlackTierCircle/1.0',
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: controller.signal,
-      });
+      }, { connectTimeoutMs: Math.min(timeoutMs, 8_000), totalTimeoutMs: timeoutMs });
       if (!res.ok) {
         throw new AppError('SUPPLIER_HTTP_ERROR', `Supplier returned ${res.status}`, 502);
       }
       return await res.json();
     } catch (err) {
+      if (err instanceof UnsafeOutboundUrlError && err.message.toLowerCase().includes('timed out')) {
+        throw new AppError('SUPPLIER_TIMEOUT', err.message, 504);
+      }
+      if (err instanceof UnsafeOutboundUrlError) {
+        throw new AppError('UNSAFE_SUPPLIER_URL', err.message, 400);
+      }
       if ((err as Error).name === 'AbortError') {
         throw new AppError('SUPPLIER_TIMEOUT', 'Supplier request timed out', 504);
       }
       throw err;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

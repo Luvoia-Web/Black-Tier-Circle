@@ -1,5 +1,6 @@
 import { BaseSupplierAdapter } from '@/integrations/supplier/adapters/base-adapter';
 import type { CatalogBalance, CatalogOrderResult, CatalogSupplierProduct, ConnectionTest } from '@/integrations/supplier/adapter-types';
+import { safeSupplierFetch, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 import { readCardHints } from '@/modules/catalog/card-text';
 
 const DEFAULT_BASE = 'https://canboso.com';
@@ -41,8 +42,9 @@ function deliveryOf(product: CanbosoProduct): CatalogSupplierProduct['deliveryTy
  */
 async function requestCanboso(url: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(url, init);
-  } catch {
+    return await safeSupplierFetch(url, init);
+  } catch (error: unknown) {
+    if (error instanceof UnsafeOutboundUrlError) throw error;
     throw new Error('Cannot reach the supplier.');
   }
 }

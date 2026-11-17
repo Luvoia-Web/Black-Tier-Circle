@@ -11,6 +11,7 @@ import type { DbClient } from '@/lib/supabase/query';
 import type { CatalogSupplierProduct } from '@/integrations/supplier/adapter-types';
 import { readCardHints } from '@/modules/catalog/card-text';
 import { adapterByName, detectAdapter, testSupplierConnection } from '@/integrations/supplier/supplier-client';
+import { assertPublicHttpsUrl } from '@/lib/safe-fetch';
 import { createProdSellerClient } from '@/integrations/prodseller/client';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import {
@@ -198,6 +199,9 @@ export async function connectSupplier(
   productCount: number;
   warning: string | null;
 }> {
+  if (input.endpoint) {
+    await assertPublicHttpsUrl(input.endpoint);
+  }
   const probed = await testSupplierConnection(input.apiKey, input.endpoint);
   if (!probed.success) {
     throw new AppError('SUPPLIER_CONNECT_FAILED', probed.error ?? 'Could not connect. Check your API key and try again.', 400);

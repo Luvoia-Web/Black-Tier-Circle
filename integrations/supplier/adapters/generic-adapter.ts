@@ -1,5 +1,6 @@
 import { BaseSupplierAdapter } from '@/integrations/supplier/adapters/base-adapter';
 import type { CatalogBalance, CatalogOrderResult, CatalogSupplierProduct, ConnectionTest } from '@/integrations/supplier/adapter-types';
+import { safeSupplierFetch } from '@/lib/safe-fetch';
 import { readCardHints } from '@/modules/catalog/card-text';
 
 const AUTH_ATTEMPTS: ReadonlyArray<{ name: string; format: 'bare' | 'bearer'; headers: (key: string) => Record<string, string> }> = [
@@ -53,7 +54,7 @@ export class GenericAdapter extends BaseSupplierAdapter {
     for (const auth of AUTH_ATTEMPTS) {
       for (const path of PRODUCT_PATHS) {
         try {
-          const response = await fetch(`${baseUrl}${path}`, { headers: { ...auth.headers(apiKey), Accept: 'application/json' } });
+          const response = await safeSupplierFetch(`${baseUrl}${path}`, { headers: { ...auth.headers(apiKey), Accept: 'application/json' } });
           if (response.status === 401 || response.status === 403) {
             continue;
           }
@@ -91,7 +92,7 @@ export class GenericAdapter extends BaseSupplierAdapter {
       tested.authHeaderFormat === 'bearer'
         ? { Authorization: `Bearer ${apiKey}` }
         : { [tested.authHeaderName]: apiKey };
-    const response = await fetch(`${tested.baseUrl}${tested.productsEndpoint}`, { headers });
+    const response = await safeSupplierFetch(`${tested.baseUrl}${tested.productsEndpoint}`, { headers });
     const json = (await response.json()) as unknown;
     return productList(json).map((item, index) => {
       const row = item as Record<string, unknown>;

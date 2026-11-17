@@ -5,7 +5,7 @@
  */
 
 import { ValidationError } from '@/lib/errors';
-import { checkRateLimit } from '@/lib/rate-limiter';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { retryDelivery } from '@/modules/fulfillment';
 
@@ -29,8 +29,8 @@ export async function requestReplacement(db: DbClient, input: { readonly orderId
   if (reason.length < 3) {
     return { ok: false, message: 'Tell the store what went wrong, in a sentence.' };
   }
-  const limit = checkRateLimit(`replace:${input.customerId}`, 3, 60 * 60 * 1000);
-  if (!limit.allowed) {
+  const limit = await consumeRateLimit({ key: `replace:${input.customerId}`, limit: 3, windowMs: 60 * 60 * 1000, fail: 'closed' });
+  if (!limit.allowed && !limit.needsMigration) {
     return { ok: false, message: 'You have sent too many replacement requests. Try again later.' };
   }
   const order = (await db.from('orders').select('id, customer_id, delivery_status, tenant_id').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;

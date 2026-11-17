@@ -20,7 +20,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { API_CONFIG } from '@/lib/api-config';
 import { AppError, AuthError, NotFoundError, ValidationError } from '@/lib/errors';
-import { checkRateLimit } from '@/lib/rate-limiter';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import type {
   ApiKey,
@@ -271,7 +271,16 @@ export async function rateLimit(
   keyId: string,
   endpoint: string,
   limit: number,
-): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
-  const result = checkRateLimit(`apikey:${keyId}:${endpoint}`, limit);
-  return { allowed: result.allowed, remaining: result.remaining, resetAt: result.resetAt };
+): Promise<{ allowed: boolean; remaining: number; resetAt: Date; needsMigration: boolean }> {
+  const result = await consumeRateLimit({
+    key: `apikey:${keyId}:${endpoint}`,
+    limit,
+    fail: endpoint.includes('read') ? 'open' : 'closed',
+  });
+  return {
+    allowed: result.allowed,
+    remaining: result.remaining,
+    resetAt: result.resetAt,
+    needsMigration: result.needsMigration,
+  };
 }

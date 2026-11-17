@@ -27,7 +27,7 @@ const REDEEM_MESSAGES: Record<string, string> = {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`wallet-redeem:${session.user.id}`, 10);
+    await assertRateLimit(`wallet-redeem:${session.user.id}`, 10);
     const parsed = RedeemTokenSchema.parse(await readJsonBody(request));
     const result = await redeemTopupToken(
       asDbClient(session.admin),

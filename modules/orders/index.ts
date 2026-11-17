@@ -13,6 +13,7 @@ import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getProduct } from '@/modules/catalog';
 import { getListing } from '@/modules/pricing';
 import { quoteCheckout } from '@/modules/pricing/tier-store';
+import { assertCustomerAllowed } from '@/modules/platform/fraud';
 import { getTenantById } from '@/modules/tenants';
 import { getWallet, releaseReservation, reserveFunds } from '@/modules/wallet';
 import { mapOrderEventRow, mapOrderRow } from './map';
@@ -111,6 +112,10 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
       );
     }
     return existingOrder;
+  }
+
+  if (input.customerId) {
+    await assertCustomerAllowed(supabase, input.customerId, 'order');
   }
 
   const product = await getProduct(supabase, input.productId);

@@ -10,7 +10,7 @@ type RouteContext = { params: { freebieId: string } };
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     await updateFreebie(
       asDbClient(session.admin),
       session.tenant.id,

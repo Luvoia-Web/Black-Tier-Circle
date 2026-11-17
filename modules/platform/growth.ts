@@ -7,7 +7,7 @@
 import { Bot } from 'grammy';
 import { decrypt } from '@/lib/encryption';
 import { ValidationError } from '@/lib/errors';
-import { checkRateLimit } from '@/lib/rate-limiter';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getDecryptedOwnerBotToken } from '@/modules/platform/index';
 import { readStudio, writeStudio } from '@/modules/store-config/access';
@@ -140,8 +140,8 @@ export async function broadcastBuyers(db: DbClient, input: { readonly role: 'own
   if (!input.confirm) {
     return { confirm: true, recipients: recipients.length, sent: 0, failed: 0, skippedBlocked: rows.length - recipients.length };
   }
-  const limit = checkRateLimit(`broadcast:${input.tenantId ?? 'owner'}`, 1, 60_000);
-  if (!limit.allowed) {
+  const limit = await consumeRateLimit({ key: `broadcast:${input.tenantId ?? 'owner'}`, limit: 1, fail: 'closed' });
+  if (!limit.allowed && !limit.needsMigration) {
     throw new ValidationError('BROADCAST_LIMIT', 'Wait a minute before sending another broadcast.');
   }
   const token = await tokenFor(db, input.role, input.tenantId);

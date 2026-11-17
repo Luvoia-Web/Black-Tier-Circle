@@ -13,6 +13,7 @@ import { asDbClient } from '@/lib/auth/session';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
+import { sweepRateLimitHits } from '@/lib/rate-limiter';
 import { processQueuedFulfillments } from '@/modules/fulfillment';
 import { logger } from '@/lib/logger';
 import { qualifyPendingReferrals } from '@/modules/referrals/store';
@@ -49,6 +50,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       await expirePendingTopups(db);
     } catch (error: unknown) {
       logger.error('top-up sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+    }
+    try {
+      await sweepRateLimitHits(db);
+    } catch (error: unknown) {
+      logger.error('rate limit sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
     }
     return jsonSuccess(result);
   } catch (error: unknown) {

@@ -8,6 +8,7 @@ import { asDbClient, requireOwner } from '@/lib/auth/session';
 import { encrypt } from '@/lib/encryption';
 import { AppError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertPublicHttpsUrl, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 import { z } from 'zod';
 
 const Body = z.object({
@@ -29,6 +30,14 @@ export async function PATCH(request: Request, { params }: RouteContext): Promise
       patch.name = body.name;
     }
     if (body.baseUrl) {
+      try {
+        await assertPublicHttpsUrl(body.baseUrl);
+      } catch (error: unknown) {
+        if (error instanceof UnsafeOutboundUrlError) {
+          throw new AppError('UNSAFE_SUPPLIER_URL', error.message, 400);
+        }
+        throw error;
+      }
       patch.base_url = body.baseUrl;
     }
     if (body.authHeaderName) {

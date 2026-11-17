@@ -49,7 +49,10 @@ export async function authenticateV1Request(
       1,
       Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000),
     );
-    throw new RateLimitError('Rate limit exceeded', retryAfterSeconds);
+    throw new RateLimitError(
+      limited.needsMigration ? 'This action needs migration 0032.' : 'Rate limit exceeded',
+      retryAfterSeconds,
+    );
   }
   return context;
 }

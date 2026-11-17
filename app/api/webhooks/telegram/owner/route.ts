@@ -12,7 +12,8 @@ import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { assertRateLimit } from '@/lib/request-rate-limit';
+import { limitTelegramCustomer, telegramUserId } from '@/lib/api-rate-limit';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { BotConnection } from '@/modules/bots/types';
@@ -41,9 +42,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (secret === null || !verifyTelegramSecret(secret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
-    try {
-      assertRateLimit('tg-webhook:owner', 100);
-    } catch {
+    const botLimit = await consumeRateLimit({ key: 'tg-webhook:owner', limit: 100, fail: 'closed' });
+    if (!botLimit.allowed && !botLimit.needsMigration) {
       return NextResponse.json({ ok: false, description: 'Rate limit exceeded' }, { status: 429 });
     }
     const token = await getDecryptedOwnerBotToken(db);
@@ -56,6 +56,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       update = (await req.json()) as Update;
     } catch {
       return NextResponse.json({ ok: true });
+    }
+    const customerLimit = await limitTelegramCustomer('owner', telegramUserId(update));
+    if (customerLimit) {
+      return customerLimit;
     }
 
     logger.info('telegram webhook accepted', {

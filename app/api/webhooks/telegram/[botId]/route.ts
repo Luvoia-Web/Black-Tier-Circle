@@ -21,7 +21,8 @@ import { decryptBotToken, processTelegramUpdate, verifyTelegramSecret } from '@/
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
-import { assertRateLimit } from '@/lib/request-rate-limit';
+import { limitTelegramCustomer, telegramUserId } from '@/lib/api-rate-limit';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getBotConnectionById } from '@/modules/bots';
@@ -48,9 +49,8 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
     if (!verifyTelegramSecret(connection.webhookSecret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
-    try {
-      assertRateLimit(`tg-webhook:${params.botId}`, 100);
-    } catch {
+    const botLimit = await consumeRateLimit({ key: `tg-webhook:${params.botId}`, limit: 100, fail: 'closed' });
+    if (!botLimit.allowed && !botLimit.needsMigration) {
       return NextResponse.json({ ok: false, description: 'Rate limit exceeded' }, { status: 429 });
     }
 
@@ -59,6 +59,10 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
       update = (await req.json()) as Update;
     } catch {
       return NextResponse.json({ ok: true });
+    }
+    const customerLimit = await limitTelegramCustomer(params.botId, telegramUserId(update));
+    if (customerLimit) {
+      return customerLimit;
     }
 
     logger.info('telegram webhook accepted', {

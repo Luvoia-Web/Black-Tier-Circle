@@ -10,7 +10,7 @@ type RouteContext = { params: { freebieId: string } };
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireOwner();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     await updateFreebie(asDbClient(session.admin), null, session.user.id, context.params.freebieId, await readJsonBody(request));
     return jsonSuccess({ updated: true });
   } catch (error: unknown) {

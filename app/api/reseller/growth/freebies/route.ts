@@ -17,7 +17,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     await createFreebie(asDbClient(session.admin), session.tenant.id, session.user.id, await readJsonBody(request));
     return jsonSuccess({ created: true });
   } catch (error: unknown) {

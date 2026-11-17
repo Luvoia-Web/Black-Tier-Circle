@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    assertRateLimit(`auth:${clientIp(request)}`, 5);
+    await assertRateLimit(`auth:${clientIp(request)}`, 5);
     const { supabase, applyCookies } = createAuthRouteClient();
     await supabase.auth.signOut();
     return applyCookies(jsonSuccess({ redirectTo: ROUTES.login }));

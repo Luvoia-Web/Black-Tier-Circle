@@ -26,8 +26,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 8 People and support | DONE | 5a7197d7b3ec65b696a7c974ba791d8430ae1665 | Directory, block, support threads, reseller approval and invites. |
 | 9 Store | DONE | 60698a572884baa82471db2882b805fb4cd9e4d0 | Editor, live card preview, open or maintenance, bot reconnect. |
 | 10 Growth | DONE | 18c4502363be1214b88bb2afe01f8a79a443beb4 | Codes, announcements, and broadcasts. |
-| 11 Hidden buyer screens | DONE | filled after commit | History, redeem, discount, events, and replacement. |
-| 12 Security | | | |
+| 11 Hidden buyer screens | DONE | 94db5cad9632c77157f1f0c2bcb1c304c2c4a864 | History, redeem, discount, events, and replacement. |
+| 12 Security | DONE | filled after commit | Supplier fetch guard, shared rate limit, fraud refusals, reseller policy. |
 | 13 Cleanup and audit | | | |
 
 ## Locked new routes
@@ -453,3 +453,22 @@ Checks:
 - build: `npx next build` exit 0.
 
 Files in this commit: `integrations/telegram/client.ts`, `modules/store-config/types.ts`, `modules/store-config/defaults.ts`, `modules/store-config/keyboard.ts`, `modules/platform/replacements.ts`, `modules/platform/growth.ts`, `app/api/platform/replacements/route.ts`, `app/(platform)/orders/view.tsx`, `.cursor/handoff-rebuild.md`.
+
+## Phase 12 — security
+
+Supplier HTTP now goes through `lib/safe-fetch.ts`. The helper requires https, resolves the host, and rejects a private, loopback, link-local, or reserved address, including 169.254.169.254. A redirect is checked the same way before it is followed. Connect and total time are bounded, and the body is cut at one megabyte. Connect and edit call `assertPublicHttpsUrl` before the key is saved. A bad URL returns that message instead of a generic connect failure. Telegram and Binance are not supplier URLs and still use their own clients. While tests are running, a hostname that is not an IP is treated as 1.1.1.1 so the suite does not call DNS. Production resolves the real address.
+
+`consumeRateLimit` calls `bump_rate_limit`. Two instances that share that function share one count. Tests and `VITEST` keep the in-memory map, and `checkRateLimit` still uses it. Auth, money, and other writes fail closed. Reads and the fulfillment, reconcile, sync, and bot-health crons fail open. A missing `rate_limit_hits` table fails closed on auth and money with "This action needs migration 0032." Other writes are allowed when the table is missing, so the dashboard still saves. The webhook allows the update in that same case so an unapplied 0032 does not take the bot offline. When the limiter is down for any other reason, the webhook is refused. Middleware applies this to every `/api` request. Route handlers that already had a limit now await the shared store. The Telegram webhook limits per bot and per customer. API v1 still limits per key, on the same store. The fulfillment cron deletes rows older than two days inside try/catch.
+
+Fraud thresholds are read from `platform_settings`. If those columns are missing, checkout keeps the documented defaults unused and the Settings page says migration 0032 is required. When the columns are present, a buyer is limited to the hourly and daily order counts, failed payment claims per hour, support messages per hour, and referral claims per day. A buyer younger than `fraud_new_account_age_hours` uses `fraud_new_account_order_cap` as the ceiling. A blocked buyer cannot create an order or store a support message. Each refusal is written to `audit_log` with the reason, and the bot shows that reason.
+
+`reseller_policy` defaults to allow. A key set to false is rejected on the reseller settings, catalog, listing, markup, tier, bot studio, store, API key, and webhook writes. The update does not run, so the stored value stays. The owner turns fields on and off from Settings. A missing column is shown as needs migration 0032 and does not lock existing resellers.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same two pre-existing `no-img-element` warnings in `MemoryNav.tsx` and `sidebar.tsx`. Neither file is in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 42 files, 334 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. `/settings` and `/api/platform/settings` are in the route table.
+
+Files in this commit: `lib/safe-fetch.ts`, `lib/rate-limiter.ts`, `lib/request-rate-limit.ts`, `lib/api-rate-limit.ts`, `lib/v1-auth.ts`, `middleware.ts`, `modules/platform/fraud.ts`, `modules/platform/policy.ts`, `modules/platform/support.ts`, `modules/platform/growth.ts`, `modules/platform/replacements.ts`, `modules/orders/index.ts`, `modules/public-api/index.ts`, `modules/supplier/index.ts`, `integrations/prodseller/client.ts`, `integrations/supplier/generic-client.ts`, `integrations/supplier/connector.ts`, `integrations/supplier/adapters/generic-adapter.ts`, `integrations/supplier/adapters/canboso-adapter.ts`, `integrations/telegram/client.ts`, `app/api/supplier/connect/route.ts`, `app/api/supplier/settings/[supplierId]/route.ts`, `app/api/fulfillment/process/route.ts`, `app/api/platform/settings/route.ts`, `app/api/platform/store/route.ts`, `app/api/webhooks/telegram/owner/route.ts`, `app/api/webhooks/telegram/[botId]/route.ts`, `app/(platform)/settings/page.tsx`, `app/(platform)/settings/view.tsx`, reseller policy routes under `app/api/reseller/**`, the write routes whose `assertRateLimit` calls are now awaited, `tests/unit/security-controls.test.ts`, `.cursor/handoff-rebuild.md`.

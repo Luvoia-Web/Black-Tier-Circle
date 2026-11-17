@@ -27,7 +27,7 @@ export async function GET(): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const session = await requireOwner();
-    assertRateLimit(`bot-studio:${session.user.id}`, 30);
+    await assertRateLimit(`bot-studio:${session.user.id}`, 30);
     const saved = await writeStudio(asDbClient(session.admin), 'owner', null, await readJsonBody(request), session.user.id);
     return jsonSuccess(saved);
   } catch (error: unknown) {

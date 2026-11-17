@@ -9,6 +9,7 @@ import { SupplierError } from '@/integrations/prodseller/client';
 import { testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { handleRouteError, jsonError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { AppError } from '@/lib/errors';
+import { assertPublicHttpsUrl, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 import { connectSupplier } from '@/modules/supplier';
 import { z } from 'zod';
 
@@ -42,6 +43,9 @@ function toUserError(err: unknown, statusCode?: number): string | null {
   if (msg.includes('timeout') || msg.includes('etimedout') || msg.includes('timed out')) {
     return 'Connection timed out. The supplier is not responding.';
   }
+  if (msg.includes('not allowed') || msg.includes('must use https') || msg.includes('could not resolve')) {
+    return err instanceof Error ? err.message : 'That supplier URL is not allowed.';
+  }
   return 'Could not connect. Check your API key and try again.';
 }
 
@@ -59,6 +63,16 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireOwner();
     const body = Body.parse(await readJsonBody(request));
+    if (body.endpoint) {
+      try {
+        await assertPublicHttpsUrl(body.endpoint);
+      } catch (error: unknown) {
+        if (error instanceof UnsafeOutboundUrlError) {
+          return jsonError(new AppError('UNSAFE_SUPPLIER_URL', error.message, 400));
+        }
+        throw error;
+      }
+    }
     if (body.save !== true) {
       const probed = await testSupplierConnection(body.apiKey, body.endpoint);
       if (!probed.success) {

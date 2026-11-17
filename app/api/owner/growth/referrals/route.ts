@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request): Promise<Response> {
   try {
     const session = await requireOwner();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     const url = new URL(request.url);
     const query = ReferralQuerySchema.parse({
       status: url.searchParams.get('status') ?? 'all',

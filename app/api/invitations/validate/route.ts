@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    assertRateLimit(`auth:${clientIp(request)}`, 5);
+    await assertRateLimit(`auth:${clientIp(request)}`, 5);
     const token = new URL(request.url).searchParams.get('token') ?? '';
     if (token.length === 0) {
       return jsonSuccess({ email: '', valid: false, expired: false });

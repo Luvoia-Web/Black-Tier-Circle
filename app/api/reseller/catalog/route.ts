@@ -13,6 +13,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { CreateListingSchema } from '@/lib/validations/catalog';
 import { listPublishedProducts } from '@/modules/catalog';
 import { readCardHints } from '@/modules/catalog/card-text';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { createListing, getMarginMinor, getMarginPercent, listResellerListings } from '@/modules/pricing';
 
 export const dynamic = 'force-dynamic';
@@ -107,6 +108,7 @@ export async function POST(request: Request): Promise<Response> {
     const session = await requireReseller();
     const body = await readJsonBody(request);
     const parsed = CreateListingSchema.parse(body);
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['catalogPrice']);
     const productId = parsed.productId;
     if (!productId) {
       throw new ValidationError('INVALID_INPUT', 'productId is required');

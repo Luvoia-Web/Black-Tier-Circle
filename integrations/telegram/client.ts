@@ -21,7 +21,8 @@ import { getAppUrl } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { formatUsdt } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { checkRateLimit } from '@/lib/rate-limiter';
+import { consumeRateLimit } from '@/lib/rate-limiter';
+import { assertCustomerAllowed, noteFailedClaim, noteReferralClaim } from '@/modules/platform/fraud';
 import { normalizeEthAddress } from '@/integrations/bsc/verify';
 import { claimWalletTopup, findOpenTopup, openWalletTopup, orderCryptoTopupMinor } from '@/modules/topups';
 import {
@@ -595,7 +596,8 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showRefer(screen);
       return;
     }
-    if (!checkRateLimit(`referral-redeem:${customer.id}`, 5).allowed) {
+    const redeemLimit = await consumeRateLimit({ key: `referral-redeem:${customer.id}`, limit: 5, fail: 'closed' });
+    if (!redeemLimit.allowed && !redeemLimit.needsMigration) {
       await show(bot, screen, 'Please wait a moment and try again.', new InlineKeyboard().text('Home', 'home:'), 'HTML');
       return;
     }
@@ -651,8 +653,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await showFreebies(screen);
       return;
     }
-    if (!checkRateLimit(`referral-claim:${customer.id}`, 10).allowed) {
+    const claimLimit = await consumeRateLimit({ key: `referral-claim:${customer.id}`, limit: 10, fail: 'closed' });
+    if (!claimLimit.allowed && !claimLimit.needsMigration) {
       await show(bot, screen, 'Please wait a moment and try again.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
+      return;
+    }
+    try {
+      await assertCustomerAllowed(context.supabase, customer.id, 'referral');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'That referral claim was refused.';
+      await show(bot, screen, message, new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
       return;
     }
     const result = await claimFreebie(context.supabase, {
@@ -664,6 +674,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, 'That freebie is still locked.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
       return;
     }
+    await noteReferralClaim(context.supabase, customer.id);
     await show(
       bot,
       screen,
@@ -682,7 +693,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     if (!config?.enabled) {
       return;
     }
-    if (!checkRateLimit(`referral-attach:${customer.id}`, 10).allowed) {
+    const attachLimit = await consumeRateLimit({ key: `referral-attach:${customer.id}`, limit: 10, fail: 'closed' });
+    if (!attachLimit.allowed && !attachLimit.needsMigration) {
+      await bot.api.sendMessage(customer.telegramChatId, 'Please wait a moment before using a referral code.');
       return;
     }
     const code = payload.slice('ref_'.length).trim().toLowerCase();
@@ -1012,6 +1025,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           '❌ <b>Out of Stock</b>\n\nThis product is currently unavailable. Browse other products.',
           new InlineKeyboard().text('🛍 Browse Shop', 'shop_all:'),
         );
+        return;
+      }
+      if (code === 'CUSTOMER_BLOCKED' || code === 'FRAUD_LIMIT') {
+        const message = error instanceof Error ? error.message : 'This account cannot place that order.';
+        await show(bot, screen, `❌ ${escHtml(message)}`, new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
         return;
       }
       if (code === 'NOT_FOUND' || code === 'PRODUCT_NOT_FOUND') {
@@ -1795,8 +1813,16 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         await bot.api.sendMessage(screen.chatId, html, extra);
       }
     };
-    if (!checkRateLimit(`topup-claim:${customer.id}`, 5, 10 * 60 * 1000).allowed) {
+    const topupLimit = await consumeRateLimit({ key: `topup-claim:${customer.id}`, limit: 5, windowMs: 10 * 60 * 1000, fail: 'closed' });
+    if (!topupLimit.allowed && !topupLimit.needsMigration) {
       await finish(topupClaimText({ outcome: 'rate_limited' }));
+      return;
+    }
+    try {
+      await assertCustomerAllowed(context.supabase, customer.id, 'claim');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'That payment claim was refused.';
+      await finish(`❌ ${escHtml(message)}`);
       return;
     }
     const result = await claimWalletTopup(context.supabase, {
@@ -1808,6 +1834,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       return;
     }
     if (result.status === 'rejected') {
+      await noteFailedClaim(context.supabase, customer.id, result.reason ?? 'Payment claim was rejected.');
       if (result.reason === 'EXPIRED' || result.reason === 'NO_OPEN_TOPUP') {
         awaitingTopupHash.delete(topupKey(screen.chatId));
       }
@@ -2650,8 +2677,12 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
         botId: context.botConnection.id === OWNER_STORE_BOT_ID ? null : context.botConnection.id,
         body: trimmed,
       });
-      if (!saved.ok && saved.reason === 'limited') {
-        await show(bot, screen, 'You have sent too many messages this minute. Wait a moment and try again.', homeKeyboard(await storeContext()), 'HTML');
+      if (!saved.ok && (saved.reason === 'limited' || saved.reason === 'blocked' || saved.reason === 'fraud')) {
+        const message = saved.message
+          ?? (saved.reason === 'limited'
+            ? 'You have sent too many messages this minute. Wait a moment and try again.'
+            : 'This account cannot send that message.');
+        await show(bot, screen, message, homeKeyboard(await storeContext()), 'HTML');
         return;
       }
       if (!saved.ok && saved.reason === 'needs-migration') {

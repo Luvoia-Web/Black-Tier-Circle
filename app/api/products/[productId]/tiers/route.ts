@@ -43,7 +43,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireOwner();
-    assertRateLimit(`bulk-tiers:${session.user.id}`, 30);
+    await assertRateLimit(`bulk-tiers:${session.user.id}`, 30);
     const parsed = BulkTiersBodySchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
     const productId = context.params.productId;

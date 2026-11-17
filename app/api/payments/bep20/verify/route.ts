@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireUser();
-    assertRateLimit(`pay-verify:${session.user.id}`, 20);
+    await assertRateLimit(`pay-verify:${session.user.id}`, 20);
     const parsed = Bep20ClaimSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
     const order = await getOrder(db, parsed.orderId);

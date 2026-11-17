@@ -14,6 +14,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { sanitizeInput } from '@/lib/sanitize';
 import { UpdateTenantSettingsSchema } from '@/lib/validations/tenant-settings';
 import { updateTenantDisplayName } from '@/modules/tenants';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { getTenantSettings, updateTenantSettings } from '@/modules/tenant-settings';
 
 export const dynamic = 'force-dynamic';
@@ -45,8 +46,14 @@ export async function PATCH(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
     const parsed = UpdateTenantSettingsSchema.parse(await readJsonBody(request));
-    const address = parsed.usdtWalletBep20 === undefined ? null : prepareBep20Address(parsed.usdtWalletBep20);
     const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(
+      db,
+      Object.entries(parsed)
+        .filter(([, value]) => value !== undefined)
+        .map(([key]) => key),
+    );
+    const address = parsed.usdtWalletBep20 === undefined ? null : prepareBep20Address(parsed.usdtWalletBep20);
     if (parsed.storeName) {
       await updateTenantDisplayName(db, session.tenant.id, sanitizeInput(parsed.storeName));
     }

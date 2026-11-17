@@ -7,6 +7,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { buyerCategoryNames } from '@/modules/catalog/buyer-category';
 import { listResellerListings } from '@/modules/pricing';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { readStudio, writeStudio } from '@/modules/store-config/access';
 
 export const dynamic = 'force-dynamic';
@@ -29,9 +30,11 @@ export async function GET(): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`bot-studio:${session.user.id}`, 30);
+    await assertRateLimit(`bot-studio:${session.user.id}`, 30);
+    const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(db, ['botCopy']);
     const saved = await writeStudio(
-      asDbClient(session.admin),
+      db,
       'reseller',
       session.tenant.id,
       await readJsonBody(request),

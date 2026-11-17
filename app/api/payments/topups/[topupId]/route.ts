@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request, context: { params: { topupId: string } }): Promise<Response> {
   try {
     const session = await requireRole(['owner', 'reseller']);
-    assertRateLimit(`topup-review:${session.user.id}`, 20);
+    await assertRateLimit(`topup-review:${session.user.id}`, 20);
     const tenantId =
       session.profile.role === 'owner' ? null : (await requireReseller()).tenant.id;
     const body = (await readJsonBody(request)) as {

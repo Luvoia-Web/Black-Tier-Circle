@@ -8,7 +8,8 @@ import { Bot } from 'grammy';
 import { decrypt } from '@/lib/encryption';
 import { ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rate-limiter';
+import { consumeRateLimit } from '@/lib/rate-limiter';
+import { assertCustomerAllowed } from '@/modules/platform/fraud';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { createNotification } from '@/modules/notifications';
 import { getDecryptedOwnerBotToken } from '@/modules/platform/index';
@@ -127,13 +128,27 @@ export async function ensureSupportThread(
 export async function recordCustomerSupport(
   db: DbClient,
   input: { readonly tenantId: string | null; readonly customerId: string; readonly botId: string | null; readonly body: string },
-): Promise<{ readonly ok: true; readonly threadId: string } | { readonly ok: false; readonly reason: 'needs-migration' | 'limited' | 'empty' }> {
+): Promise<
+  | { readonly ok: true; readonly threadId: string }
+  | { readonly ok: false; readonly reason: 'needs-migration' | 'limited' | 'empty' | 'blocked' | 'fraud'; readonly message?: string }
+> {
   const body = clampSupportBody(input.body);
   if (!body) {
     return { ok: false, reason: 'empty' };
   }
-  const limit = checkRateLimit(`support:${input.customerId}`, PER_MINUTE, 60_000);
-  if (!limit.allowed) {
+  try {
+    await assertCustomerAllowed(db, input.customerId, 'support');
+  } catch (error: unknown) {
+    if (error instanceof ValidationError && error.code === 'CUSTOMER_BLOCKED') {
+      return { ok: false, reason: 'blocked', message: error.message };
+    }
+    if (error instanceof ValidationError && error.code === 'FRAUD_LIMIT') {
+      return { ok: false, reason: 'fraud', message: error.message };
+    }
+    throw error;
+  }
+  const limit = await consumeRateLimit({ key: `support:${input.customerId}`, limit: PER_MINUTE, fail: 'closed' });
+  if (!limit.allowed && !limit.needsMigration) {
     return { ok: false, reason: 'limited' };
   }
   const open = (await db

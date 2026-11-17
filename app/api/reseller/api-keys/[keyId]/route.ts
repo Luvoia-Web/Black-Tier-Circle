@@ -9,6 +9,7 @@
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { listApiKeys, revokeApiKey } from '@/modules/public-api';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
   try {
     const session = await requireReseller();
     const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(db, ['apiKeys']);
     const keys = await listApiKeys(db, session.tenant.id);
     if (!keys.some((key) => key.id === context.params.keyId)) {
       throw new AuthError('FORBIDDEN', 'API key does not belong to this tenant', 403);

@@ -16,6 +16,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { limitApiRequest } from '@/lib/api-rate-limit';
 import {
   dashboardHomeForRole,
   isOnboardingRoute,
@@ -93,6 +94,9 @@ async function readProfileGate(
  * Uses getSession() so middleware does not make an extra Auth network round trip.
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  const limited = await limitApiRequest(request);
+  if (limited) return limited;
+
   let supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
 
@@ -219,5 +223,5 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api|auth/callback).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|auth/callback).*)'],
 };

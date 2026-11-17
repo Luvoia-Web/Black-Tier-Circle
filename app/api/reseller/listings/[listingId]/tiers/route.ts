@@ -9,6 +9,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { usdtToMinor } from '@/lib/money';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { BulkTiersBodySchema } from '@/lib/validations/bulk-tiers';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { getOwnedListing } from '@/modules/pricing';
 import { replaceBulkTiers, tierContext } from '@/modules/pricing/tier-store';
 
@@ -46,9 +47,10 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`bulk-tiers:${session.user.id}`, 30);
+    await assertRateLimit(`bulk-tiers:${session.user.id}`, 30);
     const parsed = BulkTiersBodySchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(db, ['catalogPrice']);
     const listing = await getOwnedListing(db, context.params.listingId, session.tenant.id);
     await replaceBulkTiers(
       db,

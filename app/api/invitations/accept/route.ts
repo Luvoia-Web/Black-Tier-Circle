@@ -27,7 +27,7 @@ export async function POST(request: Request): Promise<Response> {
   let createdTenantId: string | null = null;
 
   try {
-    assertRateLimit(`auth:${clientIp(request)}`, 5);
+    await assertRateLimit(`auth:${clientIp(request)}`, 5);
     const body = InviteAcceptSchema.parse(await readJsonBody(request));
     const { data: inviteData, error: inviteError } = await admin
       .from('invitations')

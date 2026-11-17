@@ -11,6 +11,7 @@ import { ValidationError } from '@/lib/errors';
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { UpdateListingSchema } from '@/lib/validations/catalog';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { setListingVisibility, updateListingPrice, type ResellerListing } from '@/modules/pricing';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     const session = await requireReseller();
     const parsed = UpdateListingSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(db, ['catalogPrice']);
     const listingId = context.params.listingId;
     const tenantId = session.tenant.id;
     const priceStr = parsed.retailPriceStr ?? parsed.retailPriceMinor;

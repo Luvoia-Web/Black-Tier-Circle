@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     const result = await adjustCustomerPoints(
       asDbClient(session.admin),
       session.tenant.id,

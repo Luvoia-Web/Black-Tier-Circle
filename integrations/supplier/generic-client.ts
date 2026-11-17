@@ -3,6 +3,7 @@
  */
 
 import { SupplierError } from '@/integrations/prodseller/client';
+import { safeSupplierFetch, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 import { isLowBalanceMessage } from '@/lib/supplier-errors';
 
 const AUTH_PATTERNS = [
@@ -33,14 +34,11 @@ type Attempt = {
 };
 
 async function attempt(url: string, header: string, value: string): Promise<Attempt> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
-    const response = await fetch(url, {
+    const response = await safeSupplierFetch(url, {
       method: 'GET',
       headers: { [header]: value, Accept: 'application/json' },
-      signal: controller.signal,
-    });
+    }, { totalTimeoutMs: 12_000, connectTimeoutMs: 5_000 });
     const body = await response.text();
     let json: Record<string, unknown> | null = null;
     try {
@@ -50,12 +48,16 @@ async function attempt(url: string, header: string, value: string): Promise<Atte
     }
     return { ok: response.ok, status: response.status, body, json };
   } catch (error: unknown) {
+    if (error instanceof UnsafeOutboundUrlError) {
+      if (error.message.toLowerCase().includes('timed out')) {
+        throw new SupplierError('SUPPLIER_TIMEOUT', error.message, 504);
+      }
+      throw new SupplierError('UNSAFE_SUPPLIER_URL', error.message, 400);
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw new SupplierError('SUPPLIER_TIMEOUT', 'Connection timed out', 504);
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

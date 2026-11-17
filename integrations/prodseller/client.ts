@@ -2,7 +2,10 @@
  * @file integrations/prodseller/client.ts
  *
  * ProdSeller HTTP client. Auth is an API key header. Requests time out after 20 seconds.
+ * Every call goes through the guarded supplier fetch.
  */
+
+import { safeSupplierFetch, UnsafeOutboundUrlError } from '@/lib/safe-fetch';
 
 export type ProdSellerProduct = {
   readonly id: string;
@@ -89,15 +92,12 @@ export class ProdSellerClient {
     body?: unknown,
     extraHeaders?: Record<string, string>,
   ): Promise<T> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await safeSupplierFetch(`${this.baseUrl}${path}`, {
         method,
         headers: { ...this.headers, ...extraHeaders },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: controller.signal,
-      });
+      }, { totalTimeoutMs: 20_000, connectTimeoutMs: 8_000 });
       if (response.status === 429) {
         const retryAfter = response.headers.get('X-RateLimit-Reset') ?? '60';
         throw new SupplierError('RATE_LIMITED', `ProdSeller rate limit hit. Retry after ${retryAfter}s`, 429);
@@ -115,12 +115,14 @@ export class ProdSellerClient {
       if (error instanceof SupplierError) {
         throw error;
       }
+      if (error instanceof UnsafeOutboundUrlError) {
+        const timedOut = error.message.toLowerCase().includes('timed out');
+        throw new SupplierError(timedOut ? 'SUPPLIER_TIMEOUT' : 'UNSAFE_SUPPLIER_URL', error.message, timedOut ? 504 : 400);
+      }
       if (error instanceof Error && error.name === 'AbortError') {
         throw new SupplierError('SUPPLIER_TIMEOUT', 'ProdSeller API request timed out', 504);
       }
       throw error;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

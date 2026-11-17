@@ -9,6 +9,7 @@ import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { reconnectResellerBot } from '@/modules/bots';
 import { reconnectOwnerBot } from '@/modules/platform/index';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { readStore, saveOwnerStoreStatus, saveResellerStoreStatus } from '@/modules/platform/store';
 import { writeStudio } from '@/modules/store-config/access';
 import { getTenantByUserId } from '@/modules/tenants';
@@ -39,6 +40,9 @@ export async function PUT(request: Request): Promise<Response> {
   try {
     const current = await scope();
     const body = (await readJsonBody(request)) as Record<string, unknown>;
+    if (current.role === 'reseller') {
+      await assertResellerFieldsAllowed(current.db, ['botCopy']);
+    }
     const saved = await writeStudio(current.db, current.role, current.tenantId, body, current.userId);
     return jsonSuccess(saved);
   } catch (error: unknown) {
@@ -61,6 +65,7 @@ export async function PATCH(request: Request): Promise<Response> {
     if (!current.tenantId) {
       throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
     }
+    await assertResellerFieldsAllowed(current.db, ['storeStatus', 'maintenanceMsg']);
     await saveResellerStoreStatus(current.db, current.tenantId, storeStatus, message);
     return jsonSuccess({ needsMigration: false });
   } catch (error: unknown) {

@@ -9,6 +9,7 @@
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { DashboardCreateWebhookSchema } from '@/lib/validations/v1';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { listWebhookEndpoints, registerWebhookEndpoint } from '@/modules/public-api/webhooks';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks']);
     const parsed = DashboardCreateWebhookSchema.parse(await readJsonBody(request));
     const created = await registerWebhookEndpoint(asDbClient(session.admin), {
       tenantId: session.tenant.id,

@@ -8,6 +8,7 @@
 
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
 import { deleteWebhookEndpoint, setWebhookActive } from '@/modules/public-api/webhooks';
 import { z } from 'zod';
 
@@ -24,6 +25,7 @@ const PatchSchema = z.object({
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireReseller();
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks']);
     const parsed = PatchSchema.parse(await readJsonBody(request));
     const webhook = await setWebhookActive(
       asDbClient(session.admin),
@@ -40,7 +42,9 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireReseller();
-    await deleteWebhookEndpoint(asDbClient(session.admin), context.params.webhookId, session.tenant.id);
+    const db = asDbClient(session.admin);
+    await assertResellerFieldsAllowed(db, ['webhooks']);
+    await deleteWebhookEndpoint(db, context.params.webhookId, session.tenant.id);
     return jsonSuccess({ deleted: true });
   } catch (error: unknown) {
     return handleRouteError(error);

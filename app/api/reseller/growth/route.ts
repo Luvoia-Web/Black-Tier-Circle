@@ -17,7 +17,7 @@ export async function GET(): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    assertRateLimit(`growth:${session.user.id}`, 30);
+    await assertRateLimit(`growth:${session.user.id}`, 30);
     const body = (await readJsonBody(request)) as { settings?: unknown; version?: unknown };
     const version = typeof body.version === 'number' ? body.version : 0;
     const saved = await saveGrowthSettings(
