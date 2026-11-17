@@ -15,8 +15,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
-| 0 Evidence and route map | DONE | pending hash, this commit | handoff file only |
-| 1 Migration 0032 | | | write once, do not apply, do not edit later |
+| 0 Evidence and route map | DONE | 35940da85c035ad6b4ffe25a7241a6bbf03818d6 | `.cursor/handoff-rebuild.md` only |
+| 1 Migration 0032 | DONE | filled after commit | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
 | 2 Tokens and glass | | | rewrite `app/globals.css` |
 | 3 Shell, nav, palette, drawer | | | |
 | 4 Component kit and data hook | | | |
@@ -256,3 +256,27 @@ Recorded against the working tree just before the commit. Unrelated dirty files 
 - build: `npx next build` exit 0.
 
 Files in this commit: `.cursor/handoff-rebuild.md` only.
+
+## Phase 1 — migration 0032
+
+Wrote `supabase/migrations/0032_platform_complete.sql`. It has not been applied. It will not be edited in a later phase.
+
+It adds:
+
+- `platform_settings.store_status` (`open` or `maintenance`, default `open`), `maintenance_msg`, `reseller_policy` jsonb default `{}`, and seven fraud threshold columns with defaults: 20 orders per hour, 50 per day, 5 failed claims per hour, 30 support messages per hour, 10 referral claims per day, 3 orders for a new account, 24 hours counted as new.
+- `support_threads` and `support_messages`. Message body is 1 to 2000 characters. Sender is `customer` or `owner`.
+- `discount_codes` and `discount_redemptions`. Code is stored upper-case. Unique index is on `coalesce(tenant_id, the zero uuid)` plus `code`, so the owner store (null tenant) cannot have two of the same code. A plain `(tenant_id, code)` unique index would not do that, because SQL treats nulls as distinct. Redemptions are unique on code and order.
+- `replacement_requests` with a partial unique index so an order has only one `pending` or `approved` request.
+- `rate_limit_hits (bucket, window_start, count)` and `bump_rate_limit(text, timestamptz)`, which increments under the row lock from `insert ... on conflict do update`. Index on `window_start` is there for the cron sweep.
+- `customers.blocked_at` and `customers.blocked_reason`. `is_blocked` is left in place.
+
+Select-only RLS for owner (`tenant_id is null` and owner role) and reseller (their tenant) on the five new readable tables, following `0029_wallet_topups.sql`. `rate_limit_hits` has RLS and no policy. Authenticated gets `select` on the readable tables only. The bump function is executable by `service_role` only.
+
+Checks, working tree, same unrelated dirty files as Phase 0 left out of the commit:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `@next/next/no-img-element` warnings in `MemoryNav.tsx` and `sidebar.tsx`.
+- test: `npx vitest run` exit 0. 39 files, 319 tests passed.
+- build: `npx next build` exit 0.
+
+Files in this commit: `supabase/migrations/0032_platform_complete.sql` and `.cursor/handoff-rebuild.md`.
