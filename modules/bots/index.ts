@@ -264,6 +264,30 @@ export async function getBotConnection(supabase: DbClient, tenantId: string): Pr
   return mapBotConnectionRow(asConnectionRow(data));
 }
 
+export async function reconnectResellerBot(supabase: DbClient, tenantId: string): Promise<{ readonly username: string; readonly webhookUrl: string }> {
+  const found = await supabase.from('bot_connections').select('id, username, encrypted_token, webhook_secret').eq('tenant_id', tenantId).maybeSingle();
+  const row = found.data && typeof found.data === 'object' ? (found.data as Record<string, unknown>) : null;
+  const encrypted = typeof row?.encrypted_token === 'string' ? row.encrypted_token : '';
+  const secret = typeof row?.webhook_secret === 'string' ? row.webhook_secret : '';
+  const id = typeof row?.id === 'string' ? row.id : '';
+  if (found.error || !row || !encrypted || !secret || !id) {
+    throw new ValidationError('BOT_NOT_CONNECTED', 'Connect the bot before reconnecting it.');
+  }
+  let token = '';
+  try {
+    token = decrypt(encrypted);
+  } catch {
+    throw new ValidationError('BOT_NOT_CONNECTED', 'The stored bot token could not be read. Connect the bot again.');
+  }
+  const webhookUrl = webhookUrlFor(id);
+  await telegramSetWebhook(token, webhookUrl, secret);
+  const saved = await supabase.from('bot_connections').update({ status: 'connected', last_health_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id);
+  if (saved.error) {
+    throw new AppError('BOT_UPDATE_FAILED', saved.error.message, 500);
+  }
+  return { username: typeof row.username === 'string' ? row.username : '', webhookUrl };
+}
+
 /**
  * Internal use only — webhook handler decrypts the token after this call.
  * Never call from API routes that return data to clients.

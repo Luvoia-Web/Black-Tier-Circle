@@ -7,7 +7,7 @@
  * @module Telegram
  */
 
-import type { DbClient } from '@/lib/supabase/query';
+import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getPlatformSettings } from '@/modules/platform';
 import { resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
 import { getTenantSettings } from '@/modules/tenant-settings';
@@ -55,6 +55,16 @@ export type BotContext = {
  */
 const CONTEXT_CACHE = new Map<string, { data: BotContext; expiresAt: number }>();
 
+async function platformStoreGate(supabase: DbClient): Promise<{ readonly status: 'open' | 'maintenance'; readonly message: string }> {
+  const result = (await supabase.from('platform_settings').select('store_status, maintenance_msg').limit(1).maybeSingle()) as QueryResult<unknown>;
+  if (result.error || !result.data || typeof result.data !== 'object') {
+    return { status: 'open', message: '' };
+  }
+  const row = result.data as Record<string, unknown>;
+  const message = typeof row.maintenance_msg === 'string' ? row.maintenance_msg : '';
+  return { status: row.store_status === 'maintenance' ? 'maintenance' : 'open', message };
+}
+
 /**
  * Returns store settings, reusing a 30 second cache per bot.
  * The cache lives in one serverless instance, so a shorter TTL is the safe way
@@ -85,6 +95,7 @@ export async function resolveBotContext(
   const payments = await resolveOrderPayments(supabase, tenantId);
   const crypto = await resolveCryptoPayee(supabase, tenantId);
   const studio = await getStoreConfig(supabase, tenantId);
+  const gate = tenant ? null : await platformStoreGate(supabase);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
   const limits = await loadTopupLimits(supabase, tenantId);
@@ -102,8 +113,8 @@ export async function resolveBotContext(
     announcementChannelId: tenant?.announcementChannelId ?? null,
     hasAnyPaymentMethod: !payments.demo,
     isDemoMode: payments.demo,
-    storeStatus: tenant?.storeStatus ?? 'open',
-    maintenanceMessage: tenant?.maintenanceMsg?.trim() || 'We will be back soon!',
+    storeStatus: tenant?.storeStatus ?? gate?.status ?? 'open',
+    maintenanceMessage: tenant?.maintenanceMsg?.trim() || gate?.message || 'We will be back soon!',
     supportContact: tenant?.supportContact?.trim() || platform.supportContact,
     supportTelegramUrl: tenant?.supportChatUrl?.trim() || platform.supportTelegram,
     resellerSignupEnabled: tenant?.resellerSignupEnabled === true,

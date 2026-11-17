@@ -6,7 +6,7 @@
 
 import { parseData, type DataError } from '@/lib/hooks/parse-data';
 
-export async function runAction(url: string, init?: { readonly method?: 'POST' | 'PATCH' | 'DELETE'; readonly body?: unknown }): Promise<{ ok: true } | { ok: false; error: DataError }> {
+export async function runAction(url: string, init?: { readonly method?: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; readonly body?: unknown }): Promise<{ ok: true } | { ok: false; error: DataError }> {
   try {
     const headers = init?.body !== undefined ? { 'content-type': 'application/json' } : undefined;
     const response = await fetch(url, {

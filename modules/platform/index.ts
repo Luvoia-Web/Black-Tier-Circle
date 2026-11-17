@@ -363,6 +363,35 @@ export async function getDecryptedBinanceCredentials(
  *
  * SECURITY: never log or return this value to the browser.
  */
+export async function reconnectOwnerBot(supabase: DbClient): Promise<{ readonly username: string; readonly webhookUrl: string }> {
+  const row = await loadPlatformSettingsRow(supabase);
+  if (!row.owner_bot_token_encrypted || !row.owner_bot_webhook_secret) {
+    throw new ValidationError('BOT_NOT_CONNECTED', 'Connect the bot before reconnecting it.');
+  }
+  let token = '';
+  try {
+    token = decrypt(row.owner_bot_token_encrypted);
+  } catch {
+    throw new ValidationError('BOT_NOT_CONNECTED', 'The stored bot token could not be read. Connect the bot again.');
+  }
+  const webhookUrl = ownerWebhookUrl();
+  await telegramSetWebhook(token, webhookUrl, row.owner_bot_webhook_secret);
+  const saved = await supabase
+    .from('platform_settings')
+    .update({ owner_bot_status: 'connected', owner_bot_last_health_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', row.id);
+  if (saved.error) {
+    throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', saved.error.message, 500);
+  }
+  invalidateCache('platform_settings');
+  return { username: row.owner_bot_username ?? '', webhookUrl };
+}
+
+/**
+ * Server-only decrypted owner bot token.
+ *
+ * SECURITY: never log or return this value to the browser.
+ */
 export async function getDecryptedOwnerBotToken(supabase: DbClient): Promise<string | null> {
   const row = await loadPlatformSettingsRow(supabase);
   if (row.owner_bot_status !== 'connected' || !row.owner_bot_token_encrypted) {

@@ -1,0 +1,84 @@
+/**
+ * @file app/api/platform/store/route.ts
+ *
+ * Store editor, open or maintenance, and bot reconnect.
+ */
+
+import { asDbClient, requireUser } from '@/lib/auth/session';
+import { AuthError, ValidationError } from '@/lib/errors';
+import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { reconnectResellerBot } from '@/modules/bots';
+import { reconnectOwnerBot } from '@/modules/platform/index';
+import { readStore, saveOwnerStoreStatus, saveResellerStoreStatus } from '@/modules/platform/store';
+import { writeStudio } from '@/modules/store-config/access';
+import { getTenantByUserId } from '@/modules/tenants';
+
+export const dynamic = 'force-dynamic';
+
+async function scope() {
+  const session = await requireUser();
+  const role = session.profile.role;
+  if (role !== 'owner' && role !== 'reseller') {
+    throw new AuthError('FORBIDDEN', 'You do not have access to the store', 403);
+  }
+  const db = asDbClient(session.admin);
+  const tenant = role === 'reseller' ? await getTenantByUserId(db, session.user.id) : null;
+  return { db, role, tenantId: tenant?.id ?? null, userId: session.user.id };
+}
+
+export async function GET(): Promise<Response> {
+  try {
+    const current = await scope();
+    return jsonSuccess(await readStore(current.db, current.role, current.tenantId));
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function PUT(request: Request): Promise<Response> {
+  try {
+    const current = await scope();
+    const body = (await readJsonBody(request)) as Record<string, unknown>;
+    const saved = await writeStudio(current.db, current.role, current.tenantId, body, current.userId);
+    return jsonSuccess(saved);
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    const current = await scope();
+    const body = (await readJsonBody(request)) as { storeStatus?: unknown; maintenanceMessage?: unknown };
+    const storeStatus = body.storeStatus === 'maintenance' ? 'maintenance' : body.storeStatus === 'open' ? 'open' : null;
+    if (!storeStatus) {
+      throw new ValidationError('STORE_STATUS_INVALID', 'Choose open or maintenance.');
+    }
+    const message = typeof body.maintenanceMessage === 'string' ? body.maintenanceMessage : '';
+    if (current.role === 'owner') {
+      return jsonSuccess(await saveOwnerStoreStatus(current.db, storeStatus, message));
+    }
+    if (!current.tenantId) {
+      throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
+    }
+    await saveResellerStoreStatus(current.db, current.tenantId, storeStatus, message);
+    return jsonSuccess({ needsMigration: false });
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function POST(): Promise<Response> {
+  try {
+    const current = await scope();
+    if (current.role === 'owner') {
+      return jsonSuccess(await reconnectOwnerBot(current.db));
+    }
+    if (!current.tenantId) {
+      throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
+    }
+    return jsonSuccess(await reconnectResellerBot(current.db, current.tenantId));
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}

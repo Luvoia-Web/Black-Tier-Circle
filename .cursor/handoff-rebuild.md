@@ -23,8 +23,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 5 Today and Catalog | DONE | e2985cc6d856e07653dd7f6430bd2ab1fa68a287 | Triage list and the joined catalog. Signed-in screenshots were blocked by login. |
 | 6 Orders | DONE | 7ae9776cb4eca2625f456dbd320bfc164452f627 | One list, one timeline, bulk retry, CSV. |
 | 7 Money | DONE | a9623dece988d4c974fb5ce2c0d6d3a42bad4fc3 | Balances, the existing top-up review, ledger, supplier warning. |
-| 8 People and support | DONE | filled after commit | Directory, block, support threads, reseller approval and invites. |
-| 9 Store | | | |
+| 8 People and support | DONE | 5a7197d7b3ec65b696a7c974ba791d8430ae1665 | Directory, block, support threads, reseller approval and invites. |
+| 9 Store | DONE | filled after commit | Editor, live card preview, open or maintenance, bot reconnect. |
 | 10 Growth | | | |
 | 11 Hidden buyer screens | | | |
 | 12 Security | | | |
@@ -412,3 +412,16 @@ Checks:
 - build: `npx next build` exit 0. `/people`, `/api/platform/people`, and `/api/platform/support` are in the route table.
 
 Files in this commit: `app/(platform)/people/page.tsx`, `app/(platform)/people/view.tsx`, `app/api/platform/people/route.ts`, `app/api/platform/people/detail/route.ts`, `app/api/platform/support/route.ts`, `modules/platform/people.ts`, `modules/platform/support.ts`, `modules/bots/index.ts`, `integrations/telegram/client.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 9 — Store
+
+`/store` loads `/api/platform/store` through `useData`. The editor saves through the existing store config writer, so the product card, welcome text, and buttons go through the existing schema and sanitizer. Sections are collapsed. The save bar stays on screen and says when there are unsaved changes. Welcome, the support intro, and the product card each reset to the stored default. The preview calls `productCardText` and `renderTemplate`, the same builders the bot uses, on a real published product. When the store has no published products, the preview says it is showing a sample. The owner open or maintenance switch writes `platform_settings.store_status`. If those columns are missing, the page says migration 0032 is required and the bot stays open. `maintenanceBlock` now reads that platform status when the update has no tenant. A reseller switch still writes the tenant setting. Connect uses the existing connect routes. Reconnect registers the stored webhook again and does not return the token. The bot context cache can keep the old open or closed state for up to 30 seconds.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0. `/store` and `/api/platform/store` are in the route table.
+
+Files in this commit: `app/(platform)/store/page.tsx`, `app/(platform)/store/view.tsx`, `app/api/platform/store/route.ts`, `modules/platform/store.ts`, `modules/platform/index.ts`, `modules/bots/index.ts`, `integrations/telegram/bot-context.ts`, `lib/hooks/use-action.ts`, `.cursor/handoff-rebuild.md`.
