@@ -249,7 +249,7 @@ export function isPublicRoute(pathname: string): boolean {
  * @param pathname - Request pathname
  */
 export function isOwnerRoute(pathname: string): boolean {
-  return pathname === ROUTES.owner.home || pathname.startsWith(`${ROUTES.owner.home}/`);
+  return pathname === '/owner' || pathname.startsWith('/owner/');
 }
 
 /**
@@ -258,7 +258,7 @@ export function isOwnerRoute(pathname: string): boolean {
  * @param pathname - Request pathname
  */
 export function isResellerRoute(pathname: string): boolean {
-  return pathname === ROUTES.reseller.home || pathname.startsWith(`${ROUTES.reseller.home}/`);
+  return pathname === '/reseller' || pathname.startsWith('/reseller/');
 }
 
 const PLATFORM_PREFIXES = [
@@ -296,7 +296,8 @@ export function isOnboardingRoute(pathname: string): boolean {
  * @param role - Authenticated profile role
  */
 export function dashboardHomeForRole(role: UserRole): string {
-  return role === 'owner' ? ROUTES.owner.home : ROUTES.reseller.home;
+  void role;
+  return ROUTES.platform.today;
 }
 
 /**

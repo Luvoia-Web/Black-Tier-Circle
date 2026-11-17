@@ -168,14 +168,15 @@ function matchesFilter(item: NotificationItem, filter: string): boolean {
 }
 
 export function hrefForNotification(item: NotificationItem, role: 'owner' | 'reseller' | 'staff'): string {
+  void role;
   if (item.type.startsWith('order_') && typeof item.metadata.orderId === 'string') {
-    return role === 'owner' ? `/owner/orders/${item.metadata.orderId}` : `/reseller/orders/${item.metadata.orderId}`;
+    return `/orders?order=${item.metadata.orderId}`;
   }
   if (item.type.startsWith('wallet_') || item.type === 'balance_low') {
-    return role === 'owner' ? '/owner/wallets' : '/reseller/wallet';
+    return '/money';
   }
   if (item.type === 'product_added') {
-    return role === 'owner' ? '/owner/products' : '/reseller/products';
+    return '/catalog';
   }
-  return role === 'owner' ? '/owner' : '/reseller';
+  return '/today';
 }

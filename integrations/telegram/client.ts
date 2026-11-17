@@ -2212,7 +2212,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       `🔑 <b>Developer API</b>\n\n` +
         `Integrate this store with the REST API.\n\n` +
         `📚 Docs:\n${escHtml(`${origin}/api-docs`)}\n\n` +
-        `API keys:\n${escHtml(`${origin}/reseller/settings/api-keys`)}`,
+        `API keys:\n${escHtml(`${origin}/settings?section=api-keys`)}`,
       navRow(new InlineKeyboard()),
     );
   }

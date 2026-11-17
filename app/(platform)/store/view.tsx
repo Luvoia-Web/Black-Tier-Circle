@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Button, ErrorState, SelectField, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
+import { Button, EmptyState, ErrorState, SelectField, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
 import { API_ROUTES } from '@/lib/navigation';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
@@ -70,7 +70,7 @@ export function StoreView(): JSX.Element {
     return <ErrorState message={store.error.message} onRetry={store.refetch} />;
   }
   if (!store.data || !draft) {
-    return <p className="text-sm text-ink-soft">The store is not available.</p>;
+    return <EmptyState title="The store is not available" message="Refresh the page. If this stays empty, the store settings could not be read." />;
   }
   const loaded = store.data;
   const config = draft;

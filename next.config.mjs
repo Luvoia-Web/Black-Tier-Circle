@@ -9,6 +9,11 @@
  * @module Config
  */
 
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const legacyRedirects = require('./lib/legacy-redirects.json');
+
 const isDev = process.env.NODE_ENV === 'development';
 
 const securityHeaders = [
@@ -38,6 +43,13 @@ const nextConfig = {
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
+  },
+  async redirects() {
+    return legacyRedirects.map((rule) => ({
+      source: rule.source,
+      destination: rule.destination,
+      permanent: true,
+    }));
   },
   webpack: (config) => {
     config.module.rules.push({

@@ -108,7 +108,7 @@ describe('resolvePostLoginPath', () => {
       createdAt: new Date(NOW),
       updatedAt: new Date(NOW),
     };
-    expect(resolvePostLoginPath(profile)).toBe(ROUTES.owner.home);
+    expect(resolvePostLoginPath(profile)).toBe(ROUTES.platform.today);
   });
 
   it('sends a first-time account to onboarding', () => {

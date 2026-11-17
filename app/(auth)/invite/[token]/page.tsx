@@ -8,92 +8,47 @@
 
 'use client';
 
-import { type FormEvent, useEffect, useState } from 'react';
-import { API_ROUTES } from '@/lib/navigation';
+import { type FormEvent, useState } from 'react';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { runAction } from '@/lib/hooks/use-action';
+import { useData } from '@/lib/hooks/use-data';
+import { API_ROUTES } from '@/lib/navigation';
 
 type InvitePageProps = {
   readonly params: { readonly token: string };
 };
 
-type ValidateState =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'invalid'; readonly expired: boolean }
-  | { readonly kind: 'valid'; readonly email: string }
-  | { readonly kind: 'accepted' };
+type InviteCheck = { readonly email: string; readonly valid: boolean; readonly expired: boolean };
 
 /**
  * Invite acceptance page. Does not redirect to the dashboard — pending accounts wait for owner approval.
  */
 export default function InvitePage({ params }: InvitePageProps): JSX.Element {
   const token = params.token;
-  const [state, setState] = useState<ValidateState>({ kind: 'loading' });
+  const [accepted, setAccepted] = useState(false);
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function validate(): Promise<void> {
-      try {
-        const response = await fetch(`${API_ROUTES.invitationsValidate}?token=${encodeURIComponent(token)}`);
-        const json = (await response.json()) as {
-          success: boolean;
-          data?: { email: string; valid: boolean; expired: boolean };
-        };
-        if (cancelled) {
-          return;
-        }
-        if (!json.success || !json.data?.valid) {
-          setState({ kind: 'invalid', expired: json.data?.expired === true });
-          return;
-        }
-        setState({ kind: 'valid', email: json.data.email });
-      } catch {
-        if (!cancelled) {
-          setState({ kind: 'invalid', expired: false });
-        }
-      }
-    }
-    void validate();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const checked = useData<InviteCheck>(accepted ? null : `${API_ROUTES.invitationsValidate}?token=${encodeURIComponent(token)}`);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (state.kind !== 'valid') {
+    if (!checked.data?.valid) {
       return;
     }
     setError(null);
     setLoading(true);
-    try {
-      const response = await fetch(API_ROUTES.invitationsAccept, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          email: state.email,
-          password,
-          displayName,
-        }),
-      });
-      const json = (await response.json()) as {
-        success: boolean;
-        error?: { message: string };
-      };
-      if (!json.success) {
-        setError(json.error?.message ?? 'Unable to accept invitation');
-        return;
-      }
-      setState({ kind: 'accepted' });
-    } catch {
-      setError('Unable to accept invitation. Try again.');
-    } finally {
-      setLoading(false);
+    const result = await runAction(API_ROUTES.invitationsAccept, {
+      method: 'POST',
+      body: { token, email: checked.data.email, password, displayName },
+    });
+    setLoading(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
     }
+    setAccepted(true);
   }
 
   return (
@@ -104,24 +59,24 @@ export default function InvitePage({ params }: InvitePageProps): JSX.Element {
       <div className="btc-card w-full max-w-[400px] p-8">
         <p className="text-lg font-semibold">◆ Black Tier Circle</p>
         <h1 className="mt-2 text-base font-semibold">You&apos;ve been invited to Black Tier Circle</h1>
-        {state.kind === 'loading' ? <p className="mt-4 text-sm text-[var(--text-2)]">Checking invite…</p> : null}
-        {state.kind === 'invalid' ? (
+        {checked.loading ? <p className="mt-4 text-sm text-[var(--text-2)]">Checking invite…</p> : null}
+        {!accepted && !checked.loading && (checked.error || !checked.data?.valid) ? (
           <div className="mt-4 rounded-[var(--r-md)] border border-[var(--red)]/20 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
-            {state.expired ? 'This invite link has expired.' : 'This invite link is not valid.'} Contact the owner
+            {checked.data?.expired ? 'This invite link has expired.' : checked.error ? checked.error.message : 'This invite link is not valid.'} Contact the owner
             for a new invite link.
           </div>
         ) : null}
-        {state.kind === 'accepted' ? (
+        {accepted ? (
           <div className="mt-4 rounded-[var(--r-md)] border border-[var(--amber)]/20 bg-[var(--amber-soft)] px-4 py-3 text-sm text-[var(--amber)]">
             Account created! Pending owner approval.
           </div>
         ) : null}
-        {state.kind === 'valid' ? (
+        {!accepted && checked.data?.valid ? (
           <form onSubmit={(event) => void onSubmit(event)} className="mt-5 flex flex-col gap-4">
             <p className="text-sm text-[var(--text-2)]">Create your reseller account.</p>
             <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
               Email
-              <input type="email" name="email" readOnly value={state.email} className="btc-input opacity-80" />
+              <input type="email" name="email" readOnly value={checked.data.email} className="btc-input opacity-80" />
             </label>
             <label className="flex flex-col gap-1 text-sm text-[var(--text-2)]">
               Display name

@@ -17,6 +17,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { limitApiRequest } from '@/lib/api-rate-limit';
+import { legacyDestination } from '@/lib/legacy-redirects';
 import {
   dashboardHomeForRole,
   isOnboardingRoute,
@@ -97,8 +98,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const limited = await limitApiRequest(request);
   if (limited) return limited;
 
-  let supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
+  const moved = legacyDestination(pathname);
+  if (moved) {
+    const url = request.nextUrl.clone();
+    const queryAt = moved.indexOf('?');
+    url.pathname = queryAt === -1 ? moved : moved.slice(0, queryAt);
+    url.search = queryAt === -1 ? '' : moved.slice(queryAt);
+    return NextResponse.redirect(url, 308);
+  }
+
+  let supabaseResponse = NextResponse.next({ request });
 
   if (isPublicRoute(pathname)) {
     return supabaseResponse;

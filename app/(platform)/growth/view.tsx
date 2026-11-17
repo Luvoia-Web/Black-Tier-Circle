@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { GrowthPanel } from '@/components/growth/growth-panel';
-import { Button, Card, ErrorState, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
+import { Button, Card, EmptyState, ErrorState, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
@@ -72,6 +72,7 @@ export function GrowthView(): JSX.Element {
           <Button variant={kind === 'fixed' ? 'primary' : 'secondary'} onClick={() => setKind('fixed')}>Fixed</Button>
           <Button onClick={() => { void runAction('/api/platform/growth', { method: 'POST', body: { action: 'code', code, kind, value, minOrderMinor: '0', maxUses: null, perCustomerLimit: 1 } }).then((result) => { setNote(result.ok ? 'Code saved.' : result.error.message); if (result.ok) growth.refetch(); }); }}>Add code</Button>
         </div>
+        {growth.data && growth.data.codes.length === 0 ? <EmptyState title="No codes yet" message="Add a percent or a fixed amount. Buyers enter it in the bot." /> : null}
         <ul className="mt-3 space-y-2">
           {(growth.data?.codes ?? []).map((row) => (
             <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">

@@ -1,12 +1,13 @@
 'use client';
 
+import { runAction } from '@/lib/hooks/use-action';
 import { ROUTES } from '@/lib/navigation';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { createBrowserSupabaseClient } from '@/lib/supabase/client';
 
 export default function SuspendedPage(): JSX.Element {
   async function signOut(): Promise<void> {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await runAction('/api/auth/logout', { method: 'POST' });
     const supabase = createBrowserSupabaseClient();
     await supabase.auth.signOut();
     window.location.assign(ROUTES.login);

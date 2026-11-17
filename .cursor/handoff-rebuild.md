@@ -27,8 +27,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 9 Store | DONE | 60698a572884baa82471db2882b805fb4cd9e4d0 | Editor, live card preview, open or maintenance, bot reconnect. |
 | 10 Growth | DONE | 18c4502363be1214b88bb2afe01f8a79a443beb4 | Codes, announcements, and broadcasts. |
 | 11 Hidden buyer screens | DONE | 94db5cad9632c77157f1f0c2bcb1c304c2c4a864 | History, redeem, discount, events, and replacement. |
-| 12 Security | DONE | filled after commit | Supplier fetch guard, shared rate limit, fraud refusals, reseller policy. |
-| 13 Cleanup and audit | | | |
+| 12 Security | DONE | 816e82aa33e82bf56b20f625a3a190c2f6fe58ca | Supplier fetch guard, shared rate limit, fraud refusals, reseller policy. |
+| 13 Cleanup and audit | DONE | filled after commit | Old dashboard routes redirect. Dead pages removed. Audit written. |
 
 ## Locked new routes
 
@@ -472,3 +472,18 @@ Checks:
 - build: `./node_modules/.bin/next build` exit 0. `/settings` and `/api/platform/settings` are in the route table.
 
 Files in this commit: `lib/safe-fetch.ts`, `lib/rate-limiter.ts`, `lib/request-rate-limit.ts`, `lib/api-rate-limit.ts`, `lib/v1-auth.ts`, `middleware.ts`, `modules/platform/fraud.ts`, `modules/platform/policy.ts`, `modules/platform/support.ts`, `modules/platform/growth.ts`, `modules/platform/replacements.ts`, `modules/orders/index.ts`, `modules/public-api/index.ts`, `modules/supplier/index.ts`, `integrations/prodseller/client.ts`, `integrations/supplier/generic-client.ts`, `integrations/supplier/connector.ts`, `integrations/supplier/adapters/generic-adapter.ts`, `integrations/supplier/adapters/canboso-adapter.ts`, `integrations/telegram/client.ts`, `app/api/supplier/connect/route.ts`, `app/api/supplier/settings/[supplierId]/route.ts`, `app/api/fulfillment/process/route.ts`, `app/api/platform/settings/route.ts`, `app/api/platform/store/route.ts`, `app/api/webhooks/telegram/owner/route.ts`, `app/api/webhooks/telegram/[botId]/route.ts`, `app/(platform)/settings/page.tsx`, `app/(platform)/settings/view.tsx`, reseller policy routes under `app/api/reseller/**`, the write routes whose `assertRateLimit` calls are now awaited, `tests/unit/security-controls.test.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 13 — cleanup and audit
+
+The 50 old dashboard pages are gone. `lib/legacy-redirects.json` is the map. Middleware returns 308 before the auth check, and `next.config.mjs` repeats the same permanent redirects. Login and the notification links open `/today`, `/orders`, `/money`, and `/catalog`. The bell no longer links to the deleted inbox.
+
+Components, CSS, and stubs that nothing imported after that deletion were removed. `app/legacy-dashboard.css` stays because the auth pages, the growth panel, and the top-up panel still use those classes. `docs/platform-audit.md` lists the remaining issues and the fate of each old page.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same two pre-existing `no-img-element` warnings. `MemoryNav.tsx` is not in this commit. `sidebar.tsx` was deleted because nothing imported it.
+- test: `./node_modules/.bin/vitest run` exit 0. 43 files, 336 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. The old `/owner` and `/reseller` pages are absent. The eight areas remain.
+
+Files in this commit: `lib/legacy-redirects.json`, `lib/legacy-redirects.ts`, `middleware.ts`, `next.config.mjs`, `lib/navigation.ts`, `modules/notifications/index.ts`, `components/notifications/notification-bell.tsx`, `integrations/telegram/client.ts`, `components/auth/pending-wait.tsx`, `app/(auth)/invite/[token]/page.tsx`, `app/(auth)/suspended/page.tsx`, `app/(platform)/growth/view.tsx`, `app/(platform)/store/view.tsx`, `tests/unit/legacy-redirects.test.ts`, `tests/unit/identity.test.ts`, `docs/platform-audit.md`, `docs/architecture.md`, `.cursor/handoff-rebuild.md`, and the deleted `app/(dashboard)` tree plus the unreferenced components listed in the commit.

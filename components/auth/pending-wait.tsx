@@ -36,7 +36,7 @@ export function PendingWait({ supportContact }: PendingWaitProps): JSX.Element {
           return;
         }
         if (row.status === 'active') {
-          router.replace(row.onboarding_completed === true ? ROUTES.reseller.home : ROUTES.onboarding);
+          router.replace(row.onboarding_completed === true ? ROUTES.platform.today : ROUTES.onboarding);
         }
         if (row.status === 'suspended') {
           router.replace(ROUTES.suspended);

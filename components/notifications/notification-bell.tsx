@@ -14,7 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Bell } from 'lucide-react';
 import { LottiePlayer } from '@/components/motion/LottiePlayer';
 import { SCALE_IN } from '@/lib/animations';
-import type { NotificationItem } from '@/modules/notifications';
+import { hrefForNotification, type NotificationItem } from '@/modules/notifications';
 import type { UserRole } from '@/modules/identity/types';
 
 type NotificationBellProps = {
@@ -22,19 +22,6 @@ type NotificationBellProps = {
 };
 
 const TABS = ['all', 'unread', 'orders', 'wallet', 'system'] as const;
-
-function destinationFor(item: NotificationItem, role: UserRole): string {
-  if (item.type.startsWith('order_') && typeof item.metadata.orderId === 'string') {
-    return role === 'owner' ? `/owner/orders/${item.metadata.orderId}` : `/reseller/orders/${item.metadata.orderId}`;
-  }
-  if (item.type.startsWith('wallet_') || item.type === 'balance_low') {
-    return role === 'owner' ? '/owner/wallets' : '/reseller/wallet';
-  }
-  if (item.type === 'product_added') {
-    return role === 'owner' ? '/owner/products' : '/reseller/products';
-  }
-  return role === 'owner' ? '/owner' : '/reseller';
-}
 
 function relative(iso: string): string {
   const delta = Date.now() - new Date(iso).getTime();
@@ -93,11 +80,11 @@ export function NotificationBell({ role }: NotificationBellProps): JSX.Element {
   async function openItem(item: NotificationItem): Promise<void> {
     await fetch(`/api/notifications/${item.id}/read`, { method: 'PATCH' });
     setOpen(false);
-    router.push(destinationFor(item, role));
+    router.push(hrefForNotification(item, role));
   }
 
   const badge = unread > 99 ? '99+' : String(unread);
-  const inbox = role === 'owner' ? '/owner/notifications' : '/reseller/notifications';
+  const inbox = '/today';
 
   return (
     <div className="relative" ref={rootRef}>

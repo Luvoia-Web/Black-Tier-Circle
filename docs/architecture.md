@@ -31,7 +31,7 @@ High-level Phase 0 / target runtime for Black Tier Circle.
                                   |
 +-------------+          +--------+--------+         +------------------+
 | Telegram    | HTTPS    | Webhook         | enqueue | Job worker       |
-| user / bot  +--------->+ /api/webhooks/  +-------->+ jobs/dispatch    |
+| user / bot  +--------->+ /api/webhooks/  +-------->+ inline handler   |
 +-------------+          | telegram/[botId]|         | handlers/*       |
                          +-----------------+         +--------+---------+
                                                               |
