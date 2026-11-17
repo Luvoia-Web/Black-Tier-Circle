@@ -26,6 +26,29 @@ export const PLATFORM_AREAS: readonly PlatformArea[] = [
 
 export const SELECTION_STORAGE_KEY = 'platform-selection';
 
+/**
+ * Reads the catalog row ids chosen in this tab.
+ */
+export function readSelection(): string[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  const raw = window.sessionStorage.getItem(SELECTION_STORAGE_KEY) ?? '';
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
+/**
+ * Stores the catalog row ids chosen in this tab.
+ *
+ * @param ids - Supplier product or product ids
+ */
+export function writeSelection(ids: readonly string[]): void {
+  window.sessionStorage.setItem(SELECTION_STORAGE_KEY, ids.join(','));
+}
+
 export const DRAWER_PARAMS = ['order', 'item', 'person', 'wallet', 'thread'] as const;
 
 export type DrawerParam = (typeof DRAWER_PARAMS)[number];

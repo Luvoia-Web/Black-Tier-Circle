@@ -18,9 +18,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Do not edit 0032 afte
 | 0 Evidence and route map | DONE | 35940da85c035ad6b4ffe25a7241a6bbf03818d6 | `.cursor/handoff-rebuild.md` only |
 | 1 Migration 0032 | DONE | 295bf98d877283180b1976f897f8628b2d6a60e0 | `supabase/migrations/0032_platform_complete.sql` written, not applied, not edited again |
 | 2 Tokens and glass | DONE | 490800161f75c7fe85a8186d5e048c538237a2fe | `app/globals.css` rewritten. Old rules moved to `app/legacy-dashboard.css` so current pages still render until Phase 13. |
-| 3 Shell, nav, palette, drawer | DONE | filled after commit | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. |
-| 3 Shell, nav, palette, drawer | | | |
-| 4 Component kit and data hook | | | |
+| 3 Shell, nav, palette, drawer | DONE | 3c452b3f348cb8ef7c5af51542337a02cb341e42 | New routes `/today` through `/settings`. Old `/owner` and `/reseller` pages stay. Owner customer search and the mobile sheet landed in the Phase 4 commit. |
+| 4 Component kit and data hook | DONE | filled after commit | Shared controls, table, overlays, and `useData`. |
 | 5 Today and Catalog | | | |
 | 6 Orders | | | |
 | 7 Money | | | |
@@ -328,3 +327,28 @@ Checks:
 - build: `npx next build` exit 0. The eight new routes are in the route table.
 
 Files in this commit: `app/globals.css`, `app/(platform)/**`, `components/platform/**`, `lib/navigation.ts`, `middleware.ts`, `.cursor/handoff-rebuild.md`.
+
+## Phase 4 — component kit and data hook
+
+Shared controls live in `components/platform/ui`. Pages import them from that folder. Copy is sentence case. A destructive button is the only solid crimson fill. Primary is an ice fill with base text. Every control has a visible focus ring from the global `:focus-visible` rule, a disabled state, and a loading label of “Working…” where an action can be in flight.
+
+- Button: primary, secondary, ghost, destructive.
+- Fields: text, textarea, select, checkbox, radio, switch. Each text control takes a label, an optional hint, and an inline error.
+- Card, stat tile, badge, status pill. Pills use mint, ember, and fault. They do not use crimson for status.
+- Table: sticky header, mono right-aligned numerals, row selection, sortable headers, sticky bulk bar. Loading, error, and empty are built in. Glass is not behind the table.
+- Filter bar wraps. Pagination shows page, total, and page size.
+- Modal, overlay drawer, popover, and tooltip sit on `--raised` and close on Escape. Modal traps focus and returns it.
+- Skeleton, ErrorState with retry, EmptyState with the next action.
+- `useData` in `lib/hooks/use-data.ts` returns data, loading, error, and refetch. It aborts on unmount. A failed response sets the error and clears loading. `parseData` is covered by `tests/unit/parse-data.test.ts`.
+- `notify` sends a toast through the existing Sonner toaster, which already uses the raised surface.
+
+This commit also finishes two gaps in the Phase 3 shell. The rail is `fixed` on a phone and `sticky` from `md` up, so it is a real sheet. `/api/platform/search` searches products, orders, and customers for the owner and only the reseller’s own listings, orders, and buyers. The palette uses that route. The notification bell is in the top bar.
+
+Checks:
+
+- type-check: `npx tsc --noEmit` exit 0
+- lint: `npx next lint` exit 0. Same two pre-existing `no-img-element` warnings in `MemoryNav.tsx` and `sidebar.tsx`. Neither file is in this commit.
+- test: `npx vitest run` exit 0. 40 files, 322 tests passed.
+- build: `npx next build` exit 0.
+
+Files in this commit: `components/platform/ui/**`, `components/platform/areas.ts`, `components/platform/command-palette.tsx`, `components/platform/rail.tsx`, `components/platform/top-bar.tsx`, `app/globals.css`, `app/api/platform/search/route.ts`, `lib/hooks/parse-data.ts`, `lib/hooks/use-data.ts`, `tests/unit/parse-data.test.ts`, `.cursor/handoff-rebuild.md`.

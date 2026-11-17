@@ -10,6 +10,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { PLATFORM_AREAS } from '@/components/platform/areas';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { UserRole } from '@/modules/identity/types';
 
@@ -41,8 +42,17 @@ export function PlatformTopBar({
         setMenuOpen(false);
       }
     }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    }
     document.addEventListener('mousedown', onPointer);
-    return () => document.removeEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   return (
@@ -66,6 +76,7 @@ export function PlatformTopBar({
         Search
         <span className="ml-2 hidden font-num text-xs text-ink-faint sm:inline">Ctrl K</span>
       </button>
+      <NotificationBell role={role} />
       <div ref={menuRef} className="relative">
         <button
           type="button"

@@ -48,7 +48,7 @@ export function PlatformRail({ collapsed, mobileOpen, onNavigate }: RailProps): 
       aria-label="Areas"
       data-sheen={sheen ? 'on' : 'off'}
       onMouseMove={moveSheen}
-      className={`platform-rail glass-chrome fixed bottom-0 left-0 top-0 z-30 flex flex-col px-2 py-4 transition-transform md:static ${width} ${mobile}`}
+      className={`platform-rail glass-chrome fixed bottom-0 left-0 top-0 z-30 flex h-dvh shrink-0 flex-col px-2 py-4 transition-transform md:sticky md:top-0 md:translate-x-0 ${width} ${mobile}`}
     >
       <p className={`px-2 pb-4 text-xs uppercase tracking-[0.16em] text-ink-faint ${showLabels ? '' : 'sr-only'}`}>
         Black Tier Circle

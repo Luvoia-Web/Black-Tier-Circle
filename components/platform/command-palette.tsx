@@ -9,8 +9,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { PLATFORM_AREAS, SELECTION_STORAGE_KEY } from '@/components/platform/areas';
-import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import { PLATFORM_AREAS, readSelection } from '@/components/platform/areas';
+import { API_ROUTES } from '@/lib/navigation';
 import type { UserRole } from '@/modules/identity/types';
 
 type Hit = {
@@ -36,25 +36,19 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function rowsOf(payload: unknown): Record<string, unknown>[] {
-  if (!isRecord(payload) || payload.success !== true) {
+function resultsOf(payload: unknown): Record<string, unknown>[] {
+  if (!isRecord(payload) || payload.success !== true || !isRecord(payload.data) || !Array.isArray(payload.data.results)) {
     return [];
   }
-  const data = payload.data;
-  if (Array.isArray(data)) {
-    return data.filter(isRecord);
-  }
-  if (!isRecord(data)) {
-    return [];
-  }
-  const list = Array.isArray(data.rows) ? data.rows : Array.isArray(data.products) ? data.products : [];
-  return list.filter(isRecord);
+  return payload.data.results.filter(isRecord);
 }
 
 export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JSX.Element | null {
   const router = useRouter();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState('');
   const [remote, setRemote] = useState<Hit[]>([]);
   const [status, setStatus] = useState('');
@@ -107,11 +101,15 @@ export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JS
     if (!open) {
       return;
     }
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery('');
     setRemote([]);
     setStatus('');
     setActive(0);
     inputRef.current?.focus();
+    return () => {
+      opener.current?.focus();
+    };
   }, [open]);
 
   useEffect(() => {
@@ -169,6 +167,22 @@ export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JS
       onClose();
       return;
     }
+    if (event.key === 'Tab' && panelRef.current) {
+      const focusable = [...panelRef.current.querySelectorAll<HTMLElement>('button, input')].filter((node) => !node.hasAttribute('disabled'));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       setActive((current) => (hits.length === 0 ? 0 : (current + 1) % hits.length));
@@ -184,7 +198,7 @@ export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JS
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]" onKeyDown={onKey}>
       <button type="button" aria-label="Close command palette" className="absolute inset-0 bg-[color-mix(in_srgb,var(--base)_62%,transparent)]" onClick={onClose} />
-      <div role="dialog" aria-modal="true" aria-label="Command palette" className="relative z-10 w-full max-w-xl rounded-lg border border-stroke bg-raised">
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label="Command palette" className="relative z-10 w-full max-w-xl rounded-lg border border-stroke bg-raised">
         <input
           ref={inputRef}
           value={query}
@@ -219,60 +233,19 @@ export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JS
   );
 }
 
-async function search(role: UserRole, needle: string, signal: AbortSignal): Promise<Hit[]> {
-  const encoded = encodeURIComponent(needle);
-  const ordersUrl = role === 'owner' ? `${API_ROUTES.ownerOrders}?q=${encoded}&limit=8` : `${API_ROUTES.resellerOrders}?q=${encoded}&pageSize=8`;
-  const productUrl = role === 'owner' ? `${API_ROUTES.products}?search=${encoded}&limit=8` : API_ROUTES.resellerCatalog;
-  const calls: Array<Promise<Hit[]>> = [
-    readHits(productUrl, signal, 'Products', (row) => ({
-      id: `product-${text(row.id)}`,
-      group: 'Products',
-      label: text(row.title) || text(row.id),
-      hint: text(row.sku) || text(row.id),
-      href: `${ROUTES.platform.catalog}?item=${encodeURIComponent(text(row.id))}`,
-    })),
-    readHits(ordersUrl, signal, 'Orders', (row) => ({
-      id: `order-${text(row.orderId)}`,
-      group: 'Orders',
-      label: text(row.productTitle) || text(row.orderId).slice(0, 8),
-      hint: text(row.orderId),
-      href: `${ROUTES.platform.orders}?order=${encodeURIComponent(text(row.orderId))}`,
-    })),
-  ];
-  if (role !== 'owner') {
-    calls.push(
-      readHits(`${API_ROUTES.resellerCustomers}?q=${encoded}`, signal, 'Customers', (row) => ({
-        id: `person-${text(row.id)}`,
-        group: 'Customers',
-        label: text(row.buyer) || text(row.id),
-        hint: text(row.id),
-        href: `${ROUTES.platform.people}?person=${encodeURIComponent(text(row.id))}`,
-      })),
-    );
-  }
-  const groups = await Promise.all(calls);
-  const flat = groups.flat().filter((hit) => hit.label.length > 0);
-  if (role === 'owner') {
-    return flat.slice(0, 24);
-  }
-  const needleLower = needle.toLowerCase();
-  return flat
-    .filter((hit) => hit.group !== 'Products' || hit.label.toLowerCase().includes(needleLower) || hit.hint.toLowerCase().includes(needleLower))
-    .slice(0, 24);
-}
-
-async function readHits(
-  url: string,
-  signal: AbortSignal,
-  group: string,
-  map: (row: Record<string, unknown>) => Hit,
-): Promise<Hit[]> {
-  const response = await fetch(url, { signal });
+async function search(_role: UserRole, needle: string, signal: AbortSignal): Promise<Hit[]> {
+  const response = await fetch(`/api/platform/search?q=${encodeURIComponent(needle)}`, { signal });
   if (!response.ok) {
-    return [{ id: `${group}-error`, group, label: `${group} search failed`, hint: 'Try again in a moment' }];
+    throw new Error('search failed');
   }
   const payload: unknown = await response.json();
-  return rowsOf(payload).slice(0, 8).map(map);
+  return resultsOf(payload).slice(0, 24).map((row) => ({
+    id: `${text(row.kind)}-${text(row.id)}`,
+    group: text(row.kind) || 'Result',
+    label: text(row.label),
+    hint: text(row.hint),
+    href: text(row.href),
+  })).filter((hit) => hit.label.length > 0 && hit.href.startsWith('/'));
 }
 
 async function runSync(setStatus: (message: string) => void): Promise<void> {
@@ -295,8 +268,7 @@ async function runSync(setStatus: (message: string) => void): Promise<void> {
 }
 
 async function runPublish(setStatus: (message: string) => void): Promise<void> {
-  const raw = window.sessionStorage.getItem(SELECTION_STORAGE_KEY);
-  const ids = raw ? raw.split(',').map((id) => id.trim()).filter(Boolean) : [];
+  const ids = readSelection();
   if (ids.length === 0) {
     setStatus('Select rows in Catalog first. Nothing was published.');
     return;
