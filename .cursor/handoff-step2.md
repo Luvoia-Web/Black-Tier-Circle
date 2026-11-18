@@ -32,8 +32,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 5 Suppliers | DONE | 273bb1aba5fb1c4c1d646c55789ba5ed292fa2ca | Connected, import, orders, health. |
 | 6 Security | DONE | 811a2136e722def5572f57e375b76c337ea7b2c2 | Search filters, pinned supplier fetch, safe next. |
 | 6B Review fixes | DONE | 802da76ff42fdfeb6dc1abc6e40aa060ad20ebd0 | New replacement item, no sent retry, separate bulk prices, per-supplier health, apply default pricing. |
-| 7 Match the mockups | DONE | pending-hash | Orders and Products aligned to the mockup source. Remaining differences are data, or the shared drawer. |
-| 8 Prove it | pending | | |
+| 7 Match the mockups | DONE | 8a919125a2929d418a4931e91bec429bcc4f05c3 | Orders and Products aligned to the mockup source. Remaining differences are data, or the shared drawer. |
+| 8 Prove it | DONE | pending-hash | Harness: 90 checks, 0 failed. Owner and reseller, 1440 and 390. |
 
 ## Design reference
 
@@ -476,10 +476,27 @@ Checks:
 
 Files: `app/(platform)/orders/view.tsx`, `app/(platform)/catalog/view.tsx`, `components/platform/ui/card.tsx`, `components/platform/ui/table.tsx`, `components/platform/drawer.tsx`, `.cursor/handoff-step2.md`.
 
-## Resume
+## Phase 8 — prove it
 
-Phases 0 through 7 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
+`scripts/e2e-harness.mjs` now signs in through the local callback with the magic-link hash, forces the dark theme, and visits this step's states. It fails on an error state, a stuck loader, a raw tag, a raw ISO timestamp, a 404, a console error or warning, a failed network request, or horizontal scroll at 390. The bulk bar is selected only. Nothing is submitted. Nothing is written to the live database.
 
-Phase 8 extends `scripts/e2e-harness.mjs` and ticks the ledger. Nothing has been pushed.
+Owner, both widths: every order chip, `attention=fulfillment`, `attention=delivery`, the failed-order drawer, the delivered-order drawer, catalogue grid with the bulk bar, list, product drawer, editor, `create=1`, inventory, pricing rules, every supplier panel, connect, one real supplier id, and every legacy redirect into Orders, Catalog, and Suppliers.
 
-Nothing has been pushed. Next.js is 14.2.21. React is 18.3.1.
+Reseller, both widths: the order chips, the delivery queue, the drawers, catalogue grid and list, inventory, and pricing rules, plus the reseller legacy redirects. Supplier screens stay owner-only.
+
+The first run returned 500 from `/api/platform/orders` and the owner catalogue. The live client can filter only after `select()`. Those queries filtered first. `asDbClient` now applies the filters when `select()` runs. The in-memory test client is unchanged. The rerun passed.
+
+`node scripts/e2e-harness.mjs` exit 0. 90 checks, 0 failed. Next.js 14.2.21. Screenshots are in `.cursor/e2e/shots/`, which is gitignored.
+
+The step 2 ledger rows are ticked in `.cursor/feature-ledger.md` under "Step 2 restored".
+
+Checks on this tree before the harness build, and the harness build itself:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0 during the harness build. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 361 tests passed, on the phase 7 tree. This phase adds no unit test.
+- build: the harness `next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `scripts/e2e-harness.mjs`, `lib/supabase/query.ts`, `lib/auth/session.ts`, `app/auth/callback/route.ts`, `.cursor/feature-ledger.md`, `.cursor/handoff-step2.md`.
+
+Nothing has been pushed. 0033 was not edited. No SQL was applied. Next.js is 14.2.21. React is 18.3.1. No commit has a Co-authored-by line.

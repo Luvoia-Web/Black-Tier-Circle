@@ -71,3 +71,83 @@ export type DbClient = {
   rpc: (fn: string, args?: Record<string, unknown>) => Promise<QueryResult<unknown>>;
   storage?: StorageAdapter;
 };
+
+/**
+ * The live client can filter only after select(). The in-memory test client
+ * can filter first. This wrapper remembers filters and applies them on select
+ * when the underlying builder has no eq yet.
+ */
+export function fromWithEarlyFilters(client: { from: (relation: string) => QueryBuilder<unknown> }): DbClient['from'] {
+  return (relation) => {
+    const raw = client.from(relation);
+    if (typeof raw.eq === 'function') {
+      return raw;
+    }
+    const filters: Array<(query: QueryBuilder<unknown>) => QueryBuilder<unknown>> = [];
+    let ordering: { column: string; options?: { ascending?: boolean } } | null = null;
+    let limitCount: number | null = null;
+    let rangeArgs: [number, number] | null = null;
+    const chain = {
+      select(columns?: string, options?: { count?: 'exact'; head?: boolean }) {
+        let query = (raw as unknown as { select: QueryBuilder<unknown>['select'] }).select(columns, options);
+        for (const apply of filters) {
+          query = apply(query);
+        }
+        if (ordering) query = query.order(ordering.column, ordering.options);
+        if (limitCount !== null) query = query.limit(limitCount);
+        if (rangeArgs) query = query.range(rangeArgs[0], rangeArgs[1]);
+        return query;
+      },
+      insert: (values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>) => raw.insert(values),
+      update: (values: Record<string, unknown>) => raw.update(values),
+      delete: () => raw.delete(),
+      eq(column: string, value: string | number | boolean) {
+        filters.push((query) => query.eq(column, value));
+        return chain;
+      },
+      in(column: string, values: ReadonlyArray<string>) {
+        filters.push((query) => query.in(column, values));
+        return chain;
+      },
+      is(column: string, value: null) {
+        filters.push((query) => query.is(column, value));
+        return chain;
+      },
+      gte(column: string, value: string) {
+        filters.push((query) => query.gte(column, value));
+        return chain;
+      },
+      lte(column: string, value: string) {
+        filters.push((query) => query.lte(column, value));
+        return chain;
+      },
+      ilike(column: string, pattern: string) {
+        filters.push((query) => query.ilike(column, pattern));
+        return chain;
+      },
+      or(expression: string) {
+        filters.push((query) => query.or(expression));
+        return chain;
+      },
+      order(column: string, options?: { ascending?: boolean }) {
+        ordering = { column, ...(options ? { options } : {}) };
+        return chain;
+      },
+      limit(count: number) {
+        limitCount = count;
+        return chain;
+      },
+      range(from: number, to: number) {
+        rangeArgs = [from, to];
+        return chain;
+      },
+      maybeSingle: () => chain.select('*').maybeSingle(),
+      single: () => chain.select('*').single(),
+      then: (
+        onfulfilled?: ((value: QueryResult<unknown[]>) => unknown) | null,
+        onrejected?: ((reason: unknown) => unknown) | null,
+      ) => chain.select('*').then(onfulfilled, onrejected),
+    };
+    return chain as QueryBuilder<unknown>;
+  };
+}

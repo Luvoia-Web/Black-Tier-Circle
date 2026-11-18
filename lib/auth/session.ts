@@ -10,7 +10,7 @@
 import { AuthError } from '@/lib/errors';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type { DbClient } from '@/lib/supabase/query';
+import { fromWithEarlyFilters, type DbClient } from '@/lib/supabase/query';
 import { getProfile, type UserProfile, type UserRole } from '@/modules/identity';
 import { getTenantByUserId, type Tenant } from '@/modules/tenants';
 import type { User } from '@supabase/supabase-js';
@@ -25,7 +25,12 @@ export type AuthenticatedSession = {
 function asDbClient(
   client: ReturnType<typeof createServerSupabaseClient> | ReturnType<typeof createAdminSupabaseClient>,
 ): DbClient {
-  return client as unknown as DbClient;
+  const live = client as unknown as DbClient;
+  return {
+    from: fromWithEarlyFilters(live),
+    rpc: (fn, args) => live.rpc(fn, args),
+    ...(live.storage ? { storage: live.storage } : {}),
+  };
 }
 
 export { asDbClient };

@@ -178,3 +178,32 @@ Every path in `lib/navigation.ts` `API_ROUTES` was checked against `app/api/**/r
 Routes the rebuild added, also present: `/api/platform/catalog`, `catalog/detail`, `growth`, `money`, `orders`, `people`, `people/detail`, `replacements`, `search`, `settings`, `store`, `support`, `today`, and `/api/orders/:orderId/refund`.
 
 No missing API is flagged.
+
+## Step 2 restored
+
+Checked against the live owner and reseller dashboards. The buyer bot Replace button is gone. Replacement is owner-initiated only.
+
+| Feature | Where it lives now |
+| --- | --- |
+| Order list, chips, search, store, date range, CSV | `/orders` |
+| Order drawer, timeline, payment claim, override | `/orders?order=` |
+| Fulfillment queue | `/orders?attention=fulfillment` |
+| Manual delivery queue | `/orders?attention=delivery` |
+| Reseller orders, no extra money actions | `/orders` |
+| Bulk retry, cancel, export | Orders bulk bar |
+| Refund to wallet | Orders drawer |
+| Replacement, new supplier item or pasted item | Orders drawer. One open request. A delivered order cannot use the normal retry route. |
+| Catalogue, grid and list, stage, category, markup | `/catalog` |
+| Create a draft | `/catalog?create=1` |
+| Product drawer and editor | `/catalog?item=` and `edit=1` |
+| Reseller listings | `/catalog` |
+| Inventory | `/catalog?section=inventory`. Reorder point is the constant `REORDER_POINT` (10) until 0034. |
+| Pricing rules and apply to the default | `/catalog?section=pricing` |
+| Connected suppliers, sync, settings | `/catalog?section=suppliers&panel=connected` |
+| Connect a supplier | `/catalog?section=suppliers&connect=1` |
+| Import catalog, four markup values | `/catalog?section=suppliers&panel=import` |
+| Supplier orders | `/catalog?section=suppliers&panel=orders` |
+| Supplier health, per supplier | `/catalog?section=suppliers&panel=health`. No balance history until 0034. |
+| Legacy order, catalog, and supplier links | `lib/legacy-redirects.json` |
+
+Not built here, and why: a per-product reorder point and a supplier balance history need columns that are not in 0033. They are listed under Needs 0034 in `.cursor/handoff-step2.md`. The shared reorder point stays 10. Health shows the latest balance only.

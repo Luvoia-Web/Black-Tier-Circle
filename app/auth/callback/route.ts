@@ -44,7 +44,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'magiclink' })
     : await supabase.auth.exchangeCodeForSession(code ?? '');
   if (error || !data.session) {
-    return NextResponse.redirect(`${origin}${ROUTES.login}?error=auth_failed`);
+    const reason = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : 'no_session';
+    return NextResponse.redirect(`${origin}${ROUTES.login}?error=auth_failed&reason=${encodeURIComponent(reason.slice(0, 40))}`);
   }
 
   const redirectWithSession = (path: string): NextResponse =>
