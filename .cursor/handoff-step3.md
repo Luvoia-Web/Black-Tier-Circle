@@ -25,7 +25,11 @@ Local commits only. Do not push. Do not apply SQL. Do not touch migration 0022. 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | 0 Safety | DONE | 2663183986584f27c1502b4a67992c7e4d95def2 | Filter guard, auth verdict, Live counts, replacement reuse. The environment appended a Co-authored-by trailer. Strip it before any push. |
-| 1 Migration 0034 | DONE | (this commit) | SQL written, not applied. Reorder point and balance trend fall back while 0034 is unapplied. |
+| 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written, not applied. Reorder point and balance trend fall back while 0034 is unapplied. |
+
+## Resume
+
+Phases 0 and 1 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql` or `supabase/migrations/0034_platform_final.sql`. Continue at Phase 2.
 | 2 Customers and support | | | Not started. |
 | 3 Resellers | | | Not started. |
 | 4 Wallets, Payments, Bots | | | Not started. |
