@@ -28,8 +28,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 1 Migration 0033 | DONE | de4f4b4ecf6d92b5922a8446c05414cc66c7c543 | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
 | 2 Orders | DONE | 7b09d18b8fccd743ed4a44d536269dd07499be3a | Orders screen, drawer, owner replace, buyer Replace removed. |
 | 3 Products · Catalogue | DONE | 5b0c00bb7dfad64712f3d88bfa49496b9dfa364f | Catalogue, drawer, editor, reseller listing editor. |
-| 4 Inventory and Pricing rules | DONE | recorded after this commit | Stock table and store markup preview. |
-| 5 Suppliers | pending | | |
+| 4 Inventory and Pricing rules | DONE | 54a9b9d308267ad7fd3eb75212a58e365c0c3ea4 | Stock table and store markup preview. |
+| 5 Suppliers | DONE | recorded after this commit | Connected, import, orders, health. |
 | 6 Security | pending | | |
 | 7 Match the mockups | pending | | |
 | 8 Prove it | pending | | |
@@ -359,7 +359,30 @@ Files: `modules/platform/inventory.ts`, `modules/platform/pricing.ts`, `modules/
 
 Phases 0 through 4 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`. The user confirmed 0033 is applied.
 
-Phase 5 is next. Replace the Suppliers card in `app/(platform)/catalog/view.tsx` (`?section=suppliers`).
+## Phase 5 — Suppliers
+
+`?section=suppliers` opens the supplier workspace. `?panel=` is connected, import, orders, or health. `?connect=1` opens the test-then-save form. `?supplier=` opens that supplier's settings and selects it for import.
+
+Connected reads `GET /api/supplier/balance`. A balance under 5 USDT is marked low while supplier orders are still open. Sync now posts `supplierSync`. Settings rename, rotate the key, and pause through `supplierSettings`.
+
+Import reads `GET /api/supplier/products` with server paging and exact totals. Filters map to the existing `pushed`, `status`, and `stock` parameters: published, not published, rejected, paused, in stock, out of stock. Sort is name, cost, stock, or last synced. Each row shows cost, public price, stock or unlimited, sold count, delivery, duration, warranty, type label, last synced, and Published (link to `?item=`) or Not published. Bulk publish sends the four markup values as one percent for wholesale and retail, plus a category.
+
+Supplier orders list the latest supplier fulfilment attempts. Complete, fail, resubmit, and force reconcile call the existing routes. Health shows each supplier's last sync and last error. Error rate and average fulfilment time are computed from the latest 200 supplier attempts. Those attempts do not store a supplier id, so the rate is shared. Only the latest balance is stored, so there is no balance series. The screen says so.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 350 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `app/(platform)/catalog/suppliers.tsx`, `app/(platform)/catalog/view.tsx`, `app/api/platform/catalog/route.ts`, `modules/platform/supplier-desk.ts`, `.cursor/handoff-step2.md`.
+
+## Resume
+
+Phases 0 through 5 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
+
+Phase 6 is next. Catalog search is already `.ilike` plus `.in()`. The other user-text `.or()` calls from Phase 0 are still open, including `modules/platform/orders.ts`.
 
 Phase 6 still has to fix every remaining user-text `.or()` string, including the product search added in Phase 2 in `modules/platform/orders.ts`. Catalog search in `modules/platform/catalog.ts` is already `.ilike` plus `.in()`.
 

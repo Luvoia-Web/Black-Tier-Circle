@@ -17,6 +17,7 @@ import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { CatalogRow, CatalogSummary, StockKind } from '@/modules/platform/catalog';
 import { ProductEditor } from './editor';
 import { InventorySection, PricingSection } from './sections';
+import { SuppliersSection } from './suppliers';
 
 type CatalogPayload = {
   readonly rows: readonly CatalogRow[];
@@ -282,7 +283,14 @@ export function CatalogView(): JSX.Element {
       </div>
       {section === 'inventory' ? <InventorySection attention={params.get('attention') === '1'} onAttention={(on) => setParam('attention', on ? '1' : '')} /> : null}
       {section === 'pricing' ? <PricingSection /> : null}
-      {section === 'suppliers' ? <Card title="Suppliers"><p>Connected suppliers, the import catalog, supplier orders and health open on this tab.</p></Card> : null}
+      {section === 'suppliers' && role === 'owner' ? (
+        <SuppliersSection
+          panel={params.get('panel') ?? 'connected'}
+          connect={params.get('connect') === '1'}
+          supplierId={params.get('supplier')}
+          onNavigate={setParam}
+        />
+      ) : null}
       {section === 'catalogue' ? (
         <>
           <div className="flex flex-wrap items-center gap-2">

@@ -9,6 +9,7 @@ import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { parseCatalogFilters, readCatalog } from '@/modules/platform/catalog';
 import { readInventory } from '@/modules/platform/inventory';
+import { readSupplierDesk } from '@/modules/platform/supplier-desk';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,10 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.searchParams.get('section') === 'inventory') {
       return jsonSuccess(await readInventory(db, { role, tenantId: tenant?.id ?? null }, url.searchParams.get('attention') === '1'));
+    }
+    if (url.searchParams.get('section') === 'suppliers') {
+      if (role !== 'owner') throw new AuthError('FORBIDDEN', 'Only the owner can open suppliers', 403);
+      return jsonSuccess(await readSupplierDesk(db));
     }
     const page = await readCatalog(db, { role, tenantId: tenant?.id ?? null }, parseCatalogFilters(url.searchParams));
     return jsonSuccess(page);
