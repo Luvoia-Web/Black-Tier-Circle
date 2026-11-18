@@ -294,7 +294,9 @@ export function CatalogView(): JSX.Element {
       {section === 'catalogue' ? (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <TextField id="catalog-search" label="Search" placeholder="Search by name, SKU or supplier" defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
+            <div className="w-[340px] max-w-full [&_label]:sr-only [&_input]:h-8 [&_input]:min-h-8 [&_input]:rounded-xl">
+              <TextField id="catalog-search" label="Search" placeholder="Search by name, SKU or supplier" defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
+            </div>
             <div className="ml-auto inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
               {STAGES.map((stage) => (
                 <button key={stage.id} type="button" aria-pressed={activeStage === stage.id} className={`h-8 rounded-lg px-3 text-[12.5px] ${activeStage === stage.id ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => setParam('stage', stage.id === 'live' ? '' : stage.id)}>{stage.label}</button>
@@ -340,7 +342,7 @@ export function CatalogView(): JSX.Element {
           {list.data ? <Pagination page={list.data.page} pageSize={list.data.pageSize} total={list.data.total} onPage={(page) => setParam('page', String(page))} /> : null}
           {chosen.length > 0 ? (
             <div className="sticky bottom-4 z-20 mx-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[rgb(30_16_24/0.82)] px-4 py-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
-              <span className="text-[13.5px] text-ink"><b className="font-medium">{chosen.length} selected</b></span>
+              <span className="text-[13.5px] text-ink"><b className="font-medium">{chosen.length} selected</b>{chosen[0] ? <span className="text-ink-soft"> · markup {ruleText(chosen[0].retailKind, chosen[0].retailValue)} retail, {ruleText(chosen[0].wholesaleKind, chosen[0].wholesaleValue)} wholesale</span> : null}</span>
               {role === 'owner' ? <Button variant="secondary" onClick={() => setCategoryOpen(true)}><Tag className="h-3.5 w-3.5" aria-hidden="true" />Set category</Button> : null}
               {role === 'owner' ? <Button variant="secondary" onClick={() => setRuleOpen(true)}><Percent className="h-3.5 w-3.5" aria-hidden="true" />Pricing rule</Button> : null}
               {role === 'owner' ? <Button variant="secondary" loading={busy} onClick={() => void applyBulk('pause')}><Pause className="h-3.5 w-3.5" aria-hidden="true" />Pause</Button> : null}

@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Download, RefreshCw, ShoppingBag, Timer, Wallet } from 'lucide-react';
+import { AlertTriangle, Calendar, Coins, Download, RefreshCw, ShoppingBag, Store, Zap } from 'lucide-react';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, StatTile, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
@@ -63,29 +63,49 @@ function money(minor: string): string {
   }
 }
 
+const TILES = [
+  'linear-gradient(145deg,#ffe3ec,#ffc2d4)',
+  'linear-gradient(145deg,#e6efff,#c3d6ff)',
+  'linear-gradient(145deg,#fff3cf,#ffe29a)',
+  'linear-gradient(145deg,#e4fbef,#bdf0d6)',
+  'linear-gradient(145deg,#efe6ff,#d6c4ff)',
+  'linear-gradient(145deg,#ffe1e1,#ffbdbd)',
+];
+
 function initials(title: string): string {
   const parts = title.split(/[^A-Za-z0-9]+/).filter(Boolean);
   const letters = parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : (parts[0] ?? 'PR').slice(0, 2);
   return letters.toUpperCase();
 }
 
-function statusOf(row: { readonly paymentStatus: string; readonly fulfillmentStatus: string; readonly deliveryStatus: string }): { readonly label: string; readonly tone: 'ok' | 'fault' | 'warn' | 'neutral' } {
+function tile(title: string): string {
+  let hash = 0;
+  for (let index = 0; index < title.length; index += 1) hash = (hash + title.charCodeAt(index)) % TILES.length;
+  return TILES[hash] ?? 'linear-gradient(145deg,#ffe3ec,#ffc2d4)';
+}
+
+function statusOf(row: { readonly paymentStatus: string; readonly fulfillmentStatus: string; readonly deliveryStatus: string }): { readonly label: string; readonly tone: 'ok' | 'fault' | 'warn' | 'neutral' | 'info' } {
   if (row.deliveryStatus === 'sent') return { label: 'Delivered', tone: 'ok' };
   if (row.paymentStatus === 'expired') return { label: 'Expired', tone: 'warn' };
   if (row.fulfillmentStatus === 'failed' || row.paymentStatus === 'failed' || row.deliveryStatus === 'unreachable') {
     return { label: row.fulfillmentStatus === 'failed' ? 'Failed at supplier' : 'Failed', tone: 'fault' };
   }
   if (row.fulfillmentStatus === 'supplier_pending' || row.fulfillmentStatus === 'processing' || row.fulfillmentStatus === 'queued') {
-    return { label: 'Activating', tone: 'warn' };
+    return { label: 'Activating', tone: 'info' };
   }
   if (row.paymentStatus === 'awaiting' || row.paymentStatus === 'pending_verification') return { label: 'Awaiting payment', tone: 'warn' };
   return { label: 'In progress', tone: 'neutral' };
 }
 
-function dot(on: boolean, fault: boolean): string {
-  if (fault) return 'bg-danger';
-  if (on) return 'bg-mint';
-  return 'bg-white/20';
+function TrackDot({ on, fault, active = false }: { readonly on: boolean; readonly fault: boolean; readonly active?: boolean }): JSX.Element {
+  const color = fault
+    ? 'bg-danger shadow-[0_0_0_3px_rgba(255,90,95,0.22)]'
+    : active
+      ? 'bg-sky shadow-[0_0_0_3px_rgba(126,166,239,0.22)]'
+      : on
+        ? 'bg-mint'
+        : 'bg-white/15';
+  return <span className={`h-[9px] w-[9px] rounded-full ${color}`} />;
 }
 
 export function OrdersView(): JSX.Element {
@@ -165,7 +185,7 @@ export function OrdersView(): JSX.Element {
       header: 'Order',
       render: (row) => (
         <span className="block">
-          <span className="font-num text-ink">{row.id.slice(0, 8).toUpperCase()}</span>
+          <span className="font-mono text-[13px] text-ink">{row.id.slice(0, 8).toUpperCase()}</span>
           <span className="mt-0.5 block text-xs"><RelativeTime value={row.createdAt} /></span>
         </span>
       ),
@@ -175,7 +195,7 @@ export function OrdersView(): JSX.Element {
       header: 'Product',
       render: (row) => (
         <span className="flex items-center gap-2">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-rose/15 text-xs font-medium text-rose">{initials(row.productTitle)}</span>
+          <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-[11px] font-medium text-[#5a2038]" style={{ background: tile(row.productTitle) }}>{initials(row.productTitle)}</span>
           <span>
             <span className="block text-ink">{row.productTitle}</span>
             <span className="block text-xs text-ink-faint">× {row.quantity}</span>
@@ -202,12 +222,15 @@ export function OrdersView(): JSX.Element {
         const delivered = row.deliveryStatus === 'sent';
         const supplierFault = row.fulfillmentStatus === 'failed';
         const status = statusOf(row);
+        const activating = row.fulfillmentStatus === 'supplier_pending' || row.fulfillmentStatus === 'processing';
         return (
           <span className="flex items-center gap-2">
-            <span className="flex items-center gap-1" aria-hidden="true">
-              <span className={`h-2 w-2 rounded-full ${dot(paid, row.paymentStatus === 'failed')}`} />
-              <span className={`h-2 w-2 rounded-full ${dot(supplier, supplierFault)}`} />
-              <span className={`h-2 w-2 rounded-full ${dot(delivered, row.deliveryStatus === 'unreachable')}`} />
+            <span className="flex items-center" aria-hidden="true">
+              <TrackDot on={paid} fault={row.paymentStatus === 'failed'} />
+              <span className="mx-0.5 h-px w-2.5 bg-white/15" />
+              <TrackDot on={supplier} fault={supplierFault} active={activating} />
+              <span className="mx-0.5 h-px w-4 bg-white/15" />
+              <TrackDot on={delivered} fault={row.deliveryStatus === 'unreachable'} />
             </span>
             <StatusPill tone={status.tone}>{status.label}</StatusPill>
           </span>
@@ -226,20 +249,20 @@ export function OrdersView(): JSX.Element {
     <section className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl text-ink">Orders</h1>
-          <p className="mt-1 text-sm text-ink-soft">
+          <h1 className="text-[30px] font-medium tracking-tight text-ink">Orders</h1>
+          <p className="mt-1.5 text-[13.5px] text-ink-soft">
             Payment, supplier and delivery on one timeline
-            {summary ? ` · ${summary.needsAttention} need attention` : ''}
+            {summary ? <> · <b className="font-medium text-ink">{summary.needsAttention}</b> need attention</> : null}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a className="inline-flex min-h-11 items-center gap-2 rounded-md border border-stroke px-3 text-sm text-ink" href={exportHref}>
-            <Download className="h-4 w-4" aria-hidden="true" />
+          <a className="inline-flex h-[38px] items-center gap-2 rounded-xl border border-white/12 bg-white/[0.07] px-[15px] text-[13.5px] font-medium text-ink hover:bg-white/10" href={exportHref}>
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
             Export CSV
           </a>
           {viewer === 'owner' ? (
-            <Button variant="secondary" loading={busy} onClick={() => void runBulk('retry')}>
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            <Button loading={busy} onClick={() => void runBulk('retry')}>
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
               Retry failed ({failedCount})
             </Button>
           ) : null}
@@ -248,9 +271,9 @@ export function OrdersView(): JSX.Element {
       {summary ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile label="Orders today" value={String(summary.ordersToday)} icon={ShoppingBag} tone="rose" />
-          <StatTile label="Revenue today" value={money(summary.revenueTodayMinor)} icon={Wallet} tone="sky" />
-          <StatTile label="Needs attention" value={String(summary.needsAttention)} icon={AlertTriangle} tone="amber" />
-          <StatTile label="Median delivery" value={summary.medianDeliverySeconds === null ? '—' : `${summary.medianDeliverySeconds} sec`} icon={Timer} tone="mint" />
+          <StatTile label="Revenue today" value={money(summary.revenueTodayMinor)} icon={Coins} tone="sky" />
+          <StatTile label="Needs attention" value={String(summary.needsAttention)} icon={AlertTriangle} tone="danger" />
+          <StatTile label="Median delivery" value={summary.medianDeliverySeconds === null ? '—' : `${summary.medianDeliverySeconds} sec`} icon={Zap} tone="mint" />
         </div>
       ) : list.loading ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -269,36 +292,42 @@ export function OrdersView(): JSX.Element {
               key={chip.id}
               type="button"
               aria-pressed={on}
-              className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-sm ${on ? 'border-rose bg-rose/15 text-ink' : 'border-stroke text-ink-soft'}`}
+              className={`inline-flex h-[30px] items-center gap-2 rounded-xl border px-3 text-[12.5px] ${on ? 'border-white/15 bg-white/[0.13] text-white' : 'border-white/10 bg-white/[0.04] text-ink-soft'}`}
               onClick={() => setFilter('chip', chip.id === 'all' ? '' : chip.id)}
             >
               {chip.label}
-              {typeof count === 'number' ? <span className="font-num text-xs">{count}</span> : null}
+              {typeof count === 'number' ? <span className={`rounded-pill px-1.5 text-[11px] ${chip.id === 'attention' ? 'bg-danger/20 text-[#ffb4b6]' : 'bg-white/10 text-ink-soft'}`}>{count}</span> : null}
             </button>
           );
         })}
-        <SelectField
-          id="order-range"
-          label="Dates"
-          value={params.get('range') ?? 'all'}
-          options={[
-            { value: 'all', label: 'All dates' },
-            { value: 'today', label: 'Today' },
-            { value: '7d', label: 'Last 7 days' },
-            { value: '30d', label: 'Last 30 days' },
-          ]}
-          onChange={(event) => setFilter('range', event.target.value === 'all' ? '' : event.target.value)}
-        />
-        {viewer === 'owner' ? (
-          <SelectField
-            id="order-store"
-            label="Store"
-            value={params.get('store') ?? ''}
-            options={[{ value: '', label: 'All stores' }, ...(summary?.stores ?? []).map((store) => ({ value: store.id, label: store.label }))]}
-            onChange={(event) => setFilter('store', event.target.value)}
-          />
-        ) : null}
-        <TextField id="order-search" label="Search" placeholder="Order, buyer, or product" defaultValue={params.get('q') ?? ''} onBlur={(event) => setFilter('q', event.target.value)} />
+        <div className="ml-auto flex flex-wrap items-center gap-2 [&_label]:sr-only [&_select]:h-8 [&_select]:min-h-8 [&_select]:rounded-xl [&_select]:border-white/10 [&_select]:bg-white/[0.04] [&_input]:h-8 [&_input]:min-h-8 [&_input]:w-44 [&_input]:rounded-xl">
+          <span className="inline-flex items-center gap-1 text-ink-soft"><Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+            <SelectField
+              id="order-range"
+              label="Dates"
+              value={params.get('range') ?? 'all'}
+              options={[
+                { value: 'all', label: 'All dates' },
+                { value: 'today', label: 'Today' },
+                { value: '7d', label: 'Last 7 days' },
+                { value: '30d', label: 'Last 30 days' },
+              ]}
+              onChange={(event) => setFilter('range', event.target.value === 'all' ? '' : event.target.value)}
+            />
+          </span>
+          {viewer === 'owner' ? (
+            <span className="inline-flex items-center gap-1 text-ink-soft"><Store className="h-3.5 w-3.5" aria-hidden="true" />
+              <SelectField
+                id="order-store"
+                label="Store"
+                value={params.get('store') ?? ''}
+                options={[{ value: '', label: 'All stores' }, ...(summary?.stores ?? []).map((store) => ({ value: store.id, label: store.label }))]}
+                onChange={(event) => setFilter('store', event.target.value)}
+              />
+            </span>
+          ) : null}
+          <TextField id="order-search" label="Search" placeholder="Order, buyer, or product" defaultValue={params.get('q') ?? ''} onBlur={(event) => setFilter('q', event.target.value)} />
+        </div>
       </div>
       {attention === 'fulfillment' ? <p className="text-sm text-ink">Showing the failed and stuck fulfillment queue.</p> : null}
       {attention === 'delivery' ? <p className="text-sm text-ink">Showing the manual delivery queue.</p> : null}
@@ -315,6 +344,7 @@ export function OrdersView(): JSX.Element {
         emptyMessage="Clear a filter, or wait for the next paid order."
         selected={selected}
         onSelected={setSelected}
+        activeKey={orderId}
         onOpen={(row) => setFilter('order', row.id)}
         bulk={
           <>
@@ -377,10 +407,12 @@ function OrderDrawer({
         </div>
         <p className="font-num text-sm">{money(order.quotedRetailPrice)}</p>
       </div>
-      <ol className="space-y-3">
+      <p className="text-[12.5px] text-ink-faint">Timeline</p>
+      <ol className="relative space-y-0 pl-6">
+        <span className="absolute bottom-2 left-[5px] top-1 w-px bg-white/12" aria-hidden="true" />
         {(detail.events.length > 0 ? detail.events : [{ label: status.label, at: order.createdAt, tone: status.tone === 'fault' ? 'fault' as const : 'neutral' as const, note: detail.fulfillmentAttempt?.error ?? null }]).map((event) => (
-          <li key={`${event.label}-${event.at}`} className="flex gap-2">
-            <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${event.tone === 'fault' ? 'bg-danger' : event.tone === 'ok' ? 'bg-mint' : 'bg-white/30'}`} />
+          <li key={`${event.label}-${event.at}`} className="relative pb-3.5">
+            <span className={`absolute -left-6 top-1 h-[11px] w-[11px] rounded-full ${event.tone === 'fault' ? 'bg-danger' : event.tone === 'ok' ? 'bg-mint' : 'bg-white/25'}`} />
             <span>
               <span className="block text-sm text-ink">{event.label}</span>
               {event.note ? <span className="block text-xs text-ink-soft">{event.note}</span> : null}

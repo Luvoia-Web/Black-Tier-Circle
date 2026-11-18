@@ -37,6 +37,7 @@ type DataTableProps<T> = {
   readonly selected?: ReadonlySet<string>;
   readonly onSelected?: (next: ReadonlySet<string>) => void;
   readonly onOpen?: (row: T) => void;
+  readonly activeKey?: string | null;
   readonly bulk?: ReactNode;
 };
 
@@ -56,6 +57,7 @@ export function DataTable<T>({
   selected,
   onSelected,
   onOpen,
+  activeKey = null,
   bulk,
 }: DataTableProps<T>): JSX.Element {
   if (loading) {
@@ -127,7 +129,7 @@ export function DataTable<T>({
           {rows.map((row) => {
             const key = rowKey(row);
             return (
-              <tr key={key} className="border-b border-stroke hover:bg-raised">
+              <tr key={key} className={`border-b border-stroke hover:bg-raised ${activeKey === key ? 'shadow-[inset_3px_0_0_rgb(255_95_143)] bg-rose/[0.06]' : ''}`}>
                 {onSelected && selected ? (
                   <td className="px-2 py-1">
                     <input type="checkbox" aria-label={`Select ${key}`} checked={selected.has(key)} onChange={() => toggleOne(key)} />

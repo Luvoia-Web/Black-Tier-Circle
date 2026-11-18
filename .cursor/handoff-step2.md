@@ -31,8 +31,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 4 Inventory and Pricing rules | DONE | 54a9b9d308267ad7fd3eb75212a58e365c0c3ea4 | Stock table and store markup preview. |
 | 5 Suppliers | DONE | 273bb1aba5fb1c4c1d646c55789ba5ed292fa2ca | Connected, import, orders, health. |
 | 6 Security | DONE | 811a2136e722def5572f57e375b76c337ea7b2c2 | Search filters, pinned supplier fetch, safe next. |
-| 6B Review fixes | DONE | pending-hash | New replacement item, no sent retry, separate bulk prices, per-supplier health, apply default pricing. |
-| 7 Match the mockups | pending | | |
+| 6B Review fixes | DONE | 802da76ff42fdfeb6dc1abc6e40aa060ad20ebd0 | New replacement item, no sent retry, separate bulk prices, per-supplier health, apply default pricing. |
+| 7 Match the mockups | DONE | pending-hash | Orders and Products aligned to the mockup source. Remaining differences are data, or the shared drawer. |
 | 8 Prove it | pending | | |
 
 ## Design reference
@@ -437,10 +437,49 @@ Checks:
 
 Files: `modules/platform/replacements.ts`, `modules/supplier/place.ts`, `modules/fulfillment/index.ts`, `modules/orders/state-machine.ts`, `app/api/fulfillment/[orderId]/retry-delivery/route.ts`, `app/api/platform/replacements/route.ts`, `app/api/orders/[orderId]/detail/route.ts`, `app/(platform)/orders/view.tsx`, `lib/order-detail.ts`, `app/(platform)/catalog/suppliers.tsx`, `modules/supplier/index.ts`, `modules/platform/supplier-desk.ts`, `modules/platform/pricing.ts`, `app/api/platform/pricing/route.ts`, `app/(platform)/catalog/sections.tsx`, `tests/unit/order-board.test.ts`, `tests/unit/supplier-publish.test.ts`, `tests/unit/pricing-rules.test.ts`, `tests/unit/fulfillment.test.ts`, `.cursor/feature-ledger.md`, `.cursor/handoff-step2.md`.
 
+## Phase 7 — match the mockups
+
+Skills loaded again before this UI pass: `brand`, `banner-design` (not used; this is not a banner), `design` (routes to the system and styling skills), `design-system`, `slides` (not used; product charts stay in the Step 1 kit), `ui-styling`, `ui-ux-pro-max`. The mockup files win over those skills' palettes.
+
+Compared `BTC-3-orders@2x.png` and `BTC-2-products@2x.png` with `btc-mockups-source.mjs` (`ordersBody`, `productsBody`).
+
+Pass 1 differences, then fixed:
+
+- Orders title was smaller than the 30px medium heading. It now matches Products.
+- Retry failed was a secondary button. It is the rose primary. Export CSV is the 38px glass button.
+- Needs attention used the amber tile. It uses the danger red chip, with the coins icon on revenue and the zap icon on median delivery.
+- Filter chips were tall pills. They are 30px, and the Needs attention count sits in a red pill.
+- The paid / supplier / delivered marks were plain dots. They are 9px dots joined by hairlines, with a glow on a fault or an in-progress supplier step.
+- Product marks in the order table were rose squares. They are the 30px pastel tiles.
+- The drawer title was the full id and the close control said Close. The shared drawer now shows the short mono id and an X.
+- The order timeline is a rail with mint, danger, and neutral dots.
+- The open order row has a rose inset edge.
+- Products search showed a stacked label. The label is visually hidden so the field sits on the same line as Live / Not imported / Paused / Out of stock and the grid toggle.
+- The bulk bar did not say which markup was selected. It now shows the first selected item's retail and wholesale rule, for example "markup 50% retail, +1.00 wholesale".
+
+Pass 2, what still differs from the pictures:
+
+- The numbers, names, counts, and which rows are selected. That is the live data.
+- The order drawer is the shared full-height shell drawer, not the mockup's floating 340px card. Pages stay on that shell.
+- Orders keeps a search field. The picture puts search only in the top bar. This page still searches by order, buyer, or product.
+- Date range and store are working selects styled as the chips, not a fixed "Last 7 days" label.
+- A live screenshot of the signed-in pages was not captured in this pass. The local callback returned `auth_failed` for a fresh magic-link hash, and the dev server hit a file-watcher limit. Phase 8 runs the harness, which is the signed-in check.
+
+Inventory, Pricing rules, and the supplier panels (connected, import, orders, health) use the same glass cards, rose primary, 38px secondary buttons, pastel tiles, and the opaque table. They were not given a separate visual language.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 361 tests passed.
+- build: `./node_modules/.bin/next build` exit 0 after the tile return was fixed. Next.js 14.2.21. Same existing image warning. An earlier build on this tree failed because `TILES[0]` could be undefined.
+
+Files: `app/(platform)/orders/view.tsx`, `app/(platform)/catalog/view.tsx`, `components/platform/ui/card.tsx`, `components/platform/ui/table.tsx`, `components/platform/drawer.tsx`, `.cursor/handoff-step2.md`.
+
 ## Resume
 
-Phases 0 through 6B are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
+Phases 0 through 7 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
 
-Phase 7 is next: screenshot Orders and Products at 1440 dark, compare with `BTC-3-orders@2x.png` and `BTC-2-products@2x.png`, and fix visible differences until only the data differs. Phase 8 extends `scripts/e2e-harness.mjs` and ticks the ledger. Nothing has been pushed.
+Phase 8 extends `scripts/e2e-harness.mjs` and ticks the ledger. Nothing has been pushed.
 
 Nothing has been pushed. Next.js is 14.2.21. React is 18.3.1.

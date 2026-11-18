@@ -33,7 +33,7 @@ type StatProps = {
   readonly value: string;
   readonly hint?: string;
   readonly icon?: LucideIcon;
-  readonly tone?: 'rose' | 'amber' | 'sky' | 'mint';
+  readonly tone?: 'rose' | 'amber' | 'sky' | 'mint' | 'danger';
   readonly delta?: string;
   readonly deltaTone?: 'up' | 'down' | 'flat';
 };
@@ -43,6 +43,7 @@ const TONE: Record<NonNullable<StatProps['tone']>, string> = {
   amber: 'bg-amber/15 text-amber',
   sky: 'bg-sky/15 text-sky',
   mint: 'bg-mint/15 text-mint',
+  danger: 'bg-danger/15 text-danger',
 };
 
 export function StatTile({ label, value, hint, icon: Icon, tone = 'rose', delta, deltaTone = 'flat' }: StatProps): JSX.Element {
@@ -87,13 +88,14 @@ export function Badge({ children }: BadgeProps): JSX.Element {
   return <span className="inline-flex items-center rounded-md bg-[var(--brand-tint)] px-2 py-0.5 text-xs text-ink">{children}</span>;
 }
 
-type PillTone = 'neutral' | 'ok' | 'warn' | 'fault';
+type PillTone = 'neutral' | 'ok' | 'warn' | 'fault' | 'info';
 
 const PILL: Record<PillTone, string> = {
   neutral: 'bg-raised text-ink-soft',
   ok: 'bg-[var(--ok-tint)] text-[var(--ok)]',
   warn: 'bg-[var(--warn-tint)] text-[var(--warn)]',
   fault: 'bg-[var(--fault-tint)] text-[var(--fault-ink)]',
+  info: 'bg-sky/15 text-sky',
 };
 
 type PillProps = {

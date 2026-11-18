@@ -7,6 +7,7 @@
 
 'use client';
 
+import { X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { DRAWER_PARAMS, type DrawerParam } from '@/components/platform/areas';
@@ -108,13 +109,13 @@ export function PlatformDrawer({ children }: { readonly children?: ReactNode }):
       >
         <header className="flex items-center justify-between gap-3 border-b border-stroke px-4 py-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.14em] text-ink-faint">{LABELS[open.key]}</p>
-            <h2 id="platform-drawer-title" className="font-num text-sm text-ink">
-              {open.id}
+            <p className="text-[11px] uppercase tracking-[0.14em] text-ink-faint">{LABELS[open.key]}</p>
+            <h2 id="platform-drawer-title" className="font-mono text-[22px] leading-none text-ink" title={open.id}>
+              {open.id.replace(/-/g, '').slice(0, 8).toUpperCase()}
             </h2>
           </div>
-          <button type="button" data-drawer-close className="min-h-11 rounded-md px-3 text-sm text-ink" onClick={close}>
-            Close
+          <button type="button" data-drawer-close aria-label="Close" className="grid h-8 w-8 place-items-center rounded-md text-ink-soft hover:bg-white/10 hover:text-ink" onClick={close}>
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-4 text-sm text-ink-soft">
