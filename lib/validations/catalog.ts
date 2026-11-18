@@ -107,7 +107,7 @@ export const UpdateProductSchema = z
     wholesalePriceStr: minorPriceString.optional(),
     retailPriceStr: minorPriceString.optional(),
     stockUnlimited: z.boolean().optional(),
-    stockCount: z.number().int().positive().nullable().optional(),
+    stockCount: z.number().int().nonnegative().nullable().optional(),
     resellerEligible: z.boolean().optional(),
     maxPurchaseQty: z.number().int().min(1).max(100).optional(),
     estimatedDeliveryMinutes: z.number().int().positive().nullable().optional(),

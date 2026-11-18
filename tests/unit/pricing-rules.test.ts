@@ -12,6 +12,7 @@ import {
   type MarkupSide,
   type SyncPolicy,
 } from '@/modules/supplier/catalog-sync';
+import { quoteCostChange } from '@/modules/supplier/markup-rules';
 import { createMemoryDb } from '@/tests/fixtures/fake-supabase';
 
 const USDT = 1_000_000n;
@@ -180,5 +181,32 @@ describe('createProduct store defaults', () => {
       retail_markup_kind: 'fixed',
       retail_markup_minor: '2000000',
     });
+  });
+});
+
+describe('quoteCostChange', () => {
+  it('refuses a cost change that would price at or below cost', () => {
+    const quoted = quoteCostChange({
+      fromMinor: USDT,
+      toMinor: 5n * USDT,
+      wholesale: fixed(0n),
+      retail: percent(0),
+      minMarginPercent: 10,
+    });
+    expect(quoted.blocked).toBe(true);
+    expect(quoted.toRetail).toBe(5n * USDT);
+  });
+
+  it('prices a higher cost under a percent rule when the margin holds', () => {
+    const quoted = quoteCostChange({
+      fromMinor: USDT,
+      toMinor: 2n * USDT,
+      wholesale: percent(50),
+      retail: percent(50),
+      minMarginPercent: 10,
+    });
+    expect(quoted.blocked).toBe(false);
+    expect(quoted.toWholesale).toBe(3n * USDT);
+    expect(quoted.toRetail).toBe(3n * USDT);
   });
 });

@@ -16,6 +16,7 @@ import { usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
 import type { CatalogRow, CatalogSummary, StockKind } from '@/modules/platform/catalog';
 import { ProductEditor } from './editor';
+import { InventorySection, PricingSection } from './sections';
 
 type CatalogPayload = {
   readonly rows: readonly CatalogRow[];
@@ -279,8 +280,8 @@ export function CatalogView(): JSX.Element {
           );
         })}
       </div>
-      {section === 'inventory' ? <Card title="Inventory"><p>Stock value, units on hand and the items that need attention open on this tab.</p></Card> : null}
-      {section === 'pricing' ? <Card title="Pricing rules"><p>The store markup and the live cost preview open on this tab.</p></Card> : null}
+      {section === 'inventory' ? <InventorySection attention={params.get('attention') === '1'} onAttention={(on) => setParam('attention', on ? '1' : '')} /> : null}
+      {section === 'pricing' ? <PricingSection /> : null}
       {section === 'suppliers' ? <Card title="Suppliers"><p>Connected suppliers, the import catalog, supplier orders and health open on this tab.</p></Card> : null}
       {section === 'catalogue' ? (
         <>

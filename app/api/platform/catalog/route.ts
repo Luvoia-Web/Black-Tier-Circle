@@ -8,6 +8,7 @@ import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { parseCatalogFilters, readCatalog } from '@/modules/platform/catalog';
+import { readInventory } from '@/modules/platform/inventory';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,11 @@ export async function GET(request: Request): Promise<Response> {
     }
     const db = asDbClient(session.admin);
     const tenant = role === 'reseller' ? await getTenantByUserId(db, session.user.id) : null;
-    const page = await readCatalog(db, { role, tenantId: tenant?.id ?? null }, parseCatalogFilters(new URL(request.url).searchParams));
+    const url = new URL(request.url);
+    if (url.searchParams.get('section') === 'inventory') {
+      return jsonSuccess(await readInventory(db, { role, tenantId: tenant?.id ?? null }, url.searchParams.get('attention') === '1'));
+    }
+    const page = await readCatalog(db, { role, tenantId: tenant?.id ?? null }, parseCatalogFilters(url.searchParams));
     return jsonSuccess(page);
   } catch (error: unknown) {
     return handleRouteError(error);

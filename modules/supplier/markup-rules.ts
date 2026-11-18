@@ -60,6 +60,33 @@ export function pricesForRules(
   };
 }
 
+export function quoteCostChange(input: {
+  readonly fromMinor: bigint;
+  readonly toMinor: bigint;
+  readonly wholesale: MarkupSide;
+  readonly retail: MarkupSide;
+  readonly minMarginPercent: number;
+}): {
+  readonly fromWholesale: bigint;
+  readonly fromRetail: bigint;
+  readonly toWholesale: bigint;
+  readonly toRetail: bigint;
+  readonly blocked: boolean;
+} {
+  const from = pricesForRules(input.fromMinor, input.wholesale, input.retail);
+  const to = pricesForRules(input.toMinor, input.wholesale, input.retail);
+  const blocked = to.wholesale <= input.toMinor
+    || to.retail <= input.toMinor
+    || marginBelowMinimum(to.retail, input.toMinor, input.minMarginPercent);
+  return {
+    fromWholesale: from.wholesale,
+    fromRetail: from.retail,
+    toWholesale: to.wholesale,
+    toRetail: to.retail,
+    blocked,
+  };
+}
+
 export function marginBelowMinimum(retailMinor: bigint, costMinor: bigint, minPercent: number): boolean {
   if (retailMinor <= 0n || retailMinor <= costMinor) {
     return true;

@@ -27,8 +27,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 0 Evidence | DONE | cab55633a3c5834349f68d983dbae65ce7557865 | Handoff only. Checklist and security findings below. |
 | 1 Migration 0033 | DONE | de4f4b4ecf6d92b5922a8446c05414cc66c7c543 | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
 | 2 Orders | DONE | 7b09d18b8fccd743ed4a44d536269dd07499be3a | Orders screen, drawer, owner replace, buyer Replace removed. |
-| 3 Products · Catalogue | DONE | recorded after this commit | Catalogue, drawer, editor, reseller listing editor. |
-| 4 Inventory and Pricing rules | pending | | |
+| 3 Products · Catalogue | DONE | 5b0c00bb7dfad64712f3d88bfa49496b9dfa364f | Catalogue, drawer, editor, reseller listing editor. |
+| 4 Inventory and Pricing rules | DONE | recorded after this commit | Stock table and store markup preview. |
 | 5 Suppliers | pending | | |
 | 6 Security | pending | | |
 | 7 Match the mockups | pending | | |
@@ -321,7 +321,7 @@ Files: `app/(platform)/orders/view.tsx`, `app/api/platform/orders/route.ts`, `ap
 
 ## Phase 3 — Products · Catalogue
 
-`/catalog` is the Products screen from `BTC-2-products@2x.png`. The header counts items, suppliers and products live in the bots. New product sets `?create=1`. Import from supplier sets `?section=suppliers` (the supplier screens are Phase 5). Tabs are Catalogue, Inventory (needs-attention count) and Pricing rules. Inventory and Pricing rules render a titled card until Phase 4.
+`/catalog` is the Products screen from `BTC-2-products@2x.png`. The header counts items, suppliers and products live in the bots. New product sets `?create=1`. Import from supplier sets `?section=suppliers` (the supplier screens are Phase 5). Tabs are Catalogue, Inventory (needs-attention count) and Pricing rules. Inventory and Pricing rules are Phase 4.
 
 Search covers name, SKU and supplier name. The stage segment is Live, Not imported, Paused, Out of stock, Archived. Live is the default and still shows published items that are out of stock, so the stock pill can read Out of stock while Live is selected. Grid and list are remembered in `btc-catalog-layout`. Category chips use published counts. Cards use the supplier image when one exists, otherwise the pastel initial tile, plus category, delivery, supplier, price and a stock pill. The list adds margin and the markup rule. Selection shows the sticky bar: Set category, Pricing rule, Pause, Publish to bot, Delete. Delete states how many sold products will be archived and how many unsold items will be deleted.
 
@@ -340,11 +340,26 @@ Checks:
 
 Files: `app/(platform)/catalog/view.tsx`, `app/(platform)/catalog/editor.tsx`, `modules/platform/catalog.ts`, `modules/catalog/index.ts`, `modules/catalog/types.ts`, `app/api/products/[productId]/route.ts`, `lib/validations/catalog.ts`, `lib/hooks/use-action.ts`, `lib/supabase/query.ts`, `app/globals.css`, `tailwind.config.ts`, `components/platform/nav.ts`, `components/platform/sidebar.tsx`, `components/platform/ui/button.tsx`, `components/platform/ui/chrome.tsx`, `tests/fixtures/fake-supabase.ts`, `tests/unit/revenue-goal.test.ts`, `tests/unit/supplier-catalog-page.test.ts`, `.cursor/handoff-step2.md`.
 
+## Phase 4 — Inventory and Pricing rules
+
+Inventory is `?section=inventory`. Three tiles: stock value at cost (wholesale times units, unlimited rows excluded), units on hand, and items at or below the reorder point. The reorder point is 10. There is no per-product column, and this step does not add a migration. The table shows the product tile, a level bar against 10, units sold in the last 30 days, days of stock left, a stepper for manual products, the supplier's live stock for supplier products, and units left for file and inventory-unit products. `attention=1` keeps only the rows that need attention.
+
+Pricing rules is `?section=pricing` and `GET/PUT /api/platform/pricing`. The form saves the store wholesale and retail defaults (percent or fixed) on `platform_settings`. The table lists products whose markup differs from that default. The preview prices a cost change from X to Y with `priceWithRule`. It says the new price would not be saved when wholesale or retail would land at or below cost, or when retail would miss `min_margin_percent`. Saving the default does not reprice existing products.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 350 tests passed. Two of those are the new cost-change preview tests.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning. New route: `/api/platform/pricing`.
+
+Files: `modules/platform/inventory.ts`, `modules/platform/pricing.ts`, `modules/supplier/markup-rules.ts`, `app/api/platform/catalog/route.ts`, `app/api/platform/pricing/route.ts`, `app/(platform)/catalog/sections.tsx`, `app/(platform)/catalog/view.tsx`, `lib/validations/catalog.ts`, `tests/unit/pricing-rules.test.ts`, `.cursor/handoff-step2.md`.
+
 ## Resume
 
-Phases 0, 1, 2 and 3 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`. The user confirmed 0033 is applied.
+Phases 0 through 4 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`. The user confirmed 0033 is applied.
 
-Phase 4 is next. Replace the Inventory and Pricing rules cards in `app/(platform)/catalog/view.tsx`. Keep the catalogue.
+Phase 5 is next. Replace the Suppliers card in `app/(platform)/catalog/view.tsx` (`?section=suppliers`).
 
 Phase 6 still has to fix every remaining user-text `.or()` string, including the product search added in Phase 2 in `modules/platform/orders.ts`. Catalog search in `modules/platform/catalog.ts` is already `.ilike` plus `.in()`.
 
