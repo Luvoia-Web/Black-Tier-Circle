@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type Hit = {
-  readonly kind: 'product' | 'order' | 'customer';
+  readonly kind: 'product' | 'order' | 'customer' | 'reseller';
   readonly id: string;
   readonly label: string;
   readonly hint: string;
@@ -125,6 +125,26 @@ export async function GET(request: Request): Promise<Response> {
         hint: id,
         href: `${ROUTES.platform.people}?person=${encodeURIComponent(id)}`,
       });
+    }
+
+    if (role === 'owner') {
+      let resellerQuery = db.from('tenants').select('id, display_name, business_name, status').limit(8);
+      resellerQuery = uuid
+        ? resellerQuery.eq('id', term)
+        : resellerQuery.or(`display_name.ilike."%${term}%",business_name.ilike."%${term}%"`);
+      for (const row of rows((await resellerQuery) as QueryResult<unknown>)) {
+        const id = text(row.id);
+        if (!id) {
+          continue;
+        }
+        results.push({
+          kind: 'reseller',
+          id,
+          label: text(row.business_name) || text(row.display_name) || id,
+          hint: text(row.status) || 'Reseller',
+          href: `${ROUTES.platform.people}?type=reseller&person=${encodeURIComponent(id)}`,
+        });
+      }
     }
 
     return jsonSuccess({ results });

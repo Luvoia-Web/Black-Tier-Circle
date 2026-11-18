@@ -71,6 +71,12 @@ export const ROUTES = {
   },
   platform: {
     today: '/today',
+    overview: '/overview',
+    analytics: '/analytics',
+    intelligence: '/intelligence',
+    remy: '/remy',
+    health: '/health',
+    supplierHealth: '/suppliers/health',
     catalog: '/catalog',
     orders: '/orders',
     money: '/money',
@@ -263,6 +269,12 @@ export function isResellerRoute(pathname: string): boolean {
 
 const PLATFORM_PREFIXES = [
   ROUTES.platform.today,
+  ROUTES.platform.overview,
+  ROUTES.platform.analytics,
+  ROUTES.platform.intelligence,
+  ROUTES.platform.remy,
+  ROUTES.platform.health,
+  '/suppliers',
   ROUTES.platform.catalog,
   ROUTES.platform.orders,
   ROUTES.platform.money,

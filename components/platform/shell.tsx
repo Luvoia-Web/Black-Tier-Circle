@@ -1,18 +1,15 @@
-/**
- * @file components/platform/shell.tsx
- *
- * The new dashboard frame. Mesh behind, glass rail and top bar, solid plane
- * for the page. The old shell is untouched.
- */
-
 'use client';
+
+/**
+ * Dashboard frame. The mesh stays behind a floating sidebar and a floating top bar.
+ */
 
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { CommandPalette } from '@/components/platform/command-palette';
 import { DrawerBodyContext } from '@/components/platform/drawer-body';
 import { PlatformDrawer } from '@/components/platform/drawer';
 import { PlatformMesh } from '@/components/platform/mesh';
-import { PlatformRail } from '@/components/platform/rail';
+import { PlatformSidebar, useNavCounts } from '@/components/platform/sidebar';
 import { PlatformTopBar } from '@/components/platform/top-bar';
 import type { UserRole } from '@/modules/identity/types';
 
@@ -27,6 +24,7 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
   const [mobileOpen, setMobileOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const [drawerBody, setDrawerBody] = useState<ReactNode>(null);
+  const counts = useNavCounts();
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -43,21 +41,31 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
     <DrawerBodyContext.Provider value={setDrawerBody}>
       <div className="min-h-screen text-ink">
         <PlatformMesh />
-        <div className="relative z-10 flex min-h-screen">
+        <div className={`relative z-10 min-h-screen ${collapsed ? 'md:pl-[100px]' : 'md:pl-[296px]'}`}>
           {mobileOpen ? (
-            <button type="button" aria-label="Close areas" className="fixed inset-0 z-20 bg-[color-mix(in_srgb,var(--base)_55%,transparent)] md:hidden" onClick={() => setMobileOpen(false)} />
+            <button type="button" aria-label="Close navigation" className="fixed inset-0 z-20 bg-base/60 md:hidden" onClick={() => setMobileOpen(false)} />
           ) : null}
-          <PlatformRail collapsed={collapsed} mobileOpen={mobileOpen} onNavigate={() => setMobileOpen(false)} />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <PlatformTopBar
-              displayName={displayName}
+          <Suspense fallback={null}>
+            <PlatformSidebar
               role={role}
               collapsed={collapsed}
-              onOpenRail={() => setMobileOpen(true)}
+              mobileOpen={mobileOpen}
+              counts={counts}
+              onNavigate={() => setMobileOpen(false)}
               onToggleCollapsed={() => setCollapsed((current) => !current)}
-              onOpenPalette={() => setPalette(true)}
             />
-            <main className="min-w-0 flex-1 overflow-x-hidden bg-plane px-4 py-5 md:px-6">{children}</main>
+          </Suspense>
+          <div className="flex min-h-screen flex-col gap-3 p-3 md:pl-0">
+            <Suspense fallback={null}>
+              <PlatformTopBar
+                displayName={displayName}
+                role={role}
+                counts={counts}
+                onOpenRail={() => setMobileOpen(true)}
+                onOpenPalette={() => setPalette(true)}
+              />
+            </Suspense>
+            <main className="min-w-0 flex-1">{children}</main>
           </div>
         </div>
         <Suspense fallback={null}>

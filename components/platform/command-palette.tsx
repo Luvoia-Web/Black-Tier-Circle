@@ -9,7 +9,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { PLATFORM_AREAS, readSelection } from '@/components/platform/areas';
+import { readSelection } from '@/components/platform/areas';
+import { flatNav } from '@/components/platform/nav';
 import { API_ROUTES } from '@/lib/navigation';
 import type { UserRole } from '@/modules/identity/types';
 
@@ -56,16 +57,16 @@ export function CommandPalette({ role, open, onClose }: CommandPaletteProps): JS
 
   const areas = useMemo<Hit[]>(() => {
     const needle = query.trim().toLowerCase();
-    return PLATFORM_AREAS.filter((area) => !needle || area.label.toLowerCase().includes(needle) || area.description.toLowerCase().includes(needle)).map(
-      (area) => ({
-        id: `area-${area.href}`,
-        group: 'Areas',
+    return flatNav(role)
+      .filter((area) => !needle || area.label.toLowerCase().includes(needle))
+      .map((area) => ({
+        id: `area-${area.id}`,
+        group: 'Go to',
         label: area.label,
-        hint: area.description,
+        hint: area.href,
         href: area.href,
-      }),
-    );
-  }, [query]);
+      }));
+  }, [query, role]);
 
   const actions = useMemo<Hit[]>(() => {
     if (role !== 'owner') {
