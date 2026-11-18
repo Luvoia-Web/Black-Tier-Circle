@@ -9,6 +9,7 @@ import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { ROUTES } from '@/lib/navigation';
+import { idsMatching, limitToIds } from '@/lib/row-ids';
 import type { QueryResult } from '@/lib/supabase/query';
 import { getBotConnection } from '@/modules/bots';
 import { getTenantByUserId } from '@/modules/tenants';
@@ -65,7 +66,7 @@ export async function GET(request: Request): Promise<Response> {
       const ids = listings.map((row) => text(row.product_id)).filter((id) => id.length > 0);
       productQuery = ids.length > 0 ? productQuery.in('id', ids) : productQuery.in('id', ['00000000-0000-4000-8000-000000000000']);
     }
-    productQuery = uuid ? productQuery.eq('id', term) : productQuery.or(`title.ilike."%${term}%",sku.ilike."%${term}%"`);
+    productQuery = uuid ? productQuery.eq('id', term) : limitToIds(productQuery, await idsMatching(db, 'products', ['title', 'sku'], term, 8));
     for (const row of rows((await productQuery) as QueryResult<unknown>)) {
       const id = text(row.id);
       if (!id) {
@@ -111,7 +112,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     customerQuery = uuid
       ? customerQuery.eq('id', term)
-      : customerQuery.or(`username.ilike."%${term}%",first_name.ilike."%${term}%",telegram_user_id.ilike."%${term}%"`);
+      : limitToIds(customerQuery, await idsMatching(db, 'customers', ['username', 'first_name', 'telegram_user_id'], term, 8));
     for (const row of rows((await customerQuery) as QueryResult<unknown>)) {
       const id = text(row.id);
       if (!id) {
@@ -131,7 +132,7 @@ export async function GET(request: Request): Promise<Response> {
       let resellerQuery = db.from('tenants').select('id, display_name, business_name, status').limit(8);
       resellerQuery = uuid
         ? resellerQuery.eq('id', term)
-        : resellerQuery.or(`display_name.ilike."%${term}%",business_name.ilike."%${term}%"`);
+        : limitToIds(resellerQuery, await idsMatching(db, 'tenants', ['display_name', 'business_name'], term, 8));
       for (const row of rows((await resellerQuery) as QueryResult<unknown>)) {
         const id = text(row.id);
         if (!id) {

@@ -12,6 +12,7 @@ import type { CatalogSupplierProduct } from '@/integrations/supplier/adapter-typ
 import { readCardHints } from '@/modules/catalog/card-text';
 import { adapterByName, detectAdapter, testSupplierConnection } from '@/integrations/supplier/supplier-client';
 import { assertPublicHttpsUrl } from '@/lib/safe-fetch';
+import { idsMatching, limitToIds } from '@/lib/row-ids';
 import { createProdSellerClient } from '@/integrations/prodseller/client';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import {
@@ -849,6 +850,7 @@ export type SupplierCatalogQuery = {
   readonly sort?: 'name' | 'cost' | 'stock' | 'synced';
   readonly stock?: 'all' | 'in' | 'out';
   readonly pushed?: 'all' | 'published' | 'not_published';
+  readonly searchIds?: readonly string[];
 };
 
 export type SupplierCatalogPage = {
@@ -889,9 +891,8 @@ function applyListFilters(
   if (filters.stock === 'in' || filters.stock === 'out') {
     query = query.eq('in_stock', filters.stock === 'in');
   }
-  const search = filters.search?.trim().replace(/[%_,]/g, '') ?? '';
-  if (search) {
-    query = query.or(`name.ilike.%${search}%,supplier_sku.ilike.%${search}%`);
+  if (filters.searchIds) {
+    query = limitToIds(query, filters.searchIds);
   }
   return query;
 }
@@ -951,19 +952,23 @@ export async function listSupplierProducts(
   const limit = Math.min(LIST_PAGE_MAX, Math.max(1, filters.limit ?? 24));
   const offset = (page - 1) * limit;
   const ordering = sortColumn(filters.sort);
+  const search = filters.search?.trim().replace(/[%_,."']/g, '').slice(0, 64) ?? '';
+  const scoped: SupplierCatalogQuery = search
+    ? { ...filters, searchIds: await idsMatching(supabase, 'supplier_products', ['name', 'supplier_sku'], search) }
+    : filters;
   const [links, counts] = await Promise.all([
     linkedCatalog(supabase, filters.supplierId),
     statusCounts(supabase, filters.supplierId),
   ]);
   const pushed = filters.pushed ?? 'all';
   if (pushed === 'all') {
-    const result = (await applyListFilters(supabase, filters)
+    const result = (await applyListFilters(supabase, scoped)
       .order(ordering.column, { ascending: ordering.ascending })
       .range(offset, offset + limit - 1)) as ListedResult & { count?: number | null };
     if (result.error) {
       throw new AppError('SUPPLIER_PRODUCT_LIST_FAILED', result.error.message, 500);
     }
-    const counted = (await applyListFilters(supabase, filters).select('*', { count: 'exact', head: true })) as ListedResult;
+    const counted = (await applyListFilters(supabase, scoped).select('*', { count: 'exact', head: true })) as ListedResult;
     return {
       products: (result.data ?? []).map((row) => mapCatalog(row, links.get(row.supplier_sku) ?? null)),
       total: counted.count ?? result.data?.length ?? 0,
@@ -975,7 +980,7 @@ export async function listSupplierProducts(
   const matched: CatalogRow[] = [];
   let cursor = 0;
   for (;;) {
-    const chunk = (await applyListFilters(supabase, filters)
+    const chunk = (await applyListFilters(supabase, scoped)
       .order(ordering.column, { ascending: ordering.ascending })
       .range(cursor, cursor + RANGE_PAGE - 1)) as ListedResult;
     if (chunk.error) {

@@ -15,6 +15,7 @@ function client(supplierRows: Row[], productRows: Row[] = []): DbClient {
       const source = table === 'products' ? productRows : supplierRows;
       const filters: Array<{ column: string; value: string }> = [];
       let pattern = '';
+      let idList: readonly string[] | null = null;
       let range: { from: number; to: number } | null = null;
       let exact = false;
       let head = false;
@@ -34,8 +35,8 @@ function client(supplierRows: Row[], productRows: Row[] = []): DbClient {
           pattern = expression.match(/ilike\.%(.*?)%/)?.[1]?.toLowerCase() ?? '';
           return builder;
         },
-        ilike(column: string, value: string) {
-          filters.push({ column, value: value.replace(/%/g, '').toLowerCase() });
+        ilike(_column: string, value: string) {
+          pattern = value.replace(/%/g, '').toLowerCase();
           return builder;
         },
         order(column: string, options?: { ascending?: boolean }) {
@@ -47,7 +48,8 @@ function client(supplierRows: Row[], productRows: Row[] = []): DbClient {
           range = { from, to };
           return builder;
         },
-        in() {
+        in(column: string, values: readonly string[]) {
+          if (column === 'id') idList = values.map(String);
           return builder;
         },
         is() {
@@ -79,6 +81,9 @@ function client(supplierRows: Row[], productRows: Row[] = []): DbClient {
         },
         then(onfulfilled?: ((value: unknown) => unknown) | null) {
           let rows = source.filter((row) => filters.every((filter) => String(row[filter.column] ?? '') === filter.value));
+          if (idList) {
+            rows = rows.filter((row) => idList?.includes(String(row.id)));
+          }
           if (pattern) {
             rows = rows.filter((row) => {
               const name = String(row.name ?? '').toLowerCase();

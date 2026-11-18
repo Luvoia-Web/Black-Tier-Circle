@@ -5,6 +5,7 @@
  */
 
 import { AppError } from '@/lib/errors';
+import { idsMatching, limitToIds } from '@/lib/row-ids';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getWallet } from '@/modules/wallet';
@@ -74,7 +75,7 @@ export async function readPeople(
     }
     let query = db.from('tenants').select('id, display_name, status, updated_at', { count: 'exact' }).order('updated_at', { ascending: false });
     if (term) {
-      query = query.or(`display_name.ilike."%${term}%"`);
+      query = limitToIds(query, await idsMatching(db, 'tenants', ['display_name'], term));
     }
     const result = (await query.range(from, from + size - 1)) as QueryResult<unknown>;
     const rows = records(result).map((row) => ({
@@ -96,7 +97,7 @@ export async function readPeople(
     query = query.eq('bot_id', input.botId);
   }
   if (term) {
-    query = query.or(`username.ilike."%${term}%",first_name.ilike."%${term}%"`);
+    query = limitToIds(query, await idsMatching(db, 'customers', ['username', 'first_name'], term));
   }
   const result = (await query.range(from, from + size - 1)) as QueryResult<unknown>;
   const raw = records(result);

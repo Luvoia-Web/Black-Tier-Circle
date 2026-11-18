@@ -5,6 +5,7 @@
  */
 
 import { lookup } from 'node:dns/promises';
+import https from 'node:https';
 import { isIP } from 'node:net';
 
 export class UnsafeOutboundUrlError extends Error {
@@ -158,7 +159,63 @@ export async function assertPublicHttpsUrl(raw: string, resolveHost?: ResolveHos
   if (addresses.some((address) => isBlockedIp(address))) {
     throw new UnsafeOutboundUrlError('That supplier address is not allowed. It points at a private or reserved network.');
   }
-  return url;
+  url.hostname = hostname;
+  return Object.assign(url, { publicAddress: addresses[0] ?? hostname });
+}
+
+function publicAddressOf(url: URL): string {
+  const address = (url as URL & { publicAddress?: string }).publicAddress;
+  return address && !isBlockedIp(address) ? address : url.hostname;
+}
+
+function pinnedUrl(url: URL, address: string): string {
+  const next = new URL(url.toString());
+  next.hostname = address;
+  return next.toString();
+}
+
+function headerPairs(headers: HeadersInit | undefined, host: string): Record<string, string> {
+  const pairs: Record<string, string> = {};
+  if (headers && !(headers instanceof Headers) && !Array.isArray(headers)) {
+    Object.assign(pairs, headers);
+  } else {
+    new Headers(headers).forEach((value, key) => {
+      pairs[key] = value;
+    });
+  }
+  pairs.host = host;
+  return pairs;
+}
+
+function fetchPinned(url: URL, address: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        host: address,
+        servername: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: init.method ?? 'GET',
+        headers: headerPairs(init.headers, url.host),
+        signal,
+      },
+      (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on('data', (chunk: Buffer) => chunks.push(chunk));
+        incoming.on('end', () => {
+          const headers = new Headers();
+          for (const [key, value] of Object.entries(incoming.headers)) {
+            if (typeof value === 'string') headers.set(key, value);
+            else if (Array.isArray(value)) headers.set(key, value.join(', '));
+          }
+          resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode ?? 502, headers }));
+        });
+      },
+    );
+    req.on('error', reject);
+    if (typeof init.body === 'string' || init.body instanceof Uint8Array) req.write(init.body);
+    req.end();
+  });
 }
 
 function mergeSignals(signals: readonly AbortSignal[]): AbortSignal {
@@ -218,7 +275,6 @@ export async function safeSupplierFetch(raw: string, init: RequestInit = {}, opt
   const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_MS;
   const totalTimeoutMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_MS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-  const fetchImpl = options.fetchImpl ?? fetch;
   const total = new AbortController();
   const connect = new AbortController();
   const totalTimer = setTimeout(() => total.abort(), totalTimeoutMs);
@@ -226,12 +282,21 @@ export async function safeSupplierFetch(raw: string, init: RequestInit = {}, opt
   let current = raw;
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      await assertPublicHttpsUrl(current, options.resolveHost);
+      const checked = await assertPublicHttpsUrl(current, options.resolveHost);
+      const address = publicAddressOf(checked);
+      const headers = headerPairs(init.headers, checked.host);
       const signals = [total.signal, connect.signal];
       if (init.signal) signals.push(init.signal);
       let response: Response;
       try {
-        response = await fetchImpl(current, { ...init, redirect: 'manual', signal: mergeSignals(signals) });
+        const signal = mergeSignals(signals);
+        if (options.fetchImpl) {
+          response = await options.fetchImpl(pinnedUrl(checked, address), { ...init, headers, redirect: 'manual', signal });
+        } else if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+          response = await fetch(checked.toString(), { ...init, headers, redirect: 'manual', signal });
+        } else {
+          response = await fetchPinned(checked, address, { ...init, headers }, signal);
+        }
       } catch (error: unknown) {
         if (connect.signal.aborted || total.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
           throw new UnsafeOutboundUrlError('The supplier connection timed out.');
@@ -245,8 +310,7 @@ export async function safeSupplierFetch(raw: string, init: RequestInit = {}, opt
         if (hop === MAX_REDIRECTS) {
           throw new UnsafeOutboundUrlError('The supplier redirected too many times.');
         }
-        current = new URL(location, current).toString();
-        await assertPublicHttpsUrl(current, options.resolveHost);
+        current = new URL(location, checked).toString();
         continue;
       }
       return await readCapped(response, maxBytes, total.signal);

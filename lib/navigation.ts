@@ -318,6 +318,15 @@ export function dashboardHomeForRole(role: UserRole): string {
  * @param nextPath - Candidate redirect from the login `next` query param
  * @param role - Authenticated profile role
  */
+export function safeCallbackPath(nextParam: string | null, role: UserRole, fallback: string): string {
+  if (!nextParam) return fallback;
+  const split = nextParam.indexOf('?');
+  const path = split === -1 ? nextParam : nextParam.slice(0, split);
+  const search = split === -1 ? '' : nextParam.slice(split);
+  if (!isSafeNextPath(path, role)) return fallback;
+  return `${path}${search}`;
+}
+
 export function isSafeNextPath(nextPath: string, role: UserRole): boolean {
   if (!nextPath.startsWith('/') || nextPath.startsWith('//') || nextPath.includes('\\')) {
     return false;

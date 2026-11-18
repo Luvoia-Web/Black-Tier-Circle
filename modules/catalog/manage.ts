@@ -4,6 +4,7 @@
  */
 
 import { AppError, NotFoundError, ValidationError } from '@/lib/errors';
+import { idsMatching, limitToIds } from '@/lib/row-ids';
 import type { DbClient } from '@/lib/supabase/query';
 import { mapProductRow } from './map';
 import { getProduct, updateProduct, updateProductStatus } from './index';
@@ -83,7 +84,7 @@ function sortColumn(sort: OwnerListQuery['sort']): { column: string; ascending: 
   return { column: 'title', ascending: true };
 }
 
-function filtered(supabase: DbClient, query: OwnerListQuery) {
+function filtered(supabase: DbClient, query: OwnerListQuery, searchIds: readonly string[] | null) {
   let request = supabase.from('products').select('*');
   if (query.status && query.status !== 'all') {
     request = request.eq('status', query.status);
@@ -94,9 +95,8 @@ function filtered(supabase: DbClient, query: OwnerListQuery) {
   if (query.supplierId) {
     request = request.eq('supplier_id', query.supplierId);
   }
-  const search = query.search?.trim().replace(/[%_,]/g, '') ?? '';
-  if (search) {
-    request = request.or(`title.ilike.%${search}%,sku.ilike.%${search}%`);
+  if (searchIds) {
+    request = limitToIds(request, searchIds);
   }
   return request;
 }
@@ -113,6 +113,8 @@ export async function listOwnerProducts(supabase: DbClient, query: OwnerListQuer
   const limit = Math.min(PAGE_MAX, Math.max(1, query.limit ?? 24));
   const offset = (page - 1) * limit;
   const ordering = sortColumn(query.sort);
+  const search = query.search?.trim().replace(/[%_,."']/g, '').slice(0, 64) ?? '';
+  const searchIds = search ? await idsMatching(supabase, 'products', ['title', 'sku'], search) : null;
   const counts = { draft: 0, published: 0, paused: 0, archived: 0 };
   await Promise.all(
     (Object.keys(counts) as ProductStatus[]).map(async (status) => {
@@ -127,7 +129,7 @@ export async function listOwnerProducts(supabase: DbClient, query: OwnerListQuer
     const matched: ProductRow[] = [];
     let cursor = 0;
     for (;;) {
-      const chunk = (await filtered(supabase, query)
+      const chunk = (await filtered(supabase, query, searchIds)
         .order(ordering.column, { ascending: ordering.ascending })
         .range(cursor, cursor + 999)) as Listed;
       if (chunk.error) {
@@ -153,13 +155,13 @@ export async function listOwnerProducts(supabase: DbClient, query: OwnerListQuer
       counts,
     };
   }
-  const rows = (await filtered(supabase, query)
+  const rows = (await filtered(supabase, query, searchIds)
     .order(ordering.column, { ascending: ordering.ascending })
     .range(offset, offset + limit - 1)) as Listed;
   if (rows.error) {
     throw new AppError('PRODUCT_LIST_FAILED', rows.error.message, 500);
   }
-  const counted = (await filtered(supabase, query).select('*', { count: 'exact', head: true })) as Listed;
+  const counted = (await filtered(supabase, query, searchIds).select('*', { count: 'exact', head: true })) as Listed;
   return {
     products: (rows.data ?? []).map((row) => listedProduct(row)),
     total: counted.count ?? rows.data?.length ?? 0,

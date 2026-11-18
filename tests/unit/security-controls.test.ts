@@ -4,6 +4,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { assertPublicHttpsUrl, isBlockedIp, safeSupplierFetch } from '@/lib/safe-fetch';
+import { safeCallbackPath } from '@/lib/navigation';
+import { parseCatalogFilters, readCatalog } from '@/modules/platform/catalog';
 import { consumeRateLimit, resetRateLimitStore, setRateLimitBump } from '@/lib/rate-limiter';
 import { createOrder } from '@/modules/orders';
 import { assertCustomerAllowed, noteFailedClaim } from '@/modules/platform/fraud';
@@ -41,7 +43,23 @@ describe('supplier url guard', () => {
         },
       }),
     ).rejects.toThrow(/not allowed/);
-    expect(seen).toEqual(['https://supplier.example/start']);
+    expect(seen).toEqual(['https://8.8.8.8/start']);
+  });
+
+  it('refuses a name that is public on the first lookup and private on the next', async () => {
+    let lookups = 0;
+    const fetched: string[] = [];
+    await expect(safeSupplierFetch('https://rebind.example/start', {}, {
+      resolveHost: async () => {
+        lookups += 1;
+        return lookups === 1 ? ['1.1.1.1'] : ['10.2.2.2'];
+      },
+      fetchImpl: async (input) => {
+        fetched.push(String(input));
+        return new Response(null, { status: 302, headers: { location: 'https://rebind.example/next' } });
+      },
+    })).rejects.toThrow(/not allowed/);
+    expect(fetched).toEqual(['https://1.1.1.1/start']);
   });
 
   it('times out a slow host and cuts an oversized body', async () => {
@@ -75,13 +93,49 @@ describe('supplier url guard', () => {
     expect(await response.text()).toBe('abcdefgh');
   });
 
-  it('fetches a normal public supplier', async () => {
+  it('fetches a normal public supplier at the address that was checked', async () => {
+    const seen: { url: string; host: string | null }[] = [];
     const response = await safeSupplierFetch('https://supplier.example/products', {}, {
       resolveHost: async () => ['8.8.8.8'],
-      fetchImpl: async () => new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      fetchImpl: async (input, init) => {
+        seen.push({ url: String(input), host: new Headers(init?.headers).get('host') });
+        return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+      },
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+    expect(seen).toEqual([{ url: 'https://8.8.8.8/products', host: 'supplier.example' }]);
+  });
+});
+
+describe('search filters', () => {
+  it('keeps PostgREST operator characters out of an or() string', async () => {
+    const db = createMemoryDb({
+      products: [{ id: '00000000-0000-4000-8000-000000000101', title: 'Gemini', sku: 'GM', status: 'published', stock_unlimited: true, supplier_id: null }],
+      supplier_products: [],
+      suppliers: [],
+    });
+    const calls: string[] = [];
+    const original = db.from.bind(db);
+    db.from = (table: string) => {
+      const builder = original(table);
+      const or = builder.or.bind(builder);
+      builder.or = (expression: string) => {
+        calls.push(expression);
+        return or(expression);
+      };
+      return builder;
+    };
+    await readCatalog(db, { role: 'owner', tenantId: null }, parseCatalogFilters(new URLSearchParams('search=title.eq.hacked,or.id')));
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('callback next', () => {
+  it('refuses an off-site next and keeps an in-app path', () => {
+    expect(safeCallbackPath('https://evil.example/phish', 'owner', '/overview')).toBe('/overview');
+    expect(safeCallbackPath('//evil.example', 'owner', '/overview')).toBe('/overview');
+    expect(safeCallbackPath('/orders?order=1', 'owner', '/overview')).toBe('/orders?order=1');
   });
 });
 

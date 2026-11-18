@@ -29,8 +29,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 2 Orders | DONE | 7b09d18b8fccd743ed4a44d536269dd07499be3a | Orders screen, drawer, owner replace, buyer Replace removed. |
 | 3 Products · Catalogue | DONE | 5b0c00bb7dfad64712f3d88bfa49496b9dfa364f | Catalogue, drawer, editor, reseller listing editor. |
 | 4 Inventory and Pricing rules | DONE | 54a9b9d308267ad7fd3eb75212a58e365c0c3ea4 | Stock table and store markup preview. |
-| 5 Suppliers | DONE | recorded after this commit | Connected, import, orders, health. |
-| 6 Security | pending | | |
+| 5 Suppliers | DONE | 273bb1aba5fb1c4c1d646c55789ba5ed292fa2ca | Connected, import, orders, health. |
+| 6 Security | DONE | recorded after this commit | Search filters, pinned supplier fetch, safe next. |
 | 7 Match the mockups | pending | | |
 | 8 Prove it | pending | | |
 
@@ -382,7 +382,28 @@ Files: `app/(platform)/catalog/suppliers.tsx`, `app/(platform)/catalog/view.tsx`
 
 Phases 0 through 5 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
 
-Phase 6 is next. Catalog search is already `.ilike` plus `.in()`. The other user-text `.or()` calls from Phase 0 are still open, including `modules/platform/orders.ts`.
+## Phase 6 — security
+
+User text no longer reaches a PostgREST `.or()` string. `lib/row-ids.ts` runs one `.ilike` per column and the page query uses `.in()`. That covers catalog (Phase 3), orders, people, the command-palette search, the owner product list, and the supplier import list. Constant `.or()` filters in today, nav, and the order queue are unchanged.
+
+`safeSupplierFetch` resolves the host, refuses any private address, and connects to the address it checked. A caller-supplied fetch receives that address with the original hostname as the Host header. The production path uses `https.request` with that address as the host and the original hostname as the TLS server name. A redirect is resolved again before the next connection. Under Vitest, the default fetch stays the mocked global fetch so existing supplier tests keep seeing the hostname.
+
+The auth callback still verifies `token_hash` with `supabase.auth.verifyOtp`. A `next` parameter is accepted only through `safeCallbackPath` / `isSafeNextPath`. An off-site or protocol-relative next falls back to the role home.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 353 tests passed. New cases: operator characters do not call `.or()`, a public-then-private name is refused, a normal https supplier is fetched at the checked address, an off-site next is refused.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `lib/row-ids.ts`, `lib/safe-fetch.ts`, `lib/navigation.ts`, `app/auth/callback/route.ts`, `modules/platform/orders.ts`, `modules/platform/people.ts`, `modules/catalog/manage.ts`, `modules/supplier/index.ts`, `app/api/platform/search/route.ts`, `tests/unit/security-controls.test.ts`, `tests/unit/supplier-catalog-page.test.ts`, `.cursor/handoff-step2.md`.
+
+## Resume
+
+Phases 0 through 6 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
+
+Phase 7 is next: screenshot Orders and Products at 1440 dark, compare with `BTC-3-orders@2x.png` and `BTC-2-products@2x.png`, and fix visible differences until only the data differs. Phase 8 extends `scripts/e2e-harness.mjs` and ticks the ledger. Nothing has been pushed.
 
 Phase 6 still has to fix every remaining user-text `.or()` string, including the product search added in Phase 2 in `modules/platform/orders.ts`. Catalog search in `modules/platform/catalog.ts` is already `.ilike` plus `.in()`.
 

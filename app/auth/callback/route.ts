@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
-import { ROUTES, dashboardHomeForRole } from '@/lib/navigation';
+import { ROUTES, dashboardHomeForRole, safeCallbackPath } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createAuthRouteClient } from '@/lib/supabase/server';
 import { getOrCreateProfile, type UserRole } from '@/modules/identity';
@@ -33,6 +33,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const code = requestUrl.searchParams.get('code');
   const tokenHash = requestUrl.searchParams.get('token_hash');
   const otpType = requestUrl.searchParams.get('type');
+  const nextPath = requestUrl.searchParams.get('next');
 
   if (!code && !(tokenHash && otpType === 'magiclink')) {
     return NextResponse.redirect(`${origin}${ROUTES.login}?error=no_code`);
@@ -97,5 +98,5 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (row.onboarding_completed !== true) {
     return redirectWithSession(ROUTES.onboarding);
   }
-  return redirectWithSession(dashboardHomeForRole(role));
+  return redirectWithSession(safeCallbackPath(nextPath, role, dashboardHomeForRole(role)));
 }

@@ -5,6 +5,7 @@
  */
 
 import { AppError } from '@/lib/errors';
+import { idsMatching, limitToIds } from '@/lib/row-ids';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryBuilder, QueryResult } from '@/lib/supabase/query';
 
@@ -194,18 +195,24 @@ async function scoped(db: DbClient, filters: Filters, tenantId: string | null): 
   if (UUID.test(filters.search)) {
     query = query.eq('id', filters.search);
   } else if (filters.search) {
-    const customers = records((await db.from('customers').select('id').or(`username.ilike."%${filters.search}%",first_name.ilike."%${filters.search}%"`).limit(30)) as QueryResult<unknown>);
-    const products = records((await db.from('products').select('id').or(`title.ilike."%${filters.search}%",sku.ilike."%${filters.search}%"`).limit(30)) as QueryResult<unknown>);
-    const ids = customers.map((row) => text(row.id)).filter(Boolean);
-    const productIds = products.map((row) => text(row.id)).filter(Boolean);
-    const parts = [`external_order_ref.ilike."%${filters.search}%"`];
-    if (ids.length > 0) {
-      parts.push(`customer_id.in.(${ids.join(',')})`);
+    const like = `%${filters.search}%`;
+    const byRef = records((await db.from('orders').select('id').ilike('external_order_ref', like).limit(200)) as QueryResult<unknown>);
+    const customerIds = await idsMatching(db, 'customers', ['username', 'first_name'], filters.search);
+    const productIds = await idsMatching(db, 'products', ['title', 'sku'], filters.search);
+    const orderIds = new Set(byRef.map((row) => text(row.id)).filter(Boolean));
+    if (customerIds.length > 0) {
+      for (const row of records((await db.from('orders').select('id').in('customer_id', customerIds).limit(200)) as QueryResult<unknown>)) {
+        const id = text(row.id);
+        if (id) orderIds.add(id);
+      }
     }
     if (productIds.length > 0) {
-      parts.push(`product_id.in.(${productIds.join(',')})`);
+      for (const row of records((await db.from('orders').select('id').in('product_id', productIds).limit(200)) as QueryResult<unknown>)) {
+        const id = text(row.id);
+        if (id) orderIds.add(id);
+      }
     }
-    query = query.or(parts.join(','));
+    query = limitToIds(query, [...orderIds]);
   }
   return { query };
 }
