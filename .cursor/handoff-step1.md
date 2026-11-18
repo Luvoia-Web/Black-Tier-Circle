@@ -44,7 +44,7 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 | 5 Stop hiding errors | DONE | 52834113548ba90137344a04896720510830b926 | Request id, owner details, load timeout, list helpers throw |
 | 6 Verification harness | DONE | 33bcca3cba3cc05b3b4ae41142aff540192da28d | Magic-link sign-in and screenshots. Nothing from the session is committed |
 | 7 Overview | DONE | 18e967fbb598f6b7e00515be4a94476570f1b1a7 | Live Overview. /today redirects there |
-| 8 Prove it | DONE | pending-hash | Harness passed every destination at 1440 and 390 |
+| 8 Prove it | DONE | bb0eccacc1a918755a01f1d88da6a605a59399fe | Harness passed every destination at 1440 and 390 |
 
 ## Libraries added
 
