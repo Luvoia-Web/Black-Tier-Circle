@@ -39,8 +39,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 | 0 Feature ledger | DONE | 33f08a311e208fd3c2c2f56dca0ebd234e900bec | `.cursor/feature-ledger.md` only |
 | 1 Tokens, fonts, glows, glass | DONE | d440ae3f1d0e33f9d55f94f4652f9fcf6a8c7197 | Stylesheet, Tailwind theme, auth-scoped legacy sheet |
 | 2 Shell | DONE | b9b49734595a6906df3018b924d5f0251d0eee8d | Floating sidebar, liquid pill, top bar, palette, nav counts |
-| 3 Remy | DONE | pending-hash | Launcher, panel, and /remy restored from fcc28f6^ and restyled |
-| 4 Component kit and charts | | | |
+| 3 Remy | DONE | 2d13084f8eb344e6c3346e014506f850d63cc0df | Launcher, panel, and /remy restored from fcc28f6^ and restyled |
+| 4 Component kit and charts | DONE | pending-hash | Glass cards, KPI count-up, charts, relative time |
 | 5 Stop hiding errors | | | |
 | 6 Verification harness | | | |
 | 7 Overview | | | |
@@ -48,7 +48,21 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 
 ## Libraries added
 
-None yet.
+Pinned, React 18 and Next 14.2.21. `@number-flow/react` was not added. Its current releases target React 19. KPI numbers count up with a small local animation instead.
+
+- `recharts@2.15.4` — stacked area, line, bar, donut, and sparkline.
+- `cmdk@1.0.4` — available for the command palette. The existing palette stayed, because it already searches and runs actions.
+- `vaul@0.9.9` — drawer primitive available to the shell drawer.
+- `@radix-ui/react-dropdown-menu@2.1.6`, `@radix-ui/react-dialog@1.1.6`, `@radix-ui/react-tabs@1.1.3`, `@radix-ui/react-tooltip@1.1.8`, `@radix-ui/react-switch@1.1.3` — accessible menus, dialogs, tabs, tooltips, and switches.
+- `playwright@1.49.1` — the signed-in harness. Dev dependency.
+
+## Phase 4 — component kit and charts
+
+Glass cards, rose primary buttons, KPI tiles with an icon chip and a count-up, delta pills, opaque tables, and relative time. Charts: stacked area, line, bar, donut, sparkline, radial ring, and stage bars, in rose, amber, sky, and mint.
+
+Checks for this phase were run with the later error-handling edits also in the tree, because they landed before the commit split. type-check, lint, test (336), and build all exited 0 on that tree. Next.js 14.2.21.
+
+Files: `components/platform/ui/button.tsx`, `card.tsx`, `charts.tsx`, `count-up.tsx`, `relative-time.tsx`, `index.ts`, `table.tsx`, `package.json`, `package-lock.json`, `.cursor/handoff-step1.md`.
 
 ## Phase 0 — feature ledger
 

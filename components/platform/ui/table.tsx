@@ -98,7 +98,7 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="relative max-w-full overflow-x-auto">
+    <div className="surface-table relative max-w-full overflow-x-auto rounded-lg">
       <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="sticky top-0 bg-plane">

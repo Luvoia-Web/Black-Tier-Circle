@@ -5,16 +5,24 @@
  */
 
 import type { ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { CountUp } from '@/components/platform/ui/count-up';
 
 type CardProps = {
   readonly title?: string;
+  readonly action?: ReactNode;
   readonly children: ReactNode;
 };
 
-export function Card({ title, children }: CardProps): JSX.Element {
+export function Card({ title, action, children }: CardProps): JSX.Element {
   return (
-    <section className="rounded-lg border border-stroke bg-raised p-4">
-      {title ? <h2 className="mb-2 text-sm text-ink">{title}</h2> : null}
+    <section className="glass-card rounded-lg p-4">
+      {title ? (
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm text-ink">{title}</h2>
+          {action}
+        </div>
+      ) : null}
       {children}
     </section>
   );
@@ -24,16 +32,51 @@ type StatProps = {
   readonly label: string;
   readonly value: string;
   readonly hint?: string;
+  readonly icon?: LucideIcon;
+  readonly tone?: 'rose' | 'amber' | 'sky' | 'mint';
+  readonly delta?: string;
+  readonly deltaTone?: 'up' | 'down' | 'flat';
 };
 
-export function StatTile({ label, value, hint }: StatProps): JSX.Element {
+const TONE: Record<NonNullable<StatProps['tone']>, string> = {
+  rose: 'bg-rose/15 text-rose',
+  amber: 'bg-amber/15 text-amber',
+  sky: 'bg-sky/15 text-sky',
+  mint: 'bg-mint/15 text-mint',
+};
+
+export function StatTile({ label, value, hint, icon: Icon, tone = 'rose', delta, deltaTone = 'flat' }: StatProps): JSX.Element {
+  const numeric = value.replace(/[^0-9.]/g, '');
+  const suffix = value.replace(/[0-9.,\s]/g, '').trim();
   return (
-    <div className="rounded-lg border border-stroke bg-raised px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.12em] text-ink-faint">{label}</p>
-      <p className="mt-1 text-right font-num text-xl text-ink">{value}</p>
-      {hint ? <p className="mt-1 text-xs text-ink-soft">{hint}</p> : null}
+    <div className="glass-card rounded-lg px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-ink-faint">{label}</p>
+        {Icon ? (
+          <span className={`grid h-8 w-8 place-items-center rounded-md ${TONE[tone]}`}>
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-display font-light tabular-nums text-ink">
+        {numeric.length > 0 && !value.includes('/') ? <CountUp value={Number(numeric)} digits={value.includes('.') ? 2 : 0} suffix={suffix ? ` ${suffix}` : ''} /> : value}
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        {delta ? <DeltaPill tone={deltaTone}>{delta}</DeltaPill> : null}
+        {hint ? <p className="text-xs text-ink-soft">{hint}</p> : null}
+      </div>
     </div>
   );
+}
+
+type DeltaProps = {
+  readonly tone?: 'up' | 'down' | 'flat';
+  readonly children: ReactNode;
+};
+
+export function DeltaPill({ tone = 'flat', children }: DeltaProps): JSX.Element {
+  const color = tone === 'up' ? 'bg-mint/15 text-mint' : tone === 'down' ? 'bg-danger/15 text-danger' : 'bg-white/5 text-ink-soft';
+  return <span className={`inline-flex items-center rounded-pill px-2 py-0.5 text-xs tabular-nums ${color}`}>{children}</span>;
 }
 
 type BadgeProps = {
