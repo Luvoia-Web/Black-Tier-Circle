@@ -10,9 +10,11 @@
  */
 
 import { asDbClient, requireRole, type AuthenticatedSession } from '@/lib/auth/session';
-import { AuthError } from '@/lib/errors';
+import { AppError, AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
-import { isGenericDeliveryResult, type OrderDetailPayload } from '@/lib/order-detail';
+import { formatUsdt } from '@/lib/money';
+import { isGenericDeliveryResult, type OrderDetailEvent, type OrderDetailPayload } from '@/lib/order-detail';
+import type { QueryResult } from '@/lib/supabase/query';
 import type { DbClient } from '@/lib/supabase/query';
 import { getCustomerById } from '@/modules/bots';
 import { getProduct } from '@/modules/catalog';
@@ -87,9 +89,10 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
   const attempt = fulfillment.fulfillmentAttempts[0] ?? null;
   const claim = payment.claim;
   const labels = await sourceAndChannel(db, order.tenantId, order.channel, product.supplierId);
+  const [events, replacementOpen] = await Promise.all([loadEvents(db, order.id, attempt?.error ?? null), openReplacement(db, order.id)]);
   return {
     order: { ...serializeOrder(order), channelLabel: labels.channelLabel },
-    product: { title: product.title, sku: product.sku, deliveryType: product.deliveryType, sourceLabel: labels.sourceLabel },
+    product: { title: product.title, sku: product.sku, supplierSku: product.supplierSku, deliveryType: product.deliveryType, sourceLabel: labels.sourceLabel },
     customer,
     paymentClaim: claim
       ? {
@@ -97,6 +100,7 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
           txHash: claim.txHash,
           submittedAt: claim.submittedAt.toISOString(),
           verifiedAt: claim.verifiedAt ? claim.verifiedAt.toISOString() : null,
+          rejectReason: claim.rejectReason,
         }
       : null,
     fulfillmentAttempt: attempt
@@ -105,9 +109,12 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
           status: attempt.status,
           artifactPath: attempt.artifactPath,
           completedAt: attempt.completedAt ? attempt.completedAt.toISOString() : null,
+          error: attempt.error,
         }
       : null,
     deliveredContent: resolveDeliveredContent(attempt?.artifactPath ?? null, fulfillment.deliveryAttempts),
+    events,
+    replacementOpen,
   };
 }
 
@@ -126,11 +133,14 @@ async function loadCustomer(
   }
   try {
     const customer = await getCustomerById(db, customerId);
+    const orders = (await db.from('orders').select('id', { count: 'exact', head: true }).eq('customer_id', customerId)) as QueryResult<unknown>;
     return {
       telegramUserId: customer.telegramUserId,
       telegramChatId: customer.telegramChatId,
       firstName: customer.firstName,
       username: customer.username,
+      orderCount: orders.count ?? 0,
+      balance: formatUsdt(customer.creditBalanceMinor),
     };
   } catch {
     // Customer rows can be deleted independently of orders; the drawer still renders.
@@ -176,6 +186,7 @@ function serializeOrder(order: Order): Omit<OrderDetailPayload['order'], 'channe
     paymentMethod: order.paymentMethod,
     externalOrderRef: order.externalOrderRef,
     idempotencyKey: order.idempotencyKey,
+    quantity: order.quantity,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
   };
@@ -187,6 +198,56 @@ function serializeOrder(order: Order): Omit<OrderDetailPayload['order'], 'channe
  * @param artifactPath - Stored file ref / supplier ref, if any
  * @param deliveryAttempts - Delivery attempts newest-first
  */
+async function loadEvents(db: DbClient, orderId: string, supplierReason: string | null): Promise<OrderDetailEvent[]> {
+  const result = (await db.from('order_events').select('track, to_status, note, created_at').eq('order_id', orderId).order('created_at', { ascending: true }).limit(12)) as QueryResult<unknown>;
+  if (result.error) {
+    throw new AppError('ORDER_DETAIL_FAILED', result.error.message, 500);
+  }
+  if (!Array.isArray(result.data)) return supplierReason ? [{ label: 'Supplier update', at: new Date().toISOString(), tone: 'fault' as const, note: supplierReason }] : [];
+  const events = result.data
+    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    .map((row) => {
+      const to = typeof row.to_status === 'string' ? row.to_status : '';
+      const track = typeof row.track === 'string' ? row.track : '';
+      const note = typeof row.note === 'string' ? row.note : null;
+      const at = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
+      const failed = to === 'failed' || to === 'unreachable' || to === 'expired';
+      const done = to === 'verified' || to === 'sent' || to === 'ready';
+      return {
+        label: eventLabel(track, to),
+        at,
+        tone: failed ? 'fault' as const : done ? 'ok' as const : 'neutral' as const,
+        note,
+      };
+    });
+  if (supplierReason && !events.some((event) => event.note === supplierReason)) {
+    const last = events.length > 0 ? events[events.length - 1] : undefined;
+    events.push({ label: 'Supplier rejected the order', at: last?.at ?? new Date().toISOString(), tone: 'fault', note: supplierReason });
+  }
+  return events;
+}
+
+function eventLabel(track: string, to: string): string {
+  if (track === 'payment' && to === 'verified') return 'Paid';
+  if (track === 'payment' && to === 'awaiting') return 'Awaiting payment';
+  if (track === 'fulfillment' && (to === 'supplier_pending' || to === 'processing')) return 'Sent to the supplier';
+  if (track === 'fulfillment' && to === 'failed') return 'Supplier rejected the order';
+  if (track === 'fulfillment' && to === 'ready') return 'Ready to deliver';
+  if (track === 'delivery' && to === 'sent') return 'Delivered';
+  if (to === 'not_ready' || to === 'queued') return 'Not delivered yet';
+  return `${track} ${to}`.trim();
+}
+
+async function openReplacement(db: DbClient, orderId: string): Promise<boolean> {
+  const result = (await db.from('replacement_requests').select('id').eq('order_id', orderId).in('status', ['pending', 'approved']).limit(1)) as QueryResult<unknown>;
+  if (result.error) {
+    const message = result.error.message.toLowerCase();
+    if (result.error.code === '42P01' || result.error.code === '42703' || message.includes('does not exist') || message.includes('schema cache')) return false;
+    throw new AppError('ORDER_DETAIL_FAILED', result.error.message, 500);
+  }
+  return Array.isArray(result.data) && result.data.length > 0;
+}
+
 function resolveDeliveredContent(
   artifactPath: string | null,
   deliveryAttempts: ReadonlyArray<{ readonly status: string; readonly result: string | null }>,

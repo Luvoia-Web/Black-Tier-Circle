@@ -9,6 +9,7 @@ import { AppError } from '@/lib/errors';
 import { consumeRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { retryDelivery } from '@/modules/fulfillment';
+import { claimTransition } from '@/modules/orders/state-machine';
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
   if (result.error) throw new AppError('READ_FAILED', result.error.message, 500);
@@ -107,4 +108,92 @@ export async function decideReplacement(db: DbClient, input: { readonly id: stri
   }
   await retryDelivery(db, text(row.order_id));
   await db.from('replacement_requests').update({ status: 'replaced', resolved_at: new Date().toISOString() }).eq('id', input.id);
+}
+
+/**
+ * Owner-only replacement of a delivered order.
+ * One open request per order. The owner is the audit actor.
+ * retryDelivery is the existing delivery path. A sent order moves to
+ * retry_pending first, which is the only legal way back into that path.
+ */
+export async function ownerReplace(
+  db: DbClient,
+  input: { readonly orderId: string; readonly actorId: string; readonly reason?: string },
+  retry: (database: DbClient, orderId: string) => Promise<void> = retryDelivery,
+): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration' }> {
+  const order = (await db.from('orders').select('id, customer_id, tenant_id, delivery_status').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
+  const row = order.data && typeof order.data === 'object' ? (order.data as Record<string, unknown>) : null;
+  if (order.error || !row) {
+    throw new ValidationError('REPLACEMENT_NOT_OPEN', 'That order was not found.');
+  }
+  if (text(row.delivery_status) !== 'sent') {
+    throw new ValidationError('REPLACEMENT_NOT_DELIVERED', 'Replace is available after the order is delivered.');
+  }
+  const customerId = text(row.customer_id);
+  if (!customerId) {
+    throw new ValidationError('REPLACEMENT_NOT_OPEN', 'This order has no buyer.');
+  }
+  const open = (await db.from('replacement_requests').select('id').eq('order_id', input.orderId).in('status', ['pending', 'approved']).limit(1)) as QueryResult<unknown>;
+  if (missing(open.error)) {
+    throw new ValidationError('REPLACEMENT_NEEDS_MIGRATION', 'Replacements need migration 0032.');
+  }
+  if (open.error) {
+    throw new ValidationError('REPLACEMENT_FAILED', open.error.message);
+  }
+  if (Array.isArray(open.data) && open.data.length > 0) {
+    throw new ValidationError('REPLACEMENT_OPEN', 'This order already has an open replacement.');
+  }
+  const reason = (input.reason ?? 'Owner replacement').replace(/\s+/g, ' ').trim().slice(0, 1000) || 'Owner replacement';
+  const inserted = (await db.from('replacement_requests').insert({
+    order_id: input.orderId,
+    customer_id: customerId,
+    tenant_id: text(row.tenant_id) || null,
+    reason,
+    status: 'approved',
+    owner_note: `actor:${input.actorId}`.slice(0, 500),
+  }).select('id').maybeSingle()) as QueryResult<unknown>;
+  if (inserted.error?.code === '23505') {
+    throw new ValidationError('REPLACEMENT_OPEN', 'This order already has an open replacement.');
+  }
+  if (missing(inserted.error)) {
+    throw new ValidationError('REPLACEMENT_NEEDS_MIGRATION', 'Replacements need migration 0032.');
+  }
+  const id = inserted.data && typeof inserted.data === 'object' ? text((inserted.data as Record<string, unknown>).id) : '';
+  if (inserted.error || !id) {
+    throw new ValidationError('REPLACEMENT_FAILED', 'The replacement could not be saved.');
+  }
+  try {
+    const moved = await claimTransition(db, input.orderId, 'delivery', 'sent', 'retry_pending', {
+      actorId: input.actorId,
+      trigger: 'manual',
+      note: 'Owner replacement',
+    });
+    if (!moved) {
+      throw new ValidationError('REPLACEMENT_FAILED', 'The order changed before the replacement could start.');
+    }
+    await retry(db, input.orderId);
+  } catch (error: unknown) {
+    await db.from('replacement_requests').update({ status: 'rejected', owner_note: 'Replacement did not finish', resolved_at: new Date().toISOString() }).eq('id', id);
+    throw error;
+  }
+  await db.from('replacement_requests').update({ status: 'replaced', resolved_at: new Date().toISOString() }).eq('id', id);
+  await db.from('audit_log').insert({
+    actor_id: input.actorId,
+    action: 'order_replaced',
+    target_type: 'order',
+    target_id: input.orderId,
+    reason,
+  });
+  const thread = (await db.from('support_threads').select('id').eq('customer_id', customerId).eq('status', 'open').order('last_message_at', { ascending: false }).limit(1)) as QueryResult<unknown>;
+  if (missing(thread.error)) return { support: 'needs-migration' };
+  const threadRow = Array.isArray(thread.data) ? thread.data[0] : null;
+  const threadId = threadRow && typeof threadRow === 'object' ? text((threadRow as Record<string, unknown>).id) : '';
+  if (!threadId) return { support: 'none' };
+  const posted = (await db.from('support_messages').insert({
+    thread_id: threadId,
+    sender: 'owner',
+    body: `Replacement started for order ${input.orderId.slice(0, 8)}. ${reason}`.slice(0, 2000),
+  }).select('id').maybeSingle()) as QueryResult<unknown>;
+  if (missing(posted.error)) return { support: 'needs-migration' };
+  return { support: 'posted' };
 }

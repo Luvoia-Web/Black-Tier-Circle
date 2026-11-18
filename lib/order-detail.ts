@@ -27,6 +27,7 @@ export type OrderDetailOrder = {
   readonly paymentMethod: PaymentMethod | null;
   readonly externalOrderRef: string | null;
   readonly idempotencyKey: string;
+  readonly quantity: number;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly channelLabel: string;
@@ -35,6 +36,7 @@ export type OrderDetailOrder = {
 export type OrderDetailProduct = {
   readonly title: string;
   readonly sku: string;
+  readonly supplierSku: string | null;
   readonly deliveryType: DeliveryType;
   readonly sourceLabel: string;
 };
@@ -44,6 +46,8 @@ export type OrderDetailCustomer = {
   readonly telegramChatId: string;
   readonly firstName: string | null;
   readonly username: string | null;
+  readonly orderCount: number;
+  readonly balance: string;
 };
 
 export type OrderDetailPaymentClaim = {
@@ -51,6 +55,14 @@ export type OrderDetailPaymentClaim = {
   readonly txHash: string | null;
   readonly submittedAt: string;
   readonly verifiedAt: string | null;
+  readonly rejectReason: string | null;
+};
+
+export type OrderDetailEvent = {
+  readonly label: string;
+  readonly at: string;
+  readonly tone: 'ok' | 'fault' | 'neutral';
+  readonly note: string | null;
 };
 
 export type OrderDetailFulfillmentAttempt = {
@@ -58,6 +70,7 @@ export type OrderDetailFulfillmentAttempt = {
   readonly status: string;
   readonly artifactPath: string | null;
   readonly completedAt: string | null;
+  readonly error: string | null;
 };
 
 export type OrderDetailPayload = {
@@ -67,6 +80,8 @@ export type OrderDetailPayload = {
   readonly paymentClaim: OrderDetailPaymentClaim | null;
   readonly fulfillmentAttempt: OrderDetailFulfillmentAttempt | null;
   readonly deliveredContent: string | null;
+  readonly events: readonly OrderDetailEvent[];
+  readonly replacementOpen: boolean;
 };
 
 export type OrderHeaderBadge = 'paid' | 'pending' | 'failed' | 'verified';

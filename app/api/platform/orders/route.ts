@@ -32,7 +32,8 @@ export async function GET(request: Request): Promise<Response> {
         },
       });
     }
-    return jsonSuccess(await readOrders(db, tenant?.id ?? null, filters));
+    const page = await readOrders(db, tenant?.id ?? null, filters);
+    return jsonSuccess({ ...page, viewer: role });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

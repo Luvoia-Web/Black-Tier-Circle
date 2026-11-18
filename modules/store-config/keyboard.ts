@@ -30,6 +30,7 @@ export function layoutHomeButtons(
 ): HomeButton[][] {
   const ordered = (Object.keys(config.buttons) as ButtonKey[])
     .filter((key) => !COMING_SOON_BUTTONS.has(key))
+    .filter((key) => key !== 'replace')
     .filter((key) => key !== 'referrals' || config.referrals.enabled)
     .filter((key) => key !== 'freebies' || config.referrals.freebiesEnabled)
     .filter((key) => config.buttons[key].enabled)

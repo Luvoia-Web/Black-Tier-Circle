@@ -7,7 +7,7 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
-import { decideReplacement, listReplacements } from '@/modules/platform/replacements';
+import { decideReplacement, listReplacements, ownerReplace } from '@/modules/platform/replacements';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ async function scope() {
   }
   const db = asDbClient(session.admin);
   const tenant = role === 'reseller' ? await getTenantByUserId(db, session.user.id) : null;
-  return { db, owner: role === 'owner', tenantId: tenant?.id ?? null };
+  return { db, owner: role === 'owner', tenantId: tenant?.id ?? null, actorId: session.user.id };
 }
 
 export async function GET(): Promise<Response> {
@@ -35,7 +35,18 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    const body = (await readJsonBody(request)) as { id?: unknown; decision?: unknown; note?: unknown };
+    const body = (await readJsonBody(request)) as { id?: unknown; decision?: unknown; note?: unknown; orderId?: unknown };
+    if (body.decision === 'replace') {
+      if (!current.owner || typeof body.orderId !== 'string') {
+        throw new AuthError('FORBIDDEN', 'Only the owner can replace a delivered order', 403);
+      }
+      const replaced = await ownerReplace(current.db, {
+        orderId: body.orderId,
+        actorId: current.actorId,
+        ...(typeof body.note === 'string' ? { reason: body.note } : {}),
+      });
+      return jsonSuccess({ orderId: body.orderId, decision: 'replace', support: replaced.support });
+    }
     const decision = body.decision === 'approved' || body.decision === 'rejected' ? body.decision : null;
     if (typeof body.id !== 'string' || !decision) {
       throw new ValidationError('REPLACEMENT_INVALID', 'Choose a request and approve or reject it.');

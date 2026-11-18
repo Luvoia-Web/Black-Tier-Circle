@@ -25,8 +25,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | 0 Evidence | DONE | cab55633a3c5834349f68d983dbae65ce7557865 | Handoff only. Checklist and security findings below. |
-| 1 Migration 0033 | DONE | filled after this commit | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
-| 2 Orders | pending | | |
+| 1 Migration 0033 | DONE | de4f4b4ecf6d92b5922a8446c05414cc66c7c543 | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
+| 2 Orders | DONE | filled after this commit | Orders screen, drawer, owner replace, buyer Replace removed. |
 | 3 Products · Catalogue | pending | | |
 | 4 Inventory and Pricing rules | pending | | |
 | 5 Suppliers | pending | | |
@@ -277,5 +277,24 @@ Checks:
 - build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. The build lint printed the same existing image warning. New route: `/api/platform/goal`.
 
 0033 was not applied. Nothing was pushed.
+
+## Phase 2 — Orders
+
+`/orders` now matches the Orders reference: four tiles (orders today, revenue today, needs attention, median delivery), chips with counts, a date range, an owner store filter (owner store, each reseller, API), and search by order id, buyer, or product. The table is the opaque table surface: mono id with relative time, product tile, buyer and store, the paid / supplier / delivered dots with a status pill, and the total. `?order=` opens the shell drawer. `attention=fulfillment` is the failed and stuck queue. `attention=delivery` is the manual delivery queue, and a reseller marks it delivered through the existing reseller delivery route.
+
+The drawer shows status pills, product and supplier SKU, the timeline (including the supplier error when one exists), the buyer card, payment claim evidence, and the owner override (verify or fail, reason of at least 10 characters) through `adminPaymentOverride`. Owner actions reuse retry, refund, cancel, manual complete, and note. Replace is owner-only, on a delivered order. It writes `replacement_requests` as approved, moves delivery from `sent` to `retry_pending` (that transition was added so the existing `retryDelivery` can run; `sent` previously had no way back), calls `retryDelivery`, marks the row replaced, writes `audit_log` with the owner as `actor_id`, and posts into the buyer’s open support thread when one exists. `replacement_requests` has no actor column; the owner id is the audit actor and is also stored in `owner_note`. One open request per order. A failed retry rejects the row so another attempt is possible. The buyer bot no longer renders Replace, and the old `replace:` screen tells the buyer to use Support.
+
+Bulk select retries failed rows (capped at 25, one result per row), cancels, and exports the filtered CSV.
+
+New user text in an `.or()` string, for Phase 6: `modules/platform/orders.ts` product search, `title.ilike` and `sku.ilike` joined into the same `.or()` as the buyer search. The term still goes through `safe()`.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 348 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `app/(platform)/orders/view.tsx`, `app/api/platform/orders/route.ts`, `app/api/orders/[orderId]/detail/route.ts`, `app/api/platform/replacements/route.ts`, `modules/platform/orders.ts`, `modules/platform/replacements.ts`, `modules/orders/state-machine.ts`, `lib/order-detail.ts`, `modules/store-config/keyboard.ts`, `integrations/telegram/client.ts`, `tests/unit/order-board.test.ts`, `.cursor/handoff-step2.md`.
 
 Files: `supabase/migrations/0033_commerce.sql`, `modules/platform/goal.ts`, `app/api/platform/goal/route.ts`, `components/platform/sidebar.tsx`, `tests/unit/revenue-goal.test.ts`, `.cursor/handoff-step2.md`.

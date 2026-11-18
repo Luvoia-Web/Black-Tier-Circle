@@ -36,7 +36,6 @@ import { BINANCE_NUMERIC_ORDER_ID_REGEX, TX_HASH_REGEX } from '@/lib/validations
 import { getCustomerById, openCustomer, updateBotHealth } from '@/modules/bots';
 import { ensureSupportThread, recordCustomerSupport } from '@/modules/platform/support';
 import { redeemOpenCheckout } from '@/modules/pricing/discount';
-import { requestReplacement } from '@/modules/platform/replacements';
 import { isGenericDeliveryResult } from '@/lib/order-detail';
 import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import type { CustomerRecord } from '@/modules/bots/types';
@@ -2060,24 +2059,6 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     await show(bot, screen, `${sanitizeBotHtml(events.title)}\n\n${sanitizeBotHtml(events.body)}${link}`, homeKeyboard(current), 'HTML');
   }
 
-  async function showReplaceList(screen: Screen): Promise<void> {
-    if (customer === null) {
-      throw new Error('missing customer');
-    }
-    const orders = await listOrders(context.supabase, { customerId: customer.id, limit: 20 });
-    const delivered = orders.filter((order) => order.deliveryStatus === 'sent').slice(0, 5);
-    if (delivered.length === 0) {
-      await show(bot, screen, 'You have no delivered orders to replace.', homeKeyboard(await storeContext()), 'HTML');
-      return;
-    }
-    const keyboard = new InlineKeyboard();
-    for (const order of delivered) {
-      keyboard.text(orderRef(order.id), `repl:${order.id}`).row();
-    }
-    keyboard.text('🏠 Home', 'home:');
-    await show(bot, screen, 'Pick the delivered order. Then send the reason.', keyboard, 'HTML');
-  }
-
   async function showOrders(screen: Screen): Promise<void> {
     if (customer === null) {
       throw new Error('missing customer');
@@ -2531,13 +2512,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, 'Send the discount code for the order you are paying.', new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
       return;
     }
-    if (data === 'replace:') {
-      await showReplaceList(screen);
-      return;
-    }
-    if (data.startsWith('repl:')) {
-      awaitingReplace.set(emailKey(context.botConnection.id, screen.chatId), data.slice('repl:'.length));
-      await show(bot, screen, 'Send the reason for this replacement.', new InlineKeyboard().text('🏠 Home', 'home:'), 'HTML');
+    if (data === 'replace:' || data.startsWith('repl:')) {
+      awaitingReplace.delete(emailKey(context.botConnection.id, screen.chatId));
+      await show(bot, screen, 'Replacements are handled by the store. Use Support if an order needs a look.', homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     if (data === 'terms:') {
@@ -2732,15 +2709,9 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     }
     const chatKey = emailKey(context.botConnection.id, screen.chatId);
     const replaceOrderId = awaitingReplace.get(chatKey);
-    if (replaceOrderId && customer) {
+    if (replaceOrderId) {
       awaitingReplace.delete(chatKey);
-      const requested = await requestReplacement(context.supabase, {
-        orderId: replaceOrderId,
-        customerId: customer.id,
-        tenantId: context.tenantId,
-        reason: trimmed,
-      });
-      await show(bot, screen, escHtml(requested.ok ? 'Request sent. The store will review it.' : requested.message), homeKeyboard(await storeContext()), 'HTML');
+      await show(bot, screen, 'Replacements are handled by the store. Use Support if an order needs a look.', homeKeyboard(await storeContext()), 'HTML');
       return;
     }
     if (awaitingDiscount.has(chatKey) && customer) {
