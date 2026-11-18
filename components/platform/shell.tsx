@@ -5,6 +5,7 @@
  */
 
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { AssistantWidget } from '@/components/assistant/assistant-widget';
 import { CommandPalette } from '@/components/platform/command-palette';
 import { DrawerBodyContext } from '@/components/platform/drawer-body';
 import { PlatformDrawer } from '@/components/platform/drawer';
@@ -72,6 +73,7 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
           <PlatformDrawer>{drawerBody}</PlatformDrawer>
         </Suspense>
         <CommandPalette role={role} open={palette} onClose={() => setPalette(false)} />
+        <AssistantWidget role={role} displayName={displayName} />
       </div>
     </DrawerBodyContext.Provider>
   );

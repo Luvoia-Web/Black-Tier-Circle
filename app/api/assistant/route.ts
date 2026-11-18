@@ -105,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
     const prelude = `data: ${JSON.stringify({
       type: 'memory_context',
       memoryPowered,
+      notice: memory.notice,
       memories: memory.memories.slice(0, 5).map((item) => ({ text: item.text })),
     })}\n\n`;
     const encoder = new TextEncoder();
@@ -184,7 +185,8 @@ export async function POST(request: Request): Promise<Response> {
 async function loadCustomerMemory(
   session: Awaited<ReturnType<typeof requireRole>>,
   userMessage: string,
-): Promise<{ bankId: string | null; memories: MemoryEvidence[] }> {
+): Promise<{ bankId: string | null; memories: MemoryEvidence[]; notice: string | null }> {
+  const missing = memoryConfigNotice();
   let tenantId: string | null = null;
   const customerId = session.user.id;
   try {
@@ -204,24 +206,38 @@ async function loadCustomerMemory(
     try {
       const memories = await recallCustomerExperience(bankId, userMessage);
       if (memories.length > 0) {
-        return { bankId, memories };
+        return { bankId, memories, notice: null };
       }
     } catch {
-      // Memory lookup must not block the assistant.
+      return { bankId, memories: [], notice: 'The memory service did not respond. Remy will answer without recalled memory.' };
     }
   }
 
-  if (process.env.NODE_ENV !== 'production' && userMessage.trim().length > 0) {
+  if (process.env.NODE_ENV !== 'production' && userMessage.trim().length > 0 && !missing) {
     const bankId = resolveCustomerMemoryBank(DEMO_TENANT_ID, DEMO_CUSTOMER_ID);
     try {
       const memories = await recallCustomerExperience(bankId, userMessage);
       if (memories.length > 0) {
-        return { bankId, memories };
+        return { bankId, memories, notice: null };
       }
     } catch {
-      return { bankId: null, memories: [] };
+      return { bankId: null, memories: [], notice: 'The memory service did not respond. Remy will answer without recalled memory.' };
     }
   }
 
-  return { bankId: tenantId ? resolveCustomerMemoryBank(tenantId, customerId) : null, memories: [] };
+  return {
+    bankId: tenantId ? resolveCustomerMemoryBank(tenantId, customerId) : null,
+    memories: [],
+    notice: missing,
+  };
+}
+
+function memoryConfigNotice(): string | null {
+  if (process.env.HINDSIGHT_ENABLED !== 'true') {
+    return 'The memory service is turned off. Remy will answer without recalling past buyers.';
+  }
+  if (!process.env.HINDSIGHT_API_KEY || !process.env.HINDSIGHT_API_URL) {
+    return 'The memory service is missing its key or URL. Remy will answer without recalled memory.';
+  }
+  return null;
 }

@@ -38,8 +38,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 | --- | --- | --- | --- |
 | 0 Feature ledger | DONE | 33f08a311e208fd3c2c2f56dca0ebd234e900bec | `.cursor/feature-ledger.md` only |
 | 1 Tokens, fonts, glows, glass | DONE | d440ae3f1d0e33f9d55f94f4652f9fcf6a8c7197 | Stylesheet, Tailwind theme, auth-scoped legacy sheet |
-| 2 Shell | DONE | pending-hash | Floating sidebar, liquid pill, top bar, palette, nav counts |
-| 3 Remy | | | |
+| 2 Shell | DONE | b9b49734595a6906df3018b924d5f0251d0eee8d | Floating sidebar, liquid pill, top bar, palette, nav counts |
+| 3 Remy | DONE | pending-hash | Launcher, panel, and /remy restored from fcc28f6^ and restyled |
 | 4 Component kit and charts | | | |
 | 5 Stop hiding errors | | | |
 | 6 Verification harness | | | |
@@ -101,3 +101,18 @@ Checks:
 - build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. New routes include `/overview`, `/analytics`, `/intelligence`, `/remy`, `/health`, `/suppliers/health`, and `/api/platform/nav`.
 
 Files: `components/platform/nav.ts`, `components/platform/sidebar.tsx`, `components/platform/top-bar.tsx`, `components/platform/shell.tsx`, `components/platform/command-palette.tsx`, `components/platform/connected-page.tsx`, `components/platform/rail.tsx`, `app/api/platform/nav/route.ts`, `app/api/platform/search/route.ts`, `lib/navigation.ts`, `app/(platform)/overview/page.tsx`, `app/(platform)/analytics/page.tsx`, `app/(platform)/intelligence/page.tsx`, `app/(platform)/remy/page.tsx`, `app/(platform)/health/page.tsx`, `app/(platform)/suppliers/health/page.tsx`, `.cursor/handoff-step1.md`.
+
+## Phase 3 — Remy
+
+Restored `components/assistant` and `components/ai` from `fcc28f6^`. The launcher sits on every dashboard page. Expand opens `/remy`. The chat still posts to `/api/assistant`. If `GROQ_API_KEY` is missing the panel shows "Add GROQ_API_KEY to enable the assistant". If Hindsight is off or its key or URL is missing, the panel says the memory service is not available and Remy still answers. A failed memory call says the service did not respond.
+
+The old assistant classes are in `globals.css` with rose instead of purple, because the legacy sheet is scoped to auth and would have left Remy unstyled.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 43 files, 336 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21.
+
+Files: `components/assistant/**`, `components/ai/**`, `components/platform/shell.tsx`, `app/(platform)/remy/page.tsx`, `app/api/assistant/route.ts`, `app/globals.css`, `.cursor/handoff-step1.md`.

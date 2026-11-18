@@ -33,7 +33,7 @@ type AssistantChatProps = {
 async function readAssistantStream(
   response: Response,
   onDelta: (text: string) => void,
-  onMemory?: (hint: { memoryPowered: boolean; memories: ReadonlyArray<{ text: string }> }) => void,
+  onMemory?: (hint: { memoryPowered: boolean; memories: ReadonlyArray<{ text: string }>; notice: string | null }) => void,
 ): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -63,10 +63,12 @@ async function readAssistantStream(
           type?: string;
           memoryPowered?: boolean;
           memories?: Array<{ text?: string }>;
+          notice?: string;
           delta?: { type?: string; text?: string };
         };
         if (event.type === 'memory_context') {
           onMemory?.({
+            notice: typeof event.notice === 'string' ? event.notice : null,
             memoryPowered: event.memoryPowered === true,
             memories: (event.memories ?? []).flatMap((item) =>
               typeof item.text === 'string' ? [{ text: item.text }] : [],
@@ -99,6 +101,7 @@ export function AssistantChat({
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -136,6 +139,7 @@ export function AssistantChat({
       let assembled = '';
       let memoryPowered = false;
       let memories: ReadonlyArray<{ text: string }> = [];
+      setNotice(null);
       const publish = (): void => {
         onMessages([
           ...next,
@@ -159,6 +163,7 @@ export function AssistantChat({
         (hint) => {
           memoryPowered = hint.memoryPowered;
           memories = hint.memories;
+          setNotice(hint.notice);
           publish();
         },
       );
@@ -200,6 +205,7 @@ export function AssistantChat({
           return <AIChatMessage key={message.id} message={message} showTime={edge} showOrb={!compact && message.role === 'assistant' && previous?.role !== 'assistant'} />;
         })}
         {loading && messages[messages.length - 1]?.role === 'user' ? <AITypingIndicator /> : null}
+        {notice ? <p className="ai-error" role="status">{notice}</p> : null}
         {error ? (
           <p className="ai-error" role="alert">
             {error}
