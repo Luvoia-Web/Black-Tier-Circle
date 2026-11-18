@@ -2,7 +2,7 @@
  * @file components/ui/ThemeToggle.tsx
  *
  * Dark/light mode toggle. Persists to localStorage as `btc-theme`.
- * Default theme is light.
+ * Default theme is dark. A stored value from before theme version 2 is ignored.
  *
  * @module Components
  */
@@ -16,16 +16,16 @@ const STORAGE_KEY = 'btc-theme';
 
 function readTheme(): 'dark' | 'light' {
   if (typeof document === 'undefined') {
-    return 'light';
+    return 'dark';
   }
-  const current = document.documentElement.getAttribute('data-theme');
-  return current === 'dark' ? 'dark' : 'light';
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 }
 
 function applyTheme(next: 'dark' | 'light'): void {
   document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem(STORAGE_KEY, next);
+    localStorage.setItem('btc-theme-v', '2');
   } catch {
     // Theme still applies for this session if storage is unavailable.
   }
@@ -35,13 +35,10 @@ function applyTheme(next: 'dark' | 'light'): void {
  * Circular sun/moon button that toggles `data-theme` on `<html>`.
  */
 export function ThemeToggle(): JSX.Element {
-  const [theme, setTheme] = useState<'dark' | 'light'>('light');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   useEffect(() => {
-    const stored = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch { return null; } })();
-    const initial: 'dark' | 'light' = stored === 'dark' ? 'dark' : 'light';
-    applyTheme(initial);
-    setTheme(initial);
+    setTheme(readTheme());
   }, []);
 
   function handleToggle(): void {

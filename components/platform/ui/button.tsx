@@ -17,7 +17,7 @@ const VARIANTS: Record<NonNullable<ButtonProps['variant']>, string> = {
   primary: 'bg-ice text-[var(--base)] hover:opacity-90 active:opacity-80',
   secondary: 'border border-stroke bg-transparent text-ink hover:bg-raised active:bg-plane',
   ghost: 'bg-transparent text-ink-soft hover:bg-raised hover:text-ink active:bg-plane',
-  destructive: 'bg-crimson text-[var(--on-crimson)] hover:opacity-90 active:opacity-80',
+  destructive: 'bg-danger text-white hover:opacity-90 active:opacity-80',
 };
 
 export function Button({

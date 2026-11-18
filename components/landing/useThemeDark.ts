@@ -32,6 +32,7 @@ export function toggleTheme(origin?: ThemeOrigin): void {
     root.setAttribute('data-theme', next);
     try {
       localStorage.setItem('btc-theme', next);
+      localStorage.setItem('btc-theme-v', '2');
     } catch {
       /* private mode */
     }

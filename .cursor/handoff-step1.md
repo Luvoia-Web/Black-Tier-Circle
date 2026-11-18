@@ -36,8 +36,8 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
-| 0 Feature ledger | DONE | pending-hash | `.cursor/feature-ledger.md` only |
-| 1 Tokens, fonts, glows, glass | | | |
+| 0 Feature ledger | DONE | 33f08a311e208fd3c2c2f56dca0ebd234e900bec | `.cursor/feature-ledger.md` only |
+| 1 Tokens, fonts, glows, glass | DONE | pending-hash | Stylesheet, Tailwind theme, auth-scoped legacy sheet |
 | 2 Shell | | | |
 | 3 Remy | | | |
 | 4 Component kit and charts | | | |
@@ -65,3 +65,22 @@ Checks, working tree, unrelated dirty files left out of the commit (`components/
 - lint: `./node_modules/.bin/next lint` exit 0. One existing warning, `@next/next/no-img-element` in `components/landing/MemoryNav.tsx:43`. That file is not in this commit.
 - test: `./node_modules/.bin/vitest run` exit 0. 43 files, 336 tests passed.
 - build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21.
+
+## Phase 1 — tokens, fonts, glows, glass
+
+`app/globals.css` is the dashboard system. Near-black `#0C070E`, rose `#FF4D8D`, amber, sky, mint, and a separate danger red. Three mesh glows: rose upper left, blue upper right, amber lower right. Glass recipes are `.glass-chrome`, `.glass-sidebar`, and `.glass-card`. Tables use `.surface-table`. Outfit and JetBrains Mono come from `next/font`. Dark is `:root`. Light is `[data-theme="light"]` with the same names on a warm paper ground.
+
+Tailwind theme keys (`bg-rose`, `text-ink-soft`, `rounded-lg`, `shadow-glass`, `w-sidebar`) read those channels. Dashboard pages no longer need `bg-[var(--x)]` for the core palette.
+
+`app/legacy-dashboard.css` is not imported. Auth routes import `app/(auth)/auth-legacy.css`, whose selectors sit under `.auth-legacy`, and `app/(auth)/layout.tsx` wraps those screens. A stored `btc-theme` from before version `2` is rewritten to dark on first load. Choosing light after that sticks. `ThemeToggle` no longer defaults to light.
+
+Stray `.btc-btn-*` classes inside the dashboard render in rose and glass, not purple. Destructive buttons use `bg-danger`.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `no-img-element` warning in `MemoryNav.tsx`, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 43 files, 336 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21.
+
+Files: `app/globals.css`, `app/layout.tsx`, `app/(auth)/layout.tsx`, `app/(auth)/auth-legacy.css`, `tailwind.config.ts`, `components/ui/ThemeToggle.tsx`, `components/landing/useThemeDark.ts`, `components/platform/ui/button.tsx`, `.cursor/handoff-step1.md`.

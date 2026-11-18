@@ -1,9 +1,8 @@
 /**
  * @file app/layout.tsx
  *
- * Root App Router layout for Black Tier Circle.
- *
- * Wraps every route with Inter, theme bootstrap, and design-token styles.
+ * Root layout. Outfit for the interface, JetBrains Mono for ids.
+ * Dark is the default. A stored theme from before this system is migrated to dark once.
  *
  * @module App
  */
@@ -11,13 +10,20 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { Toaster } from 'sonner';
-import { Instrument_Sans, Inter, JetBrains_Mono } from 'next/font/google';
-import './legacy-dashboard.css';
+import { JetBrains_Mono, Outfit } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const instrument = Instrument_Sans({ subsets: ['latin'], variable: '--font-instrument' });
-const jetbrains = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains' });
+const outfit = Outfit({
+  subsets: ['latin'],
+  variable: '--font-outfit',
+  weight: ['300', '400', '500', '600', '700'],
+});
+
+const jetbrains = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains',
+  weight: ['400', '500'],
+});
 
 export const metadata: Metadata = {
   title: {
@@ -38,14 +44,19 @@ type RootLayoutProps = {
 
 const THEME_BOOTSTRAP = `
   try {
-    const t = localStorage.getItem('btc-theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', t);
-  } catch(e) {}
+    var version = localStorage.getItem('btc-theme-v');
+    if (version !== '2') {
+      localStorage.setItem('btc-theme', 'dark');
+      localStorage.setItem('btc-theme-v', '2');
+    }
+    var stored = localStorage.getItem('btc-theme');
+    document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
+  } catch (e) {}
 `;
 
 export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} ${instrument.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${outfit.variable} ${jetbrains.variable} ${outfit.className}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
@@ -58,7 +69,7 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
             style: {
               background: 'var(--raised)',
               border: '1px solid var(--stroke)',
-              borderLeft: '3px solid var(--crimson)',
+              borderLeft: '3px solid var(--rose)',
               color: 'var(--ink)',
             },
           }}
