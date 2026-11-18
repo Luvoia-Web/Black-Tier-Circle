@@ -195,7 +195,7 @@ async function commerceFlows(browser, storage, label, owner) {
   const orderId = orderUrl.searchParams.get('order');
 
   await page.evaluate(() => localStorage.setItem('btc-catalog-layout', 'grid'));
-  await page.goto(`${base}/catalog`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(`${base}/catalog?stage=not_imported`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(1000);
   const boxes = page.locator('article input[type="checkbox"]');
   const boxCount = await boxes.count();

@@ -6,7 +6,7 @@
  */
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Menu, Moon, Plus, Search, Sun, UserRound } from 'lucide-react';
 import { NotificationBell } from '@/components/notifications/notification-bell';
@@ -32,16 +32,23 @@ const NEW_LINKS = [
 
 export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPalette }: TopBarProps): JSX.Element {
   const pathname = usePathname();
+  const params = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [mac, setMac] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
   const createRef = useRef<HTMLDivElement>(null);
   const links = flatNav(role);
-  const current = [...links].reverse().find((item) => {
-    const path = item.href.split('?')[0] ?? item.href;
-    return pathname === path || (path !== '/' && pathname.startsWith(`${path}/`));
-  });
+  const current = links
+    .filter((item) => {
+      const url = new URL(item.href, 'http://local');
+      if (url.pathname !== pathname && !(url.pathname !== '/' && pathname.startsWith(`${url.pathname}/`))) return false;
+      for (const [key, value] of url.searchParams) {
+        if (params.get(key) !== value) return false;
+      }
+      return true;
+    })
+    .sort((left, right) => right.href.length - left.href.length)[0];
 
   useEffect(() => {
     setMac(/Mac|iPhone|iPad/.test(navigator.platform));

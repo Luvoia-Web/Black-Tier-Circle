@@ -33,7 +33,7 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 6 Security | DONE | 811a2136e722def5572f57e375b76c337ea7b2c2 | Search filters, pinned supplier fetch, safe next. |
 | 6B Review fixes | DONE | 802da76ff42fdfeb6dc1abc6e40aa060ad20ebd0 | New replacement item, no sent retry, separate bulk prices, per-supplier health, apply default pricing. |
 | 7 Match the mockups | DONE | 8a919125a2929d418a4931e91bec429bcc4f05c3 | Orders and Products aligned to the mockup source. Remaining differences are data, or the shared drawer. |
-| 8 Prove it | DONE | pending-hash | Harness: 90 checks, 0 failed. Owner and reseller, 1440 and 390. |
+| 8 Prove it | DONE | 158fe31e8410dd7b143d6167bbca93b5dbbca755 | Harness: 90 checks, 0 failed. Owner and reseller, 1440 and 390. |
 
 ## Design reference
 
@@ -484,7 +484,9 @@ Owner, both widths: every order chip, `attention=fulfillment`, `attention=delive
 
 Reseller, both widths: the order chips, the delivery queue, the drawers, catalogue grid and list, inventory, and pricing rules, plus the reseller legacy redirects. Supplier screens stay owner-only.
 
-The first run returned 500 from `/api/platform/orders` and the owner catalogue. The live client can filter only after `select()`. Those queries filtered first. `asDbClient` now applies the filters when `select()` runs. The in-memory test client is unchanged. The rerun passed.
+The first run returned 500 from `/api/platform/orders` and the owner catalogue. The live client can filter only after `select()`. Those queries filtered first. `asDbClient` now applies the filters when `select()` runs. The in-memory test client is unchanged. The rerun passed: 90 checks, 0 failed.
+
+The catalogue breadcrumb was "Suppliers" on every `/catalog` URL because the top bar took the last nav item that shared that path. It now prefers the nav item whose query matches, so Catalogue, Inventory, Pricing rules, and Suppliers each get their own crumb. The bulk-bar shot opens Not imported, because the live store has 958 items and none in Live.
 
 `node scripts/e2e-harness.mjs` exit 0. 90 checks, 0 failed. Next.js 14.2.21. Screenshots are in `.cursor/e2e/shots/`, which is gitignored.
 
