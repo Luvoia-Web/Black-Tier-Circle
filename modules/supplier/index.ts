@@ -24,6 +24,7 @@ import {
   notifyOwnerAutoPaused,
 } from './catalog-sync';
 import { priceWithRule, type MarkupSide } from './markup-rules';
+import { recordBalanceSnapshot } from './balance-snapshot';
 import { fulfillViaSupplier, loadSupplierClient, mapSupplierOrder, supplierCostMinor } from './place';
 
 export { fulfillViaSupplier, mapSupplierOrder, supplierArtifact, supplierCostMinor, supplierOrderIdFromArtifact } from './place';
@@ -280,6 +281,7 @@ export async function refreshSupplierBalance(
   if (error) {
     throw new AppError('SUPPLIER_BALANCE_FAILED', error.message, 500);
   }
+  await recordBalanceSnapshot(supabase, supplierId, balance.balance);
   return { balance: balance.balance, membership: balance.membership };
 }
 

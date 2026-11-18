@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, StatusPill, TextField, type Column } from '@/components/platform/ui';
+import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, Sparkline, StatusPill, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
@@ -330,14 +330,16 @@ function Health(): JSX.Element {
   const desk = useData<SupplierDesk>('/api/platform/catalog?section=suppliers');
   if (desk.loading && !desk.data) return <Skeleton className="h-32 w-full" />;
   if (desk.error || !desk.data) return <ErrorState message={desk.error?.message ?? 'Health did not load.'} onRetry={desk.refetch} />;
+  const health = desk.data;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-ink-soft">{desk.data.note}</p>
+      <p className="text-sm text-ink-soft">{health.note}</p>
       <div className="grid gap-3 md:grid-cols-2">
-        {desk.data.health.map((row) => (
+        {health.health.map((row) => (
           <article key={row.supplierId} className="glass-card space-y-1 rounded-lg p-4">
             <p className="text-sm text-ink">{row.name}</p>
             <p className="text-xs text-ink-faint">Balance {row.balance} USDT · {row.status}</p>
+            {row.balanceTrend.length > 1 ? <Sparkline data={row.balanceTrend} /> : <p className="text-xs text-ink-faint">{health.needsMigration ? 'Needs migration 0034 before the balance trend can be drawn.' : 'One reading so far. The trend appears after the next balance check.'}</p>}
             <p className="text-xs text-ink-faint">Last sync {row.lastSyncAt ? <RelativeTime value={row.lastSyncAt} /> : 'never'}{row.lastSyncError ? ` · ${row.lastSyncError}` : ''}</p>
             <p className="text-xs text-ink-faint">Error rate {row.errorRate === null ? '—' : `${row.errorRate}%`} · average fulfilment {row.averageMinutes === null ? '—' : `${row.averageMinutes} min`}</p>
           </article>

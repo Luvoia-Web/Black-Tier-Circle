@@ -6,6 +6,7 @@
  */
 
 import { decrypt } from '@/lib/encryption';
+import { recordBalanceSnapshot } from '@/modules/supplier/balance-snapshot';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { usdtToMinor } from '@/lib/money';
@@ -259,6 +260,7 @@ export async function fulfillViaSupplier(
         updated_at: new Date().toISOString(),
       })
       .eq('id', product.supplier_id);
+    await recordBalanceSnapshot(supabase, product.supplier_id, balance.balance);
     if (priceMinor !== null && priceMinor !== undefined) {
       const needed = (Number(priceMinor) / 1_000_000) * quantity;
       if (balance.balance < needed) {
@@ -290,6 +292,7 @@ export async function fulfillViaSupplier(
       .from('suppliers')
       .update({ balance_usdt: next, updated_at: new Date().toISOString() })
       .eq('id', product.supplier_id);
+    await recordBalanceSnapshot(supabase, product.supplier_id, next);
   }
   return mapSupplierOrder(placed);
 }

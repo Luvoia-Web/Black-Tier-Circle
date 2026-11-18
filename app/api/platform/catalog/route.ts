@@ -5,10 +5,10 @@
  */
 
 import { asDbClient, requireUser } from '@/lib/auth/session';
-import { AuthError } from '@/lib/errors';
-import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { AuthError, ValidationError } from '@/lib/errors';
+import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { parseCatalogFilters, readCatalog } from '@/modules/platform/catalog';
-import { readInventory } from '@/modules/platform/inventory';
+import { readInventory, saveReorderPoint } from '@/modules/platform/inventory';
 import { readSupplierDesk } from '@/modules/platform/supplier-desk';
 import { getTenantByUserId } from '@/modules/tenants';
 
@@ -33,6 +33,23 @@ export async function GET(request: Request): Promise<Response> {
     }
     const page = await readCatalog(db, { role, tenantId: tenant?.id ?? null }, parseCatalogFilters(url.searchParams));
     return jsonSuccess(page);
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    const session = await requireUser();
+    if (session.profile.role !== 'owner') {
+      throw new AuthError('FORBIDDEN', 'Only the owner can set a reorder point', 403);
+    }
+    const body = await readJsonBody(request);
+    const productId = typeof body.productId === 'string' ? body.productId : '';
+    const point = typeof body.reorderPoint === 'number' ? body.reorderPoint : Number(body.reorderPoint);
+    if (!productId) throw new ValidationError('INVALID_PRODUCT', 'Choose a product.');
+    const saved = await saveReorderPoint(asDbClient(session.admin), productId, point);
+    return jsonSuccess(saved);
   } catch (error: unknown) {
     return handleRouteError(error);
   }

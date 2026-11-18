@@ -1,6 +1,6 @@
 /**
- * Supplier order monitor and the health numbers that can be read today.
- * Sync history is the last sync on the supplier row. Older balances are not stored.
+ * Supplier order monitor and health.
+ * Balance history comes from supplier_balance_snapshots. A missing table means 0034 is not applied.
  */
 
 import { AppError } from '@/lib/errors';
@@ -22,6 +22,7 @@ export type SupplierHealthRow = {
   readonly balance: string;
   readonly errorRate: number | null;
   readonly averageMinutes: number | null;
+  readonly balanceTrend: readonly number[];
 };
 
 export type SupplierDesk = {
@@ -29,6 +30,7 @@ export type SupplierDesk = {
   readonly health: readonly SupplierHealthRow[];
   readonly pendingOrders: number;
   readonly note: string;
+  readonly needsMigration: boolean;
 };
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
@@ -82,6 +84,18 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
     bySupplier.set(supplierId, group);
   }
   const suppliers = records((await db.from('suppliers').select('id, name, status, last_sync_at, last_sync_error, balance_usdt').order('name', { ascending: true }).limit(100)) as QueryResult<unknown>);
+  const snapshots = (await db.from('supplier_balance_snapshots').select('supplier_id, balance_usdt, checked_at').order('checked_at', { ascending: true }).limit(500)) as QueryResult<unknown>;
+  const needsMigration = Boolean(snapshots.error && (snapshots.error.code === '42P01' || snapshots.error.code === '42703' || snapshots.error.message.toLowerCase().includes('does not exist') || snapshots.error.message.toLowerCase().includes('schema cache')));
+  if (snapshots.error && !needsMigration) throw new AppError('SUPPLIER_DESK_FAILED', snapshots.error.message, 500);
+  const trend = new Map<string, number[]>();
+  for (const row of needsMigration ? [] : records(snapshots)) {
+    const id = text(row.supplier_id);
+    const value = Number(row.balance_usdt);
+    if (!id || !Number.isFinite(value)) continue;
+    const series = trend.get(id) ?? [];
+    series.push(value);
+    trend.set(id, series);
+  }
   const pending = records((await db.from('orders').select('id').in('fulfillment_status', ['supplier_pending', 'processing', 'outcome_unknown']).limit(500)) as QueryResult<unknown>);
   return {
     orders: attempts.slice(0, 40).map((row) => ({
@@ -101,9 +115,13 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
         balance: text(row.balance_usdt) || '0',
         errorRate: stats.errorRate,
         averageMinutes: stats.averageMinutes,
+        balanceTrend: trend.get(text(row.id)) ?? [],
       };
     }),
     pendingOrders: pending.length,
-    note: 'No balance history yet. Only the latest balance and the latest sync result are stored.',
+    needsMigration,
+    note: needsMigration
+      ? 'Needs migration 0034. Only the latest balance is stored until supplier_balance_snapshots exists.'
+      : 'Balance history is each check and sync stored in supplier_balance_snapshots.',
   };
 }

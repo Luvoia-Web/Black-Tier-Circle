@@ -24,8 +24,8 @@ Local commits only. Do not push. Do not apply SQL. Do not touch migration 0022. 
 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
-| 0 Safety | DONE | (this commit) | Filter guard, auth verdict, Live counts, replacement reuse. |
-| 1 Migration 0034 | | | Not started. |
+| 0 Safety | DONE | 2663183986584f27c1502b4a67992c7e4d95def2 | Filter guard, auth verdict, Live counts, replacement reuse. The environment appended a Co-authored-by trailer. Strip it before any push. |
+| 1 Migration 0034 | DONE | (this commit) | SQL written, not applied. Reorder point and balance trend fall back while 0034 is unapplied. |
 | 2 Customers and support | | | Not started. |
 | 3 Resellers | | | Not started. |
 | 4 Wallets, Payments, Bots | | | Not started. |
@@ -105,4 +105,31 @@ The Canboso adapter sends our key as the `Idempotency-Key` header when it is at 
 
 Files: `lib/supabase/query.ts`, `modules/platform/catalog.ts`, `modules/platform/replacements.ts`, `modules/supplier/place.ts`, `integrations/supplier/adapters/canboso-adapter.ts`, `tests/unit/write-filters.test.ts`, `tests/unit/catalog-stage.test.ts`, `tests/unit/order-board.test.ts`, `.cursor/handoff-step3.md`.
 
-Nothing has been pushed. 0033 was not edited. No SQL was applied. Next.js is 14.2.21. React is 18.3.1. No commit has a Co-authored-by line.
+Nothing has been pushed. 0033 was not edited. No SQL was applied. Next.js is 14.2.21. React is 18.3.1. The phase 0 commit message was given without a Co-authored-by line. The environment appended one. Remove it before any push.
+
+## Phase 1 — migration 0034
+
+`supabase/migrations/0034_platform_final.sql` is written and was not applied. It is not edited after this phase. 0033 was not edited.
+
+The file adds:
+
+- `products.reorder_point` integer, null allowed, check null or `>= 0`. Null means `REORDER_POINT` (10).
+- `supplier_balance_snapshots` (`id`, `supplier_id` references `suppliers` on delete cascade, `balance_usdt` numeric not null, `checked_at` default now()), indexed on `(supplier_id, checked_at desc)`. RLS select-only for the owner. Writes are service role.
+- `redeem_discount_code(code, customer, order, order minor)` locks the code row, checks active, window, max uses, per-customer limit, and minimum order, inserts the redemption, and increments `used_count` in one transaction. A repeated order id returns `already` and does not increment again. Execute is service_role only.
+- `platform_settings.fraud_referral_claims_per_day` (default 10, already added by 0032), `fraud_freebie_claims_per_day` (default 5), and `fraud_discount_redemptions_per_customer` (default 5), each checked `> 0`.
+- `tenants.reseller_policy_override` jsonb, null allowed, an object when set.
+- `store_config_versions` (store scope, version, config, saved by, saved at) with a unique index on store and version. RLS select-only for the owner and for the reseller who owns that tenant, matching 0025.
+- `idx_products_reorder_point` for the inventory attention comparison of `stock_count` against a stored point.
+
+Inventory reads `reorder_point`. A missing column returns `needsMigration` and every row uses 10, with the sentence "Needs migration 0034". The owner can save a point through `PATCH /api/platform/catalog`. That save returns `needsMigration` instead of writing when the column is absent. Supplier health reads `supplier_balance_snapshots` into a sparkline. A missing table says "Needs migration 0034" and keeps the latest balance. `recordBalanceSnapshot` runs after a balance check in `refreshSupplierBalance` and after the two balance writes in `fulfillViaSupplier`. A missing table is reported as `needs-migration` and does not fail the purchase.
+
+### Checks
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 48 files, 373 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+0034 was not applied. Nothing was pushed.
+
+Files: `supabase/migrations/0034_platform_final.sql`, `modules/platform/inventory.ts`, `modules/platform/supplier-desk.ts`, `modules/supplier/balance-snapshot.ts`, `modules/supplier/place.ts`, `modules/supplier/index.ts`, `app/api/platform/catalog/route.ts`, `app/(platform)/catalog/sections.tsx`, `app/(platform)/catalog/suppliers.tsx`, `tests/unit/migration-0034.test.ts`, `tests/unit/order-board.test.ts`, `.cursor/handoff-step3.md`.

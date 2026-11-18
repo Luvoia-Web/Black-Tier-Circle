@@ -41,6 +41,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
     { id: 'sold', header: 'Sold, 30 days', numeric: true, render: (row) => String(row.sold30) },
     { id: 'days', header: 'Days left', numeric: true, render: (row) => row.daysLeft === null ? '—' : String(row.daysLeft) },
     { id: 'qty', header: 'On hand', render: (row) => <Quantity row={row} onSaved={page.refetch} /> },
+    { id: 'point', header: 'Reorder point', render: (row) => <ReorderPoint row={row} locked={data.needsMigration || data.role !== 'owner'} onSaved={page.refetch} /> },
   ];
   return (
     <div className="space-y-4">
@@ -49,6 +50,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
         <StatTile label="Units on hand" value={String(data.unitsOnHand)} icon={Boxes} tone="sky" />
         <StatTile label="Needs attention" value={String(data.attentionCount)} icon={AlertTriangle} tone="amber" />
       </div>
+      {data.needsMigration ? <p className="text-sm text-ink">Needs migration 0034. Every product uses the shared reorder point of 10 until products.reorder_point exists.</p> : null}
       <button type="button" aria-pressed={attention} className={`h-8 rounded-xl border px-3 text-[12.5px] ${attention ? 'border-rose/50 bg-rose/20 text-ink' : 'border-white/10 text-ink-soft'}`} onClick={() => onAttention(!attention)}>
         Needs attention ({data.attentionCount})
       </button>
@@ -66,6 +68,17 @@ function Level({ row }: { readonly row: InventoryRow }): JSX.Element {
         <span className={`block h-full ${low ? 'bg-amber' : 'bg-mint'}`} style={{ width: `${width}%` }} />
       </span>
       <span className="mt-1 block text-[11px] text-ink-faint">{row.unlimited ? 'Unlimited' : `${row.onHand ?? 0} / ${row.reorderPoint}`}</span>
+    </span>
+  );
+}
+
+function ReorderPoint({ row, locked, onSaved }: { readonly row: InventoryRow; readonly locked: boolean; readonly onSaved: () => void }): JSX.Element {
+  const [value, setValue] = useState(String(row.reorderPoint));
+  if (locked) return <span className="font-num text-sm text-ink">{row.reorderPoint}</span>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input className="h-8 w-16 rounded-md border border-white/10 bg-white/5 px-2 font-num text-sm text-ink" inputMode="numeric" aria-label={`Reorder point for ${row.title}`} value={value} onChange={(event) => setValue(event.target.value)} />
+      <Button variant="secondary" onClick={() => { void runAction('/api/platform/catalog', { method: 'PATCH', body: { productId: row.id, reorderPoint: Number(value) } }).then(() => onSaved()); }}>Save</Button>
     </span>
   );
 }
