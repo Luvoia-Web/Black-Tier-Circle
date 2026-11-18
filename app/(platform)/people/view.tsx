@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
-import { Button, Card, DataTable, EmptyState, ErrorState, FilterBar, Pagination, SelectField, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
+import { Button, Card, DataTable, EmptyState, ErrorState, FilterBar, Pagination, RelativeTime, SelectField, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
@@ -154,7 +154,7 @@ export function PeopleView(): JSX.Element {
     { id: 'name', header: 'Name', render: (row) => row.name },
     { id: 'balance', header: 'Balance', numeric: true, render: (row) => row.balance },
     { id: 'orders', header: 'Orders', numeric: true, render: (row) => String(row.orders) },
-    { id: 'seen', header: 'Last seen', render: (row) => row.lastSeen },
+    { id: 'seen', header: 'Last seen', render: (row) => row.lastSeen ? <RelativeTime value={row.lastSeen} /> : 'Unknown time' },
     { id: 'state', header: 'State', render: (row) => <StatusPill tone={row.state === 'blocked' || row.state === 'suspended' ? 'fault' : row.state === 'pending' ? 'warn' : 'ok'}>{row.state}</StatusPill> },
   ];
 

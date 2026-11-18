@@ -79,11 +79,13 @@ export function GrowthPanel({ base }: { readonly base: string }): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setProblems([]);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15_000);
     try {
       const [overviewResponse, referralResponse, freebieResponse] = await Promise.all([
-        fetch(base),
-        fetch(`${base}/referrals?status=${status}&page=${page}&pageSize=20`),
-        fetch(`${base}/freebies`),
+        fetch(base, { signal: controller.signal }),
+        fetch(`${base}/referrals?status=${status}&page=${page}&pageSize=20`, { signal: controller.signal }),
+        fetch(`${base}/freebies`, { signal: controller.signal }),
       ]);
       const overviewJson = await readJson<Overview>(overviewResponse);
       const referralJson = await readJson<{ rows: ReferralRow[]; total: number }>(referralResponse);
@@ -97,9 +99,11 @@ export function GrowthPanel({ base }: { readonly base: string }): JSX.Element {
       setRows(referralJson.data.rows);
       setTotal(referralJson.data.total);
       setFreebies(freebieJson.data.freebies);
-    } catch {
-      setProblems(['Unable to load growth']);
+    } catch (cause: unknown) {
+      const aborted = cause instanceof Error && cause.name === 'AbortError';
+      setProblems([aborted ? 'This is taking too long. Try again.' : 'Unable to load growth']);
     } finally {
+      window.clearTimeout(timer);
       setLoading(false);
     }
   }, [base, page, status]);

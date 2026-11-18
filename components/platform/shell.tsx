@@ -28,6 +28,10 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
   const counts = useNavCounts();
 
   useEffect(() => {
+    document.documentElement.dataset.role = role;
+  }, [role]);
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();

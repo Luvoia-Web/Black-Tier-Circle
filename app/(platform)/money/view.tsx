@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { TopupAdmin } from '@/components/dashboard/topup-admin';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
-import { Card, DataTable, ErrorState, FilterBar, SelectField, StatTile, StatusPill, type Column } from '@/components/platform/ui';
+import { Card, DataTable, ErrorState, FilterBar, RelativeTime, SelectField, StatTile, StatusPill, type Column } from '@/components/platform/ui';
 import { useData } from '@/lib/hooks/use-data';
 import { ROUTES } from '@/lib/navigation';
 
@@ -67,7 +67,7 @@ export function MoneyView(): JSX.Element {
   const ledgerColumns: Column<MoneyPayload['ledger'][number]>[] = [
     { id: 'kind', header: 'Entry', render: (row) => row.kind },
     { id: 'amount', header: 'Amount', numeric: true, render: (row) => row.amount },
-    { id: 'at', header: 'When', render: (row) => row.at },
+    { id: 'at', header: 'When', render: (row) => <RelativeTime value={row.at} /> },
   ];
 
   return (
@@ -80,7 +80,7 @@ export function MoneyView(): JSX.Element {
         <a className="inline-flex min-h-11 items-center rounded-md border border-stroke px-3 text-sm text-ink" href={`/api/platform/money?format=csv${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`}>Export ledger</a>
       </header>
       {money.loading ? <p className="text-sm text-ink-soft">Loading balances…</p> : null}
-      {money.error ? <ErrorState message={money.error.message} onRetry={money.refetch} /> : null}
+      {money.error ? <ErrorState message={money.error.message} requestId={money.error.requestId} detail={money.error.detail} onRetry={money.refetch} /> : null}
       {money.data ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -8,6 +8,8 @@
 export type DataError = {
   readonly message: string;
   readonly code: string;
+  readonly requestId?: string;
+  readonly detail?: string;
 };
 
 export type ParsedData<T> =
@@ -33,5 +35,15 @@ export function parseData<T>(status: number, payload: unknown): ParsedData<T> {
     ? error.message
     : `The request failed (${status}). Try again.`;
   const code = typeof error?.code === 'string' ? error.code : 'REQUEST_FAILED';
-  return { ok: false, error: { message, code } };
+  const requestId = typeof error?.requestId === 'string' ? error.requestId : undefined;
+  const detail = typeof error?.detail === 'string' ? error.detail : undefined;
+  return {
+    ok: false,
+    error: {
+      message,
+      code,
+      ...(requestId ? { requestId } : {}),
+      ...(detail ? { detail } : {}),
+    },
+  };
 }

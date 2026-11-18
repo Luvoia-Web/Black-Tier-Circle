@@ -4,6 +4,7 @@
  * The numbers on the Money page. Top-up review stays on the existing route.
  */
 
+import { AppError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { listSuppliers } from '@/modules/supplier';
@@ -21,7 +22,10 @@ export type MoneyPayload = {
 };
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
-  if (result.error || !Array.isArray(result.data)) {
+  if (result.error) {
+    throw new AppError('READ_FAILED', result.error.message, 500);
+  }
+  if (!Array.isArray(result.data)) {
     return [];
   }
   return result.data.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null);

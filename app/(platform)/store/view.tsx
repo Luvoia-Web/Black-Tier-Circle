@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Button, EmptyState, ErrorState, SelectField, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
+import { Button, EmptyState, ErrorState, RelativeTime, SelectField, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
 import { API_ROUTES } from '@/lib/navigation';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
@@ -67,7 +67,7 @@ export function StoreView(): JSX.Element {
     return <p className="text-sm text-ink-soft">Loading the store…</p>;
   }
   if (store.error && !draft) {
-    return <ErrorState message={store.error.message} onRetry={store.refetch} />;
+    return <ErrorState message={store.error.message} requestId={store.error.requestId} detail={store.error.detail} onRetry={store.refetch} />;
   }
   if (!store.data || !draft) {
     return <EmptyState title="The store is not available" message="Refresh the page. If this stays empty, the store settings could not be read." />;
@@ -181,7 +181,7 @@ export function StoreView(): JSX.Element {
             <div className="mt-3 space-y-2 text-sm">
               <p className="text-ink">{loaded.bot.username ? `@${loaded.bot.username}` : 'No bot connected'}</p>
               <p className="text-ink-soft">Status {loaded.bot.status}</p>
-              <p className="text-ink-soft">Last health check {loaded.bot.lastHealthAt ?? 'never'}</p>
+              <p className="text-ink-soft">Last health check {loaded.bot.lastHealthAt ? <RelativeTime value={loaded.bot.lastHealthAt} /> : 'never'}</p>
               <TextField id="bot-token" label="Bot token" type="password" value={token} onChange={(event) => setToken(event.target.value)} />
               <Button variant="secondary" onClick={() => { void runAction(loaded.role === 'owner' ? API_ROUTES.ownerSettingsBotConnect : API_ROUTES.botsConnect, { method: 'POST', body: { botToken: token } }).then((result) => { setStatusNote(result.ok ? 'The bot is connected.' : result.error.message); if (result.ok) { setToken(''); store.refetch(); } }); }}>Connect bot</Button>
               <Button variant="secondary" onClick={() => { void runAction('/api/platform/store', { method: 'POST' }).then((result) => { setStatusNote(result.ok ? 'The webhook was registered again.' : result.error.message); store.refetch(); }); }}>Reconnect bot</Button>
@@ -191,12 +191,12 @@ export function StoreView(): JSX.Element {
         <aside className="space-y-3 lg:sticky lg:top-4">
           <div className="rounded-lg border border-stroke bg-raised p-3">
             <p className="text-sm text-ink">Welcome</p>
-            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink">{welcome}</pre>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink">{plainBot(welcome)}</pre>
           </div>
           <div className="rounded-lg border border-stroke bg-raised p-3">
             <SelectField id="preview-product" label="Product" value={chosen?.id ?? ''} options={loaded.products.map((product) => ({ value: product.id, label: product.title }))} onChange={(event) => setProductId(event.target.value)} />
             {chosen?.sample ? <p className="mt-2 text-sm text-ink">This store has no products yet. The card below is a sample.</p> : null}
-            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink">{card}</pre>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink">{plainBot(card)}</pre>
           </div>
         </aside>
       </div>
@@ -207,4 +207,14 @@ export function StoreView(): JSX.Element {
       </div>
     </section>
   );
+}
+
+function plainBot(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }

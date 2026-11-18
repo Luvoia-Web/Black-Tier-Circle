@@ -4,6 +4,7 @@
  * Buyers and resellers for the People directory.
  */
 
+import { AppError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getWallet } from '@/modules/wallet';
@@ -26,7 +27,10 @@ export type PeoplePayload = {
 };
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
-  if (result.error || !Array.isArray(result.data)) {
+  if (result.error) {
+    throw new AppError('READ_FAILED', result.error.message, 500);
+  }
+  if (!Array.isArray(result.data)) {
     return [];
   }
   return result.data.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null);

@@ -6,7 +6,7 @@
 
 import { Bot } from 'grammy';
 import { decrypt } from '@/lib/encryption';
-import { ValidationError } from '@/lib/errors';
+import { AppError, ValidationError } from '@/lib/errors';
 import { consumeRateLimit } from '@/lib/rate-limiter';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getDecryptedOwnerBotToken } from '@/modules/platform/index';
@@ -15,7 +15,8 @@ import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import type { StoreEvents } from '@/modules/store-config/types';
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
-  if (result.error || !Array.isArray(result.data)) return [];
+  if (result.error) throw new AppError('READ_FAILED', result.error.message, 500);
+  if (!Array.isArray(result.data)) return [];
   return result.data.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null);
 }
 

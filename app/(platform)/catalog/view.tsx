@@ -11,6 +11,7 @@ import { writeSelection } from '@/components/platform/areas';
 import {
   Button,
   DataTable,
+  RelativeTime,
   ErrorState,
   FilterBar,
   Pagination,
@@ -316,7 +317,7 @@ function ItemDetail({ row, history, onSaved }: { readonly row: CatalogRow; reado
           {history.map((entry) => (
             <li key={entry.id} className="text-sm text-ink">
               <span className="font-num">{entry.label}</span>
-              <span className="mt-0.5 block text-xs text-ink-faint">{entry.at}</span>
+              <span className="mt-0.5 block text-xs text-ink-faint"><RelativeTime value={entry.at} /></span>
             </li>
           ))}
         </ul>

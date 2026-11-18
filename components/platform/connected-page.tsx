@@ -23,7 +23,7 @@ export function ConnectedPage({ title, description, url }: ConnectedPageProps): 
         <p className="mt-1 text-sm text-ink-soft">{description}</p>
       </header>
       {state.loading ? <p className="text-sm text-ink-soft">Loading…</p> : null}
-      {state.error ? <ErrorState message={state.error.message} onRetry={state.refetch} /> : null}
+      {state.error ? <ErrorState message={state.error.message} requestId={state.error.requestId} detail={state.error.detail} onRetry={state.refetch} /> : null}
       {state.data ? <p className="text-sm text-ink">Live data is connected. The full layout for this screen arrives in a later step.</p> : null}
     </section>
   );

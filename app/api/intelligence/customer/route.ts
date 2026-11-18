@@ -52,7 +52,7 @@ async function resolveCustomer(request: Request): Promise<{ tenantId: string; cu
   return { tenantId: session.tenantId, customerId: session.userId };
 }
 
-function routeError(error: unknown): Response {
+async function routeError(error: unknown): Promise<Response> {
   if (error instanceof AppError || error instanceof ZodError) {
     return handleRouteError(error);
   }

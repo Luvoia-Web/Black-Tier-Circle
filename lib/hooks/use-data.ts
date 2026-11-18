@@ -40,6 +40,7 @@ export function useData<T>(url: string | null): DataState<T> {
       return;
     }
     const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15_000);
     setLoading(true);
     setError(null);
     void fetch(url, { signal: controller.signal })
@@ -61,13 +62,17 @@ export function useData<T>(url: string | null): DataState<T> {
         if (controller.signal.aborted) {
           return;
         }
-        const message = cause instanceof Error && cause.message.length > 0
-          ? cause.message
-          : 'The request failed. Check the connection and try again.';
-        setError({ message, code: 'NETWORK' });
+        const aborted = cause instanceof Error && cause.name === 'AbortError';
+        const message = aborted
+          ? 'This is taking too long. Try again.'
+          : cause instanceof Error && cause.message.length > 0
+            ? cause.message
+            : 'The request failed. Check the connection and try again.';
+        setError({ message, code: aborted ? 'TIMEOUT' : 'NETWORK' });
         setLoading(false);
       });
     return () => {
+      window.clearTimeout(timer);
       controller.abort();
     };
   }, [url, attempt]);

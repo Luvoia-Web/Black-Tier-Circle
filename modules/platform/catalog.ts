@@ -59,7 +59,10 @@ type Filters = {
 };
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
-  if (result.error || !Array.isArray(result.data)) {
+  if (result.error) {
+    throw new AppError('READ_FAILED', result.error.message, 500);
+  }
+  if (!Array.isArray(result.data)) {
     return [];
   }
   return result.data.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null);
