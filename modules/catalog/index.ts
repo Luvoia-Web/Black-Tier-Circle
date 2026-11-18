@@ -338,6 +338,10 @@ export async function updateProduct(
   }
   if (input.category !== undefined) {
     patch.category = input.category;
+  }
+  if (input.buyerCategory !== undefined) {
+    patch.buyer_category = input.buyerCategory;
+  } else if (input.category !== undefined) {
     patch.buyer_category = input.category;
   }
   if (input.deliveryType !== undefined) {

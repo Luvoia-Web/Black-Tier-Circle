@@ -8,11 +8,12 @@ import { parseData, type DataError } from '@/lib/hooks/parse-data';
 
 export async function runAction<T = unknown>(url: string, init?: { readonly method?: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; readonly body?: unknown }): Promise<{ ok: true; data: T } | { ok: false; error: DataError }> {
   try {
-    const headers = init?.body !== undefined ? { 'content-type': 'application/json' } : undefined;
+    const form = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+    const headers = !form && init?.body !== undefined ? { 'content-type': 'application/json' } : undefined;
     const response = await fetch(url, {
       method: init?.method ?? 'POST',
       ...(headers ? { headers } : {}),
-      ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+      ...(init?.body !== undefined ? { body: form ? init.body : JSON.stringify(init.body) } : {}),
     });
     const payload: unknown = await response.json().catch(() => null);
     const parsed = parseData<unknown>(response.status, payload);

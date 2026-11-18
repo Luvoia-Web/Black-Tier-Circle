@@ -30,6 +30,7 @@ const config: Config = {
         sky: channel('--c-sky'),
         mint: channel('--c-mint'),
         danger: channel('--c-danger'),
+        violet: channel('--c-violet'),
         ice: channel('--c-ice'),
         ink: {
           DEFAULT: channel('--c-ink'),
@@ -58,21 +59,22 @@ const config: Config = {
       borderRadius: {
         sm: '10px',
         md: '14px',
-        lg: '22px',
-        xl: '28px',
+        lg: '20px',
+        xl: '24px',
         pill: '999px',
       },
       boxShadow: {
-        card: '0 18px 40px rgb(0 0 0 / 0.28)',
-        glass: '0 24px 60px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.12)',
+        card: 'inset 0 1px 0 rgb(255 255 255 / 0.07), 0 20px 50px rgb(0 0 0 / 0.25)',
+        glass: 'inset 0 1px 0 rgb(255 255 255 / 0.14), 0 30px 70px rgb(0 0 0 / 0.45)',
       },
       spacing: {
-        sidebar: '272px',
+        sidebar: '256px',
         rail: '76px',
-        bar: '64px',
+        bar: '60px',
       },
       backdropBlur: {
         glass: '24px',
+        card: '22px',
       },
     },
   },

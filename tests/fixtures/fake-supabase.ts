@@ -13,7 +13,8 @@ export type MemoryRow = Record<string, unknown>;
 type Filter =
   | { readonly kind: 'eq' | 'gte' | 'lte'; readonly column: string; readonly value: string }
   | { readonly kind: 'in'; readonly column: string; readonly values: ReadonlyArray<string> }
-  | { readonly kind: 'is'; readonly column: string; readonly value: null };
+  | { readonly kind: 'is'; readonly column: string; readonly value: null }
+  | { readonly kind: 'ilike'; readonly column: string; readonly pattern: string };
 
 function asMinor(value: unknown): bigint {
   if (typeof value === 'bigint') {
@@ -651,6 +652,10 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
         if (filter.kind === 'lte') {
           return actual <= filter.value;
         }
+        if (filter.kind === 'ilike') {
+          const needle = filter.pattern.replace(/^%/, '').replace(/%$/, '').toLowerCase();
+          return actual.toLowerCase().includes(needle);
+        }
         if (filter.kind === 'eq') {
           return actual === filter.value;
         }
@@ -757,6 +762,10 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       },
       lte(column, value): QueryBuilder<unknown> {
         filters.push({ kind: 'lte', column, value });
+        return builder;
+      },
+      ilike(column, pattern): QueryBuilder<unknown> {
+        filters.push({ kind: 'ilike', column, pattern });
         return builder;
       },
       order(column, options): QueryBuilder<unknown> {

@@ -13,21 +13,22 @@
 */
 
 :root {
-  --c-base: 12 7 14;
-  --c-rose: 255 77 141;
-  --c-rose-deep: 122 24 62;
-  --c-amber: 245 176 66;
-  --c-sky: 91 157 255;
-  --c-mint: 61 220 151;
-  --c-danger: 255 77 99;
-  --c-ice: 244 240 246;
-  --c-ink: 244 240 246;
-  --c-ink-soft: 196 184 198;
-  --c-ink-faint: 140 126 144;
-  --c-page: 12 7 14;
-  --c-plane: 22 14 22;
-  --c-raised: 34 22 32;
-  --c-card: 28 16 26;
+  --c-base: 11 7 9;
+  --c-rose: 255 95 143;
+  --c-rose-deep: 239 91 140;
+  --c-amber: 242 178 62;
+  --c-sky: 126 166 239;
+  --c-mint: 79 220 156;
+  --c-danger: 255 90 95;
+  --c-violet: 169 139 255;
+  --c-ice: 246 239 243;
+  --c-ink: 246 239 243;
+  --c-ink-soft: 161 155 159;
+  --c-ink-faint: 110 104 107;
+  --c-page: 11 7 9;
+  --c-plane: 26 15 21;
+  --c-raised: 38 22 30;
+  --c-card: 32 18 26;
   --c-stroke: 255 255 255;
   --c-on-rose: 26 6 12;
 
@@ -44,10 +45,11 @@
   --raised: rgb(var(--c-raised) / 0.88);
   --chrome: rgb(18 10 16 / 0.55);
   --chrome-solid: rgb(22 12 18);
-  --sidebar: linear-gradient(180deg, rgb(92 24 52 / 0.72), rgb(28 10 22 / 0.78));
-  --sidebar-solid: rgb(46 16 32);
-  --stroke: rgb(var(--c-stroke) / 0.1);
-  --stroke-top: rgb(255 255 255 / 0.22);
+  --sidebar: linear-gradient(180deg, rgb(178 40 92 / 0.52) 0%, rgb(118 24 62 / 0.44) 46%, rgb(58 14 34 / 0.46) 100%);
+  --sidebar-solid: rgb(58 14 34);
+  --stroke: rgb(var(--c-stroke) / 0.08);
+  --stroke-strong: rgb(255 255 255 / 0.12);
+  --stroke-top: rgb(255 255 255 / 0.14);
   --sheen: rgb(255 255 255 / 0.16);
   --ink: rgb(var(--c-ink));
   --ink-soft: rgb(var(--c-ink-soft));
@@ -64,17 +66,18 @@
   --sky: rgb(var(--c-sky));
   --sky-tint: rgb(var(--c-sky) / 0.16);
   --focus: rgb(var(--c-rose));
-  --mesh-rose: rgb(255 70 140 / 0.42);
-  --mesh-blue: rgb(80 140 255 / 0.28);
-  --mesh-amber: rgb(255 150 60 / 0.3);
-  --table: rgb(14 9 14 / 0.92);
+  --mesh-rose: rgb(206 40 104 / 0.58);
+  --mesh-blue: rgb(76 110 222 / 0.42);
+  --mesh-amber: rgb(238 122 44 / 0.46);
+  --table: rgb(18 10 15 / 0.84);
   --glass-blur: 24px;
+  --card-blur: 22px;
   --radius-sm: 10px;
   --radius-md: 14px;
-  --radius-lg: 22px;
-  --radius-xl: 28px;
-  --shadow-card: 0 18px 40px rgb(0 0 0 / 0.28);
-  --shadow-glass: 0 24px 60px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.12);
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 20px 50px rgb(0 0 0 / 0.25);
+  --shadow-glass: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 30px 70px rgb(0 0 0 / 0.45);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -196,19 +199,22 @@ body {
 
 .glass-sidebar {
   background: var(--sidebar);
-  border: 1px solid rgb(255 190 210 / 0.18);
+  border: 1px solid rgb(255 255 255 / 0.1);
   box-shadow: var(--shadow-glass);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
 }
 
 .glass-card {
-  background: rgb(var(--c-card) / 0.55);
+  background: linear-gradient(180deg, rgb(38 22 30 / 0.6), rgb(20 12 18 / 0.52));
   border: 1px solid var(--stroke);
-  border-top-color: var(--stroke-top);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(var(--card-blur));
+  -webkit-backdrop-filter: blur(var(--card-blur));
+}
+
+[data-theme='light'] .glass-card {
+  background: rgb(255 255 255 / 0.82);
 }
 
 .surface-table {
@@ -263,9 +269,19 @@ body {
   pointer-events: none;
   background-color: var(--page);
   background-image:
-    radial-gradient(46rem 36rem at 8% 0%, var(--mesh-rose), transparent 68%),
-    radial-gradient(40rem 32rem at 96% 6%, var(--mesh-blue), transparent 64%),
-    radial-gradient(42rem 34rem at 88% 100%, var(--mesh-amber), transparent 66%);
+    radial-gradient(760px 620px at 6% 14%, var(--mesh-rose), transparent 62%),
+    radial-gradient(620px 520px at 30% 4%, rgb(150 24 80 / 0.3), transparent 65%),
+    radial-gradient(700px 560px at 96% 92%, var(--mesh-amber), transparent 62%),
+    radial-gradient(560px 420px at 92% 4%, var(--mesh-blue), transparent 62%),
+    radial-gradient(700px 700px at 54% 52%, rgb(118 18 58 / 0.3), transparent 70%),
+    radial-gradient(520px 520px at 70% 70%, rgb(176 70 40 / 0.18), transparent 70%);
+}
+
+[data-theme='light'] .platform-mesh {
+  background-image:
+    radial-gradient(46rem 36rem at 8% 0%, rgb(255 80 140 / 0.22), transparent 68%),
+    radial-gradient(40rem 32rem at 96% 6%, rgb(80 140 255 / 0.16), transparent 64%),
+    radial-gradient(42rem 34rem at 88% 100%, rgb(255 160 70 / 0.2), transparent 66%);
 }
 
 /* Controls that still use the old class names render in this palette, not purple. */
@@ -282,14 +298,16 @@ body {
 
 .btc-btn-primary {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 38px;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--rose);
-  color: var(--on-crimson);
-  padding: 0 14px;
-  font-size: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ff8db0, #f0507f);
+  box-shadow: 0 10px 26px rgb(240 80 127 / 0.38), inset 0 1px 0 rgb(255 255 255 / 0.4);
+  color: #fff;
+  padding: 0 15px;
+  font-size: 13.5px;
+  font-weight: 500;
 }
 
 .btc-btn-secondary {

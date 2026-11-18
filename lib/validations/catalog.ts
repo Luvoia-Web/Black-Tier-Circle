@@ -117,6 +117,7 @@ export const UpdateProductSchema = z
     durationText: cardText,
     warrantyText: cardText,
     typeLabel: cardText,
+    buyerCategory: z.string().trim().max(50).nullable().optional(),
     pricingMode: z.enum(['manual', 'markup']).optional(),
     wholesaleMarkupKind: z.enum(['percent', 'fixed']).optional(),
     wholesaleMarkupPercent: z.number().min(0).max(999.99).nullable().optional(),

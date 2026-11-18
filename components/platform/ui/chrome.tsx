@@ -56,9 +56,10 @@ type ModalProps = {
   readonly title: string;
   readonly onClose: () => void;
   readonly children: ReactNode;
+  readonly wide?: boolean;
 };
 
-export function Modal({ open, title, onClose, children }: ModalProps): JSX.Element | null {
+export function Modal({ open, title, onClose, children, wide = false }: ModalProps): JSX.Element | null {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const opener = useRef<HTMLElement | null>(null);
@@ -105,7 +106,7 @@ export function Modal({ open, title, onClose, children }: ModalProps): JSX.Eleme
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center px-4 py-6 sm:items-center">
       <button type="button" aria-label="Close dialog" className="absolute inset-0 bg-[color-mix(in_srgb,var(--base)_62%,transparent)]" onClick={onClose} />
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="relative z-10 w-full max-w-lg rounded-lg border border-stroke bg-raised p-4">
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-lg border border-stroke bg-raised p-4 ${wide ? 'max-w-3xl' : 'max-w-lg'}`}>
         <h2 id={titleId} className="text-base text-ink">{title}</h2>
         <div className="mt-3 text-sm text-ink-soft">{children}</div>
       </div>

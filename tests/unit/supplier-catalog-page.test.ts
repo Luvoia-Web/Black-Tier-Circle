@@ -34,6 +34,10 @@ function client(supplierRows: Row[], productRows: Row[] = []): DbClient {
           pattern = expression.match(/ilike\.%(.*?)%/)?.[1]?.toLowerCase() ?? '';
           return builder;
         },
+        ilike(column: string, value: string) {
+          filters.push({ column, value: value.replace(/%/g, '').toLowerCase() });
+          return builder;
+        },
         order(column: string, options?: { ascending?: boolean }) {
           orderColumn = column;
           ascending = options?.ascending !== false;

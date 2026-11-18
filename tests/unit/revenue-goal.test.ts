@@ -37,6 +37,7 @@ function missingColumnDb(): DbClient {
     limit: () => builder,
     range: () => builder,
     or: () => builder,
+    ilike: () => builder,
     maybeSingle: async () => missing,
     single: async () => missing,
     then: (onfulfilled?: ((value: QueryResult<unknown[]>) => unknown) | null) =>

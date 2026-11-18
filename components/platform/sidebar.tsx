@@ -28,9 +28,25 @@ type Insets = { top: number; right: number; bottom: number; left: number };
 function samePath(href: string, pathname: string, search: string): boolean {
   const [path, query = ''] = href.split('?');
   if (pathname !== path) return false;
-  if (!query) return search.length === 0 || !search.includes('type=') && !search.includes('stock=') && !search.includes('stage=') && !search.includes('section=') && !search.includes('attention=');
-  const wanted = new URLSearchParams(query);
   const current = new URLSearchParams(search);
+  if (!query) {
+    if (path === '/catalog') {
+      const section = current.get('section');
+      return section === null || section === '' || section === 'catalogue';
+    }
+    if (path === '/growth') {
+      const section = current.get('section');
+      return section !== 'discounts' && section !== 'broadcasts';
+    }
+    if (path === '/money') {
+      return current.get('section') !== 'payments';
+    }
+    if (path === '/store') {
+      return current.get('section') !== 'bots';
+    }
+    return true;
+  }
+  const wanted = new URLSearchParams(query);
   for (const [key, value] of wanted.entries()) {
     if (current.get(key) !== value) return false;
   }
@@ -147,7 +163,7 @@ export function PlatformSidebar({
 
   return (
     <aside
-      className={`glass-sidebar fixed bottom-3 left-3 top-3 z-30 flex h-[calc(100dvh-1.5rem)] w-[min(100%-1.5rem,272px)] flex-col rounded-xl p-3 transition-transform ${
+      className={`glass-sidebar fixed bottom-3 left-3 top-3 z-30 flex h-[calc(100dvh-1.5rem)] w-[min(100%-1.5rem,256px)] flex-col rounded-xl p-3 transition-transform ${
         showLabels ? 'md:w-sidebar' : 'md:w-rail'
       } ${mobileOpen ? 'translate-x-0' : '-translate-x-[120%] md:translate-x-0'}`}
     >
@@ -187,7 +203,7 @@ export function PlatformSidebar({
                     <li key={item.id}>
                       <Link
                         href={item.href}
-                        aria-current={active && !childActive ? 'page' : undefined}
+                        aria-current={active ? 'page' : undefined}
                         title={item.label}
                         onClick={onNavigate}
                         className="relative z-10 flex min-h-10 items-center gap-2 rounded-md px-2 text-sm text-ink-soft hover:text-ink"
@@ -206,10 +222,11 @@ export function PlatformSidebar({
                               <li key={child.id}>
                                 <Link
                                   href={child.href}
-                                  aria-current={current ? 'page' : undefined}
+                                  aria-current={current ? 'true' : undefined}
                                   onClick={onNavigate}
-                                  className="relative z-10 flex min-h-9 items-center rounded-md px-2 text-sm text-ink-soft hover:text-ink"
+                                  className={`relative z-10 flex min-h-8 items-center gap-2 rounded-md px-2 text-[12.5px] hover:text-ink ${current ? 'text-ink' : 'text-white/60'}`}
                                 >
+                                  <span className={`h-1 w-1 rounded-full ${current ? 'bg-rose' : 'bg-white/40'}`} aria-hidden="true" />
                                   {child.label}
                                 </Link>
                               </li>

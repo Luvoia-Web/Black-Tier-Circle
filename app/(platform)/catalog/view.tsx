@@ -1,30 +1,21 @@
 'use client';
 
 /**
- * Catalog table. Filters live in the URL. Opening a row opens the shell drawer.
+ * Products. Catalogue matches the reference. Inventory, pricing and suppliers
+ * are the other tabs on this workspace.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Download, LayoutGrid, List, Pause, Percent, Plus, Send, Tag, Trash2 } from 'lucide-react';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
-import { writeSelection } from '@/components/platform/areas';
-import {
-  Button,
-  DataTable,
-  RelativeTime,
-  ErrorState,
-  FilterBar,
-  Pagination,
-  SelectField,
-  StatusPill,
-  TextField,
-  type Column,
-} from '@/components/platform/ui';
+import { Button, Card, DataTable, ErrorState, Modal, Pagination, RelativeTime, SelectField, Skeleton, StatusPill, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { usdtToMinor } from '@/lib/money';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
-import type { CatalogRow, CatalogStage } from '@/modules/platform/catalog';
+import type { CatalogRow, CatalogSummary, StockKind } from '@/modules/platform/catalog';
+import { ProductEditor } from './editor';
 
 type CatalogPayload = {
   readonly rows: readonly CatalogRow[];
@@ -33,6 +24,7 @@ type CatalogPayload = {
   readonly pageSize: number;
   readonly suppliers: readonly { readonly id: string; readonly name: string }[];
   readonly categories: readonly string[];
+  readonly summary: CatalogSummary;
   readonly role: 'owner' | 'reseller';
 };
 
@@ -41,88 +33,168 @@ type DetailPayload = {
   readonly history: readonly { readonly id: string; readonly label: string; readonly at: string }[];
 };
 
-const STAGES: { value: string; label: string }[] = [
-  { value: '', label: 'Every stage' },
-  { value: 'not_imported', label: 'Not imported' },
-  { value: 'imported', label: 'Imported' },
-  { value: 'live', label: 'Live' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'out_of_stock', label: 'Out of stock' },
+const STAGES: readonly { readonly id: string; readonly label: string }[] = [
+  { id: 'live', label: 'Live' },
+  { id: 'not_imported', label: 'Not imported' },
+  { id: 'paused', label: 'Paused' },
+  { id: 'out_of_stock', label: 'Out of stock' },
+  { id: 'archived', label: 'Archived' },
 ];
 
-function tone(stage: CatalogStage): 'ok' | 'warn' | 'fault' | 'neutral' {
-  if (stage === 'live') return 'ok';
-  if (stage === 'out_of_stock') return 'fault';
-  if (stage === 'paused' || stage === 'not_imported') return 'warn';
-  return 'neutral';
+const TILES = [
+  'linear-gradient(145deg,#ffe3ec,#ffc2d4)',
+  'linear-gradient(145deg,#ffead9,#ffcfa8)',
+  'linear-gradient(145deg,#f3e9e2,#e2cfc0)',
+  'linear-gradient(145deg,#e6efff,#c3d6ff)',
+  'linear-gradient(145deg,#fff3cf,#ffe29a)',
+  'linear-gradient(145deg,#e4fbef,#bdf0d6)',
+  'linear-gradient(145deg,#efe6ff,#d6c4ff)',
+  'linear-gradient(145deg,#ffe1e1,#ffbdbd)',
+];
+
+function money(minor: string): string {
+  try {
+    const whole = Number(BigInt(minor)) / 1_000_000;
+    return whole.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } catch {
+    return '0.00';
+  }
 }
 
-function label(stage: CatalogStage): string {
-  return STAGES.find((item) => item.value === stage)?.label ?? stage;
+function initials(title: string): string {
+  const parts = title.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const letters = parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : (parts[0] ?? 'PR').slice(0, 2);
+  return letters.toUpperCase();
+}
+
+function tile(title: string): string {
+  let hash = 0;
+  for (let index = 0; index < title.length; index += 1) {
+    hash = (hash + title.charCodeAt(index)) % TILES.length;
+  }
+  return TILES[hash] ?? 'linear-gradient(145deg,#ffe3ec,#ffc2d4)';
+}
+
+function stockTone(kind: StockKind, count: number | null): 'ok' | 'warn' | 'fault' | 'neutral' {
+  if (kind === 'out') return 'fault';
+  if (kind === 'count' && (count ?? 0) < 20) return 'warn';
+  if (kind === 'unknown') return 'neutral';
+  return 'ok';
+}
+
+function stockText(row: CatalogRow): string {
+  if (row.stockKind === 'unlimited') return '∞ in stock';
+  if (row.stockKind === 'out') return 'Out of stock';
+  if (row.stockKind === 'count') return `${row.stockCount ?? 0} in stock`;
+  return row.stockLabel;
+}
+
+function ruleText(kind: 'percent' | 'fixed', value: string): string {
+  return kind === 'fixed' ? `+${value}` : `${value}%`;
 }
 
 export function CatalogView(): JSX.Element {
   const params = useSearchParams();
   const router = useRouter();
   const setDrawer = useSetDrawerBody();
-  const query = params.toString();
-  const list = useData<CatalogPayload>(`/api/platform/catalog${query ? `?${query}` : ''}`);
+  const section = params.get('section') ?? 'catalogue';
+  const listParams = new URLSearchParams(params.toString());
+  if (section === 'catalogue' && !listParams.get('stage')) listParams.set('stage', 'live');
+  const list = useData<CatalogPayload>(section === 'catalogue' ? `/api/platform/catalog?${listParams.toString()}` : '/api/platform/catalog?stage=live');
   const item = params.get('item');
+  const creating = params.get('create') === '1';
+  const editing = params.get('edit') === '1';
   const detail = useData<DetailPayload>(item ? `/api/platform/catalog/detail?id=${encodeURIComponent(item)}` : null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [busy, setBusy] = useState(false);
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
   const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
   const [category, setCategory] = useState('');
+  const [ruleOpen, setRuleOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const role = list.data?.role ?? 'owner';
+  const summary = list.data?.summary;
 
   useEffect(() => {
-    if (!item) {
+    const stored = window.localStorage.getItem('btc-catalog-layout');
+    if (stored === 'list' || stored === 'grid') setLayout(stored);
+  }, []);
+
+  const openEditor = useCallback(() => {
+    const next = new URLSearchParams(params.toString());
+    next.set('edit', '1');
+    const value = next.toString();
+    router.replace(value ? `${ROUTES.platform.catalog}?${value}` : ROUTES.platform.catalog, { scroll: false });
+  }, [params, router]);
+
+  useEffect(() => {
+    if (!item || editing || creating) {
       setDrawer(null);
       return;
     }
     setDrawer(
-      detail.loading ? <p>Loading this item…</p>
+      detail.loading ? <Skeleton className="h-40 w-full" />
         : detail.error ? <ErrorState message={detail.error.message} onRetry={detail.refetch} />
-          : detail.data ? <ItemDetail row={detail.data.row} history={detail.data.history} onSaved={detail.refetch} />
-            : <p>This item is not in the catalog.</p>,
+          : detail.data ? (
+            <ItemDrawer
+              row={detail.data.row}
+              history={detail.data.history}
+              onEdit={openEditor}
+            />
+          ) : <p className="text-sm text-ink">This item is not in the catalog.</p>,
     );
     return () => setDrawer(null);
-  }, [item, detail.loading, detail.error, detail.data, detail.refetch, setDrawer]);
+  }, [item, editing, creating, detail.loading, detail.error, detail.data, detail.refetch, setDrawer, openEditor]);
 
   function replace(next: URLSearchParams): void {
     const value = next.toString();
     router.replace(value ? `${ROUTES.platform.catalog}?${value}` : ROUTES.platform.catalog, { scroll: false });
   }
 
-  function setFilter(key: string, value: string): void {
+  function setParam(key: string, value: string): void {
     const next = new URLSearchParams(params.toString());
     if (value) next.set(key, value);
     else next.delete(key);
-    if (key !== 'page') next.delete('page');
+    if (key !== 'page' && key !== 'item' && key !== 'edit' && key !== 'create') next.delete('page');
     replace(next);
   }
 
-  function open(row: CatalogRow): void {
-    const next = new URLSearchParams(params.toString());
-    next.set('item', row.supplierProductId ?? row.productId ?? row.id);
-    replace(next);
+  function remember(next: 'grid' | 'list'): void {
+    setLayout(next);
+    window.localStorage.setItem('btc-catalog-layout', next);
   }
 
-  async function bulk(action: 'publish' | 'pause' | 'delete' | 'set-category'): Promise<void> {
-    const rows = (list.data?.rows ?? []).filter((row) => selected.has(row.id));
-    if (rows.length === 0) {
-      setNotice('Select at least one row first.');
-      return;
-    }
+  const rows = list.data?.rows ?? [];
+  const chosen = rows.filter((row) => selected.has(row.id));
+  const archiveCount = chosen.filter((row) => row.productId && row.salesCount > 0).length;
+  const deleteCount = chosen.filter((row) => !row.productId || row.salesCount === 0).length;
+
+  async function applyBulk(action: 'publish' | 'pause' | 'delete' | 'set-category' | 'rule', rule?: { wholesaleKind: 'percent' | 'fixed'; wholesaleValue: string; retailKind: 'percent' | 'fixed'; retailValue: string }): Promise<void> {
+    if (chosen.length === 0) return;
     setBusy(true);
     setNotice(null);
-    const productIds = rows.map((row) => row.productId).filter((id): id is string => Boolean(id));
-    const supplierIds = rows.filter((row) => !row.productId && row.supplierProductId).map((row) => row.supplierProductId as string);
-    let failed = 0;
-    if (action === 'publish' && supplierIds.length > 0) {
-      const published = await runAction(API_ROUTES.supplierBulkPublish, { body: { supplierProductIds: supplierIds.slice(0, 200) } });
-      if (!published.ok) failed += supplierIds.length;
+    const productIds = chosen.map((row) => row.productId).filter((id): id is string => Boolean(id));
+    const supplierIds = chosen.filter((row) => !row.productId && row.supplierProductId).map((row) => row.supplierProductId as string);
+    if ((action === 'publish' || action === 'rule') && supplierIds.length > 0 && role === 'owner') {
+      const published = await runAction(API_ROUTES.supplierBulkPublish, {
+        body: {
+          supplierProductIds: supplierIds.slice(0, 200),
+          ...(rule ? {
+            wholesaleMarkupKind: rule.wholesaleKind,
+            wholesaleMarkupValue: Number(rule.wholesaleValue),
+            retailMarkupKind: rule.retailKind,
+            retailMarkupValue: Number(rule.retailValue),
+          } : {}),
+        },
+      });
+      if (!published.ok) {
+        setNotice(published.error.message);
+        setBusy(false);
+        return;
+      }
     }
-    if (productIds.length > 0) {
+    if (productIds.length > 0 && role === 'owner' && action !== 'rule') {
       const result = await runAction(API_ROUTES.productBulk, {
         body: { productIds: productIds.slice(0, 200), action, ...(action === 'set-category' ? { category } : {}) },
       });
@@ -132,126 +204,279 @@ export function CatalogView(): JSX.Element {
         return;
       }
     }
-    if (action === 'pause' || action === 'delete') {
+    if (action === 'rule' && rule && role === 'owner') {
+      for (const id of productIds.slice(0, 25)) {
+        const result = await runAction(API_ROUTES.product(id), {
+          method: 'PATCH',
+          body: {
+            pricingMode: 'markup',
+            wholesaleMarkupKind: rule.wholesaleKind,
+            retailMarkupKind: rule.retailKind,
+            wholesaleMarkupPercent: rule.wholesaleKind === 'percent' ? Number(rule.wholesaleValue) : null,
+            retailMarkupPercent: rule.retailKind === 'percent' ? Number(rule.retailValue) : null,
+            wholesaleMarkupMinor: rule.wholesaleKind === 'fixed' ? String(usdtToMinor(rule.wholesaleValue)) : null,
+            retailMarkupMinor: rule.retailKind === 'fixed' ? String(usdtToMinor(rule.retailValue)) : null,
+          },
+        });
+        if (!result.ok) {
+          setNotice(result.error.message);
+          break;
+        }
+      }
+    }
+    if (role === 'owner' && (action === 'pause' || action === 'delete')) {
       const route = action === 'pause' ? API_ROUTES.supplierPause : API_ROUTES.supplierReject;
       for (const id of supplierIds.slice(0, 25)) {
-        const result = await runAction(route(id));
-        if (!result.ok) failed += 1;
+        await runAction(route(id));
       }
     }
     setBusy(false);
-    setNotice(failed > 0 ? `${failed} rows did not update. The rest were saved.` : 'Bulk action finished.');
     setSelected(new Set());
-    writeSelection([]);
+    setCategoryOpen(false);
+    setRuleOpen(false);
+    setDeleteOpen(false);
+    setNotice('Saved.');
     list.refetch();
   }
 
-  const columns: Column<CatalogRow>[] = [
-    { id: 'title', header: 'Item', sortable: true, render: (row) => row.title },
-    { id: 'supplier', header: 'Supplier', render: (row) => row.supplierName },
-    { id: 'stage', header: 'Stage', render: (row) => <StatusPill tone={tone(row.stage)}>{label(row.stage)}</StatusPill> },
-    { id: 'stock', header: 'Stock', numeric: true, sortable: true, render: (row) => row.stockLabel },
-    {
-      id: 'rule',
-      header: 'Pricing rule',
-      render: (row) => <RuleEditor row={row} onSaved={list.refetch} />,
-    },
-  ];
-
-  const rows = list.data?.rows ?? [];
+  const activeStage = params.get('stage') ?? 'live';
 
   return (
     <section className="space-y-4">
-      <header>
-        <h1 className="text-2xl text-ink">Catalog</h1>
-        <p className="mt-1 text-sm text-ink-soft">Every supplier item and published product, with its stage.</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[30px] font-medium tracking-tight text-ink">Products</h1>
+          <p className="mt-1.5 text-[13.5px] text-ink-soft">
+            {summary ? (
+              <>
+                <b className="font-medium text-ink">{summary.itemCount}</b>
+                {role === 'owner' ? <> items across {summary.supplierCount} suppliers</> : <> listings</>}
+                {' · '}
+                <b className="font-medium text-ink">{summary.liveCount}</b> live in your bots
+              </>
+            ) : 'Catalogue, stock and pricing'}
+          </p>
+        </div>
+        {role === 'owner' ? (
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setParam('create', '1')}><Plus className="h-4 w-4" aria-hidden="true" />New product</Button>
+            <Button onClick={() => setParam('section', 'suppliers')}><Download className="h-4 w-4" aria-hidden="true" />Import from supplier</Button>
+          </div>
+        ) : null}
       </header>
-      <FilterBar>
-        <TextField id="catalog-search" label="Search" placeholder="Name or SKU" defaultValue={params.get('search') ?? ''} onBlur={(event) => setFilter('search', event.target.value)} />
-        <SelectField id="catalog-supplier" label="Supplier" value={params.get('supplier') ?? ''} options={[{ value: '', label: 'Every supplier' }, { value: 'own', label: 'Own products' }, ...(list.data?.suppliers ?? []).map((supplier) => ({ value: supplier.id, label: supplier.name }))]} onChange={(event) => setFilter('supplier', event.target.value)} />
-        <SelectField id="catalog-stage" label="Stage" value={params.get('stage') ?? ''} options={STAGES} onChange={(event) => setFilter('stage', event.target.value)} />
-        <SelectField id="catalog-stock" label="Stock" value={params.get('stock') ?? ''} options={[{ value: '', label: 'Any stock' }, { value: 'in', label: 'In stock' }, { value: 'out', label: 'Out of stock' }]} onChange={(event) => setFilter('stock', event.target.value)} />
-        <SelectField id="catalog-category" label="Category" value={params.get('category') ?? ''} options={[{ value: '', label: 'Every category' }, ...(list.data?.categories ?? []).map((item) => ({ value: item, label: item }))]} onChange={(event) => setFilter('category', event.target.value)} />
-        <SelectField id="catalog-sort" label="Sort" value={params.get('sort') ?? 'title'} options={[{ value: 'title', label: 'Name' }, { value: 'stock', label: 'Stock' }, { value: 'created', label: 'Newest' }]} onChange={(event) => setFilter('sort', event.target.value)} />
-      </FilterBar>
-      {notice ? <p className="text-sm text-ink">{notice}</p> : null}
-      <DataTable
-        caption="Catalog"
-        columns={columns}
-        rows={rows}
-        rowKey={(row) => row.id}
-        loading={list.loading}
-        error={list.error?.message ?? null}
-        onRetry={list.refetch}
-        emptyTitle="No items match"
-        emptyMessage="Clear a filter, or sync suppliers to pull the catalog."
-        sort={{ id: params.get('sort') ?? 'title', direction: 'asc' }}
-        onSort={(id) => setFilter('sort', id === 'title' ? 'title' : id === 'stock' ? 'stock' : 'created')}
-        selected={selected}
-        onSelected={(next) => {
-          setSelected(next);
-          writeSelection(rows.filter((row) => next.has(row.id) && row.supplierProductId).map((row) => row.supplierProductId as string));
-        }}
-        onOpen={open}
-        bulk={list.data?.role === 'owner' ? (
-          <>
-            <Button variant="secondary" loading={busy} onClick={() => void bulk('publish')}>Publish</Button>
-            <Button variant="secondary" loading={busy} onClick={() => void bulk('pause')}>Pause</Button>
-            <TextField id="bulk-category" label="Category" value={category} onChange={(event) => setCategory(event.target.value)} />
-            <Button variant="secondary" loading={busy} onClick={() => void bulk('set-category')}>Set category</Button>
-            <Button variant="destructive" loading={busy} onClick={() => void bulk('delete')}>Delete</Button>
-          </>
-        ) : undefined}
-      />
-      {list.data ? (
-        <Pagination
-          page={list.data.page}
-          pageSize={list.data.pageSize}
-          total={list.data.total}
-          onPage={(page) => setFilter('page', String(page))}
-          onPageSize={(size) => setFilter('pageSize', String(size))}
-        />
+      <div className="inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
+        {[
+          { id: 'catalogue', label: 'Catalogue' },
+          { id: 'inventory', label: 'Inventory' },
+          { id: 'pricing', label: 'Pricing rules' },
+        ].map((tab) => {
+          const on = section === tab.id;
+          return (
+            <button key={tab.id} type="button" aria-pressed={on} className={`inline-flex h-8 items-center gap-2 rounded-lg px-3 text-[12.5px] ${on ? 'bg-white/12 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]' : 'text-ink-faint'}`} onClick={() => setParam('section', tab.id === 'catalogue' ? '' : tab.id)}>
+              {tab.label}
+              {tab.id === 'inventory' && summary ? <span className="rounded-pill bg-rose px-1.5 text-[11px] text-white">{summary.attentionCount}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {section === 'inventory' ? <Card title="Inventory"><p>Stock value, units on hand and the items that need attention open on this tab.</p></Card> : null}
+      {section === 'pricing' ? <Card title="Pricing rules"><p>The store markup and the live cost preview open on this tab.</p></Card> : null}
+      {section === 'suppliers' ? <Card title="Suppliers"><p>Connected suppliers, the import catalog, supplier orders and health open on this tab.</p></Card> : null}
+      {section === 'catalogue' ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <TextField id="catalog-search" label="Search" placeholder="Search by name, SKU or supplier" defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
+            <div className="ml-auto inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
+              {STAGES.map((stage) => (
+                <button key={stage.id} type="button" aria-pressed={activeStage === stage.id} className={`h-8 rounded-lg px-3 text-[12.5px] ${activeStage === stage.id ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => setParam('stage', stage.id === 'live' ? '' : stage.id)}>{stage.label}</button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
+              <button type="button" aria-pressed={layout === 'grid'} aria-label="Grid" className={`grid h-8 w-8 place-items-center rounded-lg ${layout === 'grid' ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => remember('grid')}><LayoutGrid className="h-4 w-4" /></button>
+              <button type="button" aria-pressed={layout === 'list'} aria-label="List" className={`grid h-8 w-8 place-items-center rounded-lg ${layout === 'list' ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => remember('list')}><List className="h-4 w-4" /></button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <CategoryChip label="Everything" count={summary?.liveCount ?? 0} on={!(params.get('category'))} onClick={() => setParam('category', '')} />
+            {(summary?.categoryCounts ?? []).map((chip) => (
+              <CategoryChip key={chip.name} label={chip.name} count={chip.count} on={params.get('category') === chip.name} onClick={() => setParam('category', chip.name)} />
+            ))}
+          </div>
+          {notice ? <p className="text-sm text-ink">{notice}</p> : null}
+          {list.loading && !list.data ? <Skeleton className="h-40 w-full" /> : null}
+          {list.error && !list.data ? <ErrorState message={list.error.message} onRetry={list.refetch} /> : null}
+          {list.data && rows.length === 0 ? <Card title="No products match"><p>Clear a filter, or import from a supplier.</p></Card> : null}
+          {layout === 'grid' && rows.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+              {rows.map((row) => (
+                <ProductCard
+                  key={row.id}
+                  row={row}
+                  selected={selected.has(row.id)}
+                  onToggle={() => {
+                    const next = new Set(selected);
+                    if (next.has(row.id)) next.delete(row.id);
+                    else next.add(row.id);
+                    setSelected(next);
+                  }}
+                  onOpen={() => setParam('item', row.supplierProductId ?? row.productId ?? row.id)}
+                  onSaved={list.refetch}
+                />
+              ))}
+            </div>
+          ) : null}
+          {layout === 'list' && rows.length > 0 ? (
+            <ProductTable rows={rows} selected={selected} onSelected={setSelected} onOpen={(row) => setParam('item', row.supplierProductId ?? row.productId ?? row.id)} onSaved={list.refetch} />
+          ) : null}
+          {list.data ? <Pagination page={list.data.page} pageSize={list.data.pageSize} total={list.data.total} onPage={(page) => setParam('page', String(page))} /> : null}
+          {chosen.length > 0 ? (
+            <div className="sticky bottom-4 z-20 mx-auto flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[rgb(30_16_24/0.82)] px-4 py-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
+              <span className="text-[13.5px] text-ink"><b className="font-medium">{chosen.length} selected</b></span>
+              {role === 'owner' ? <Button variant="secondary" onClick={() => setCategoryOpen(true)}><Tag className="h-3.5 w-3.5" aria-hidden="true" />Set category</Button> : null}
+              {role === 'owner' ? <Button variant="secondary" onClick={() => setRuleOpen(true)}><Percent className="h-3.5 w-3.5" aria-hidden="true" />Pricing rule</Button> : null}
+              {role === 'owner' ? <Button variant="secondary" loading={busy} onClick={() => void applyBulk('pause')}><Pause className="h-3.5 w-3.5" aria-hidden="true" />Pause</Button> : null}
+              {role === 'owner' ? <Button loading={busy} onClick={() => void applyBulk('publish')}><Send className="h-3.5 w-3.5" aria-hidden="true" />Publish to bot</Button> : null}
+              {role === 'owner' ? <Button variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button> : null}
+            </div>
+          ) : null}
+        </>
       ) : null}
+      <Modal open={creating || editing} wide title={creating ? 'New product' : 'Edit product'} onClose={() => { setParam('create', ''); setParam('edit', ''); }}>
+        {editing && detail.loading ? <Skeleton className="h-40 w-full" /> : null}
+        {editing && !detail.loading && !detail.data?.row.productId && role === 'owner' ? <p className="text-sm text-ink">Publish this supplier item before editing it.</p> : null}
+        {creating || (editing && (role === 'reseller' ? detail.data?.row.listingId : detail.data?.row.productId)) ? (
+          <ProductEditor
+            productId={creating ? null : detail.data?.row.productId ?? null}
+            listingId={detail.data?.row.listingId ?? null}
+            role={role}
+            onClose={() => { setParam('create', ''); setParam('edit', ''); }}
+            onSaved={() => { list.refetch(); detail.refetch(); }}
+          />
+        ) : null}
+      </Modal>
+      <Modal open={categoryOpen} title="Set category" onClose={() => setCategoryOpen(false)}>
+        <TextField id="bulk-category" label="Category" value={category} onChange={(event) => setCategory(event.target.value)} />
+        <div className="mt-3"><Button loading={busy} onClick={() => void applyBulk('set-category')}>Save category</Button></div>
+      </Modal>
+      <Modal open={ruleOpen} title="Pricing rule" onClose={() => setRuleOpen(false)}>
+        <RuleForm busy={busy} onSave={(rule) => void applyBulk('rule', rule)} />
+      </Modal>
+      <Modal open={deleteOpen} title="Delete products" onClose={() => setDeleteOpen(false)}>
+        <p className="text-sm text-ink">{archiveCount} sold {archiveCount === 1 ? 'product' : 'products'} will be archived. {deleteCount} unsold {deleteCount === 1 ? 'item' : 'items'} will be deleted.</p>
+        <div className="mt-3 flex gap-2">
+          <Button variant="destructive" loading={busy} onClick={() => void applyBulk('delete')}>Confirm delete</Button>
+          <Button variant="secondary" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+        </div>
+      </Modal>
     </section>
   );
 }
 
-function RuleEditor({ row, onSaved }: { readonly row: CatalogRow; readonly onSaved: () => void }): JSX.Element {
+function CategoryChip({ label, count, on, onClick }: { readonly label: string; readonly count: number; readonly on: boolean; readonly onClick: () => void }): JSX.Element {
+  return (
+    <button type="button" aria-pressed={on} onClick={onClick} className={`inline-flex h-8 items-center gap-2 rounded-xl border px-3 text-[12.5px] ${on ? 'border-rose/50 bg-rose/25 text-white' : 'border-white/10 bg-white/[0.06] text-ink-soft'}`}>
+      {label}
+      <span className={`rounded-pill px-1.5 text-[11px] ${on ? 'bg-rose/30 text-white' : 'bg-white/10 text-ink-soft'}`}>{count}</span>
+    </button>
+  );
+}
+
+function ProductCard({ row, selected, onToggle, onOpen, onSaved }: { readonly row: CatalogRow; readonly selected: boolean; readonly onToggle: () => void; readonly onOpen: () => void; readonly onSaved: () => void }): JSX.Element {
+  return (
+    <article className={`glass-card rounded-lg p-3 ${selected ? 'border-rose/60 shadow-[0_0_0_1px_rgba(255,95,143,0.35)]' : ''}`}>
+      <button type="button" className="relative block h-[122px] w-full overflow-hidden rounded-[14px]" onClick={onOpen} aria-label={`Open ${row.title}`}>
+        {row.imageUrl ? (
+          <span className="block h-full w-full bg-cover bg-center" style={{ backgroundImage: `url(${JSON.stringify(row.imageUrl)})` }} />
+        ) : (
+          <span className="grid h-full w-full place-items-center text-[28px] font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{initials(row.title)}</span>
+        )}
+        <input type="checkbox" aria-label={`Select ${row.title}`} checked={selected} className="absolute left-2 top-2 h-4 w-4" onClick={(event) => event.stopPropagation()} onChange={onToggle} />
+      </button>
+      <button type="button" className="mt-2 block text-left text-sm font-medium text-ink" onClick={onOpen}>{row.title}</button>
+      <p className="text-xs text-ink-faint">{row.category || 'Uncategorised'} · {row.deliveryLabel} · {row.supplierName}</p>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <InlinePrice row={row} onSaved={onSaved} />
+        <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill>
+      </div>
+      <InlineStatus row={row} onSaved={onSaved} />
+      <InlineRule row={row} onSaved={onSaved} />
+    </article>
+  );
+}
+
+function ProductTable({ rows, selected, onSelected, onOpen, onSaved }: { readonly rows: readonly CatalogRow[]; readonly selected: ReadonlySet<string>; readonly onSelected: (next: ReadonlySet<string>) => void; readonly onOpen: (row: CatalogRow) => void; readonly onSaved: () => void }): JSX.Element {
+  const columns: Column<CatalogRow>[] = [
+    { id: 'title', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md text-xs font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{initials(row.title)}</span>{row.title}</span> },
+    { id: 'category', header: 'Category', render: (row) => row.category || '—' },
+    { id: 'delivery', header: 'Delivery', render: (row) => row.deliveryLabel },
+    { id: 'supplier', header: 'Supplier', render: (row) => row.supplierName },
+    { id: 'price', header: 'Price', numeric: true, render: (row) => <InlinePrice row={row} onSaved={onSaved} /> },
+    { id: 'stock', header: 'Stock', render: (row) => <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill> },
+    { id: 'margin', header: 'Margin', numeric: true, render: (row) => row.marginLabel },
+    { id: 'rule', header: 'Markup rule', render: (row) => <InlineRule row={row} onSaved={onSaved} /> },
+  ];
+  return (
+    <DataTable caption="Products" columns={columns} rows={rows} rowKey={(row) => row.id} selected={selected} onSelected={onSelected} onOpen={onOpen} emptyTitle="No products match" emptyMessage="Clear a filter, or import from a supplier." />
+  );
+}
+
+function InlinePrice({ row, onSaved }: { readonly row: CatalogRow; readonly onSaved: () => void }): JSX.Element {
+  const [value, setValue] = useState(money(row.priceMinor));
+  async function save(): Promise<void> {
+    try {
+      const minor = String(usdtToMinor(value));
+      const result = row.listingId
+        ? await runAction(API_ROUTES.resellerListing(row.listingId), { method: 'PATCH', body: { retailPriceStr: minor } })
+        : row.productId
+          ? await runAction(API_ROUTES.product(row.productId), { method: 'PATCH', body: { retailPriceStr: minor } })
+          : { ok: false as const, error: { message: 'Import this item before setting a price.', code: 'NO_PRODUCT' } };
+      if (!result.ok) return;
+      onSaved();
+    } catch {
+      setValue(money(row.priceMinor));
+    }
+  }
+  return (
+    <label className="text-xs text-ink-faint">
+      <span className="sr-only">Price for {row.title}</span>
+      <input className="w-16 bg-transparent text-right font-num text-sm text-ink" value={value} onChange={(event) => setValue(event.target.value)} onBlur={() => void save()} />
+      <span className="ml-1">USDT</span>
+    </label>
+  );
+}
+
+function InlineStatus({ row, onSaved }: { readonly row: CatalogRow; readonly onSaved: () => void }): JSX.Element {
+  async function save(status: string): Promise<void> {
+    if (row.listingId) {
+      await runAction(API_ROUTES.resellerListing(row.listingId), { method: 'PATCH', body: { isVisible: status !== 'paused' } });
+    } else if (row.productId && (status === 'published' || status === 'paused' || status === 'archived')) {
+      await runAction(API_ROUTES.productStatus(row.productId), { method: 'PATCH', body: { status } });
+    }
+    onSaved();
+  }
+  const value = row.stage === 'paused' ? 'paused' : row.stage === 'archived' ? 'archived' : row.stage === 'not_imported' ? 'not_imported' : 'published';
+  return (
+    <label className="mt-2 block text-xs text-ink-faint">
+      Status
+      <select aria-label={`Status for ${row.title}`} className="mt-1 w-full rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm text-ink" value={value} onChange={(event) => void save(event.target.value)}>
+        <option value="published">Live</option>
+        <option value="paused">Paused</option>
+        <option value="archived">Archived</option>
+        {value === 'not_imported' ? <option value="not_imported">Not imported</option> : null}
+      </select>
+    </label>
+  );
+}
+
+function InlineRule({ row, onSaved }: { readonly row: CatalogRow; readonly onSaved: () => void }): JSX.Element {
   const [wholesaleKind, setWholesaleKind] = useState(row.wholesaleKind);
   const [wholesaleValue, setWholesaleValue] = useState(row.wholesaleValue);
   const [retailKind, setRetailKind] = useState(row.retailKind);
   const [retailValue, setRetailValue] = useState(row.retailValue);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   async function save(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    if (!row.productId) {
-      if (!row.supplierProductId) {
-        setError('This row has no product to price.');
-        setBusy(false);
-        return;
-      }
-      const result = await runAction(API_ROUTES.supplierBulkPublish, {
-        body: {
-          supplierProductIds: [row.supplierProductId],
-          wholesaleMarkupKind: wholesaleKind,
-          wholesaleMarkupValue: Number(wholesaleValue),
-          retailMarkupKind: retailKind,
-          retailMarkupValue: Number(retailValue),
-        },
-      });
-      setBusy(false);
-      if (!result.ok) {
-        setError(result.error.message);
-        return;
-      }
-      onSaved();
-      return;
-    }
+    if (!row.productId) return;
     try {
-      const result = await runAction(API_ROUTES.product(row.productId), {
+      await runAction(API_ROUTES.product(row.productId), {
         method: 'PATCH',
         body: {
           pricingMode: 'markup',
@@ -263,60 +488,65 @@ function RuleEditor({ row, onSaved }: { readonly row: CatalogRow; readonly onSav
           retailMarkupMinor: retailKind === 'fixed' ? String(usdtToMinor(retailValue)) : null,
         },
       });
-      setBusy(false);
-      if (!result.ok) {
-        setError(result.error.message);
-        return;
-      }
       onSaved();
-    } catch (cause: unknown) {
-      setBusy(false);
-      setError(cause instanceof Error ? cause.message : 'Enter a price with up to 6 decimals.');
+    } catch {
+      setWholesaleValue(row.wholesaleValue);
     }
   }
-
   return (
-    <div className="flex min-w-0 flex-wrap items-end gap-2">
-      <label className="text-xs text-ink-faint">
-        Wholesale
-        <span className="mt-1 flex gap-1">
-          <select aria-label={`Wholesale kind for ${row.title}`} className="min-h-11 rounded-md border border-stroke bg-raised px-2 text-sm" value={wholesaleKind} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}>
-            <option value="percent">Percent</option>
-            <option value="fixed">Fixed</option>
-          </select>
-          <input aria-label={`Wholesale value for ${row.title}`} className="w-20 min-h-11 rounded-md border border-stroke bg-raised px-2 text-right font-num text-sm" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} />
-        </span>
-      </label>
-      <label className="text-xs text-ink-faint">
-        Retail
-        <span className="mt-1 flex gap-1">
-          <select aria-label={`Retail kind for ${row.title}`} className="min-h-11 rounded-md border border-stroke bg-raised px-2 text-sm" value={retailKind} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}>
-            <option value="percent">Percent</option>
-            <option value="fixed">Fixed</option>
-          </select>
-          <input aria-label={`Retail value for ${row.title}`} className="w-20 min-h-11 rounded-md border border-stroke bg-raised px-2 text-right font-num text-sm" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} />
-        </span>
-      </label>
-      <Button variant="secondary" loading={busy} onClick={() => void save()}>{row.productId ? 'Save rule' : 'Publish with this rule'}</Button>
-      {error ? <p className="w-full text-xs" style={{ color: 'var(--fault-ink)' }}>{error}</p> : null}
+    <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-ink-faint">
+      <span>W</span>
+      <select aria-label={`Wholesale kind for ${row.title}`} className="bg-transparent text-ink" value={wholesaleKind} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}>
+        <option value="percent">%</option>
+        <option value="fixed">Fixed</option>
+      </select>
+      <input aria-label={`Wholesale value for ${row.title}`} className="w-12 bg-transparent font-num text-ink" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} onBlur={() => void save()} />
+      <span>R {ruleText(retailKind, retailValue)}</span>
+      <select aria-label={`Retail kind for ${row.title}`} className="bg-transparent text-ink" value={retailKind} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}>
+        <option value="percent">%</option>
+        <option value="fixed">Fixed</option>
+      </select>
+      <input aria-label={`Retail value for ${row.title}`} className="w-12 bg-transparent font-num text-ink" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} onBlur={() => void save()} />
     </div>
   );
 }
 
-function ItemDetail({ row, history, onSaved }: { readonly row: CatalogRow; readonly history: DetailPayload['history']; readonly onSaved: () => void }): JSX.Element {
+function RuleForm({ busy, onSave }: { readonly busy: boolean; readonly onSave: (rule: { wholesaleKind: 'percent' | 'fixed'; wholesaleValue: string; retailKind: 'percent' | 'fixed'; retailValue: string }) => void }): JSX.Element {
+  const [wholesaleKind, setWholesaleKind] = useState<'percent' | 'fixed'>('percent');
+  const [wholesaleValue, setWholesaleValue] = useState('50');
+  const [retailKind, setRetailKind] = useState<'percent' | 'fixed'>('percent');
+  const [retailValue, setRetailValue] = useState('50');
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-ink">{row.title}</p>
-      <p className="font-num text-xs text-ink-faint">{row.sku || row.id}</p>
-      <StatusPill tone={tone(row.stage)}>{label(row.stage)}</StatusPill>
-      <p className="text-sm text-ink-soft">{row.supplierName} · {row.stockLabel}</p>
-      <RuleEditor row={row} onSaved={onSaved} />
-      <h3 className="text-sm text-ink">History</h3>
-      {history.length === 0 ? <p className="text-sm text-ink-soft">No orders yet. A completed order will show up here.</p> : (
+    <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); onSave({ wholesaleKind, wholesaleValue, retailKind, retailValue }); }}>
+      <SelectField id="bulk-wholesale-kind" label="Wholesale" value={wholesaleKind} options={[{ value: 'percent', label: 'Percent' }, { value: 'fixed', label: 'Fixed USDT' }]} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')} />
+      <TextField id="bulk-wholesale-value" label="Wholesale value" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} />
+      <SelectField id="bulk-retail-kind" label="Retail" value={retailKind} options={[{ value: 'percent', label: 'Percent' }, { value: 'fixed', label: 'Fixed USDT' }]} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')} />
+      <TextField id="bulk-retail-value" label="Retail value" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} />
+      <Button type="submit" loading={busy}>Apply rule</Button>
+    </form>
+  );
+}
+
+function ItemDrawer({ row, history, onEdit }: { readonly row: CatalogRow; readonly history: DetailPayload['history']; readonly onEdit: () => void }): JSX.Element {
+  return (
+    <div className="space-y-3 text-ink">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-base">{row.title}</p>
+          <p className="font-mono text-xs text-ink-faint">{row.sku || row.id}</p>
+        </div>
+        <Button variant="secondary" onClick={onEdit}>Edit</Button>
+      </div>
+      <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill>
+      <p className="text-sm text-ink-soft">{row.category || 'Uncategorised'} · {row.deliveryLabel} · {row.supplierName}</p>
+      <p className="font-num text-sm">{money(row.priceMinor)} USDT · margin {row.marginLabel}</p>
+      <p className="text-sm text-ink-soft">Wholesale {ruleText(row.wholesaleKind, row.wholesaleValue)} · retail {ruleText(row.retailKind, row.retailValue)}</p>
+      <h3 className="text-sm">History</h3>
+      {history.length === 0 ? <p className="text-sm text-ink-soft">No orders yet.</p> : (
         <ul className="space-y-2">
           {history.map((entry) => (
-            <li key={entry.id} className="text-sm text-ink">
-              <span className="font-num">{entry.label}</span>
+            <li key={entry.id} className="text-sm">
+              {entry.label}
               <span className="mt-0.5 block text-xs text-ink-faint"><RelativeTime value={entry.at} /></span>
             </li>
           ))}

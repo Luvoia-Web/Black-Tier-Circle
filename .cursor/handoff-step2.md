@@ -26,8 +26,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | --- | --- | --- | --- |
 | 0 Evidence | DONE | cab55633a3c5834349f68d983dbae65ce7557865 | Handoff only. Checklist and security findings below. |
 | 1 Migration 0033 | DONE | de4f4b4ecf6d92b5922a8446c05414cc66c7c543 | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
-| 2 Orders | DONE | filled after this commit | Orders screen, drawer, owner replace, buyer Replace removed. |
-| 3 Products · Catalogue | pending | | |
+| 2 Orders | DONE | 7b09d18b8fccd743ed4a44d536269dd07499be3a | Orders screen, drawer, owner replace, buyer Replace removed. |
+| 3 Products · Catalogue | DONE | recorded after this commit | Catalogue, drawer, editor, reseller listing editor. |
 | 4 Inventory and Pricing rules | pending | | |
 | 5 Suppliers | pending | | |
 | 6 Security | pending | | |
@@ -36,17 +36,39 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 
 ## Design reference
 
-Named files `BTC-1-overview@2x.png`, `BTC-2-products@2x.png`, `BTC-3-orders@2x.png`, `BTC-4-resellers@2x.png`, `BTC-5-bot-studio@2x.png`, and `btc-mockups-source.mjs`: **NOT FOUND** in `Black-Tier-Circle/.cursor/design-reference/` or the workspace `.cursor/design-reference/`.
+All six named files are present in `Black-Tier-Circle/.cursor/design-reference/` and are not committed: `BTC-1-overview@2x.png`, `BTC-2-products@2x.png`, `BTC-3-orders@2x.png`, `BTC-4-resellers@2x.png`, `BTC-5-bot-studio@2x.png`, `btc-mockups-source.mjs`.
 
-Present, and treated as the screens that were studied in Step 1:
+### Token corrections against `btc-mockups-source.mjs`
 
-- `Black-Tier-Circle/.cursor/design-reference/Pasted 2026-11-18 at 6.22.49 PM.png`
-- `Pasted 2026-11-18 at 6.22.54 PM.png`
-- `Pasted 2026-11-18 at 6.23.00 PM.png`
-- `Pasted 2026-11-18 at 6.23.06 PM.png`
-- `Pasted 2026-11-18 at 6.23.11 PM.png`
+| Token | Before | After |
+| --- | --- | --- |
+| `--c-base` / page | 12 7 14 | 11 7 9 (`#0b0709`) |
+| `--c-rose` | 255 77 141 | 255 95 143 (`#ff5f8f`) |
+| `--c-rose-deep` | 122 24 62 | 239 91 140 (`#ef5b8c`) |
+| `--c-amber` | 245 176 66 | 242 178 62 (`#f2b23e`) |
+| `--c-sky` | 91 157 255 | 126 166 239 (`#7ea6ef`) |
+| `--c-mint` | 61 220 151 | 79 220 156 (`#4fdc9c`) |
+| `--c-danger` | 255 77 99 | 255 90 95 (`#ff5a5f`) |
+| `--c-violet` | missing | 169 139 255 (`#a98bff`) |
+| `--c-ink` | 244 240 246 | 246 239 243 (`#f6eff3`) |
+| `--c-ink-soft` | 196 184 198 | 161 155 159 (ink at 64% over the base) |
+| `--c-ink-faint` | 140 126 144 | 110 104 107 (ink at 42% over the base) |
+| `--radius-lg` / Tailwind `lg` | 22px | 20px |
+| `--radius-xl` / Tailwind `xl` | 28px | 24px |
+| Card blur | 18px | 22px |
+| Card fill and shadow | flat card / `0 18px 40px` | gradient `38,22,30` to `20,12,18`, inset sheen plus `0 20px 50px` |
+| Sidebar fill | two-stop rose | three-stop `178,40,92` / `118,24,62` / `58,14,34`, blur 28px, saturate 150% |
+| Sidebar width | 272px | 256px |
+| Glass shadow | `0 24px 60px` | inset white 14% plus `0 30px 70px` |
+| Stroke | white at 10% | white at 8% (`--line`) |
+| Mesh | three glows | the six radial gradients from the source. Light theme keeps the softer three. |
+| Primary button | flat rose | `#ff8db0` to `#f0507f`, height 38px, radius 12px |
 
-These files are not committed. Token comparison against `btc-mockups-source.mjs` cannot run until that file exists. Step 1 tokens in `app/globals.css` and `tailwind.config.ts` stay the source until a drift can be measured against the missing source file.
+`--radius-sm` 10px and `--radius-md` 14px already matched. Outfit and JetBrains Mono already matched.
+
+### Sidebar
+
+Icons and labels now follow `NAV_OWNER`. Analytics is `ChartColumnBig`, Intelligence is `BrainCircuit`, Remy AI is `Sparkles`, Bots is `Bot`, Discounts is `TicketPercent`, Broadcasts is `RadioTower` and the label is Broadcasts, Bot Studio is `Palette`. Products is the only item with sub-items: Catalogue, Inventory (`?section=inventory`), Pricing rules (`?section=pricing`). Suppliers, Customers, Wallets, Payments and Marketing no longer expand. Sibling links that share a path are split with `section` so two items are not active at once. The liquid pill stays on the parent row. A sub-item uses the rose dot.
 
 ## Phase 0 — evidence
 
@@ -297,4 +319,33 @@ Checks:
 
 Files: `app/(platform)/orders/view.tsx`, `app/api/platform/orders/route.ts`, `app/api/orders/[orderId]/detail/route.ts`, `app/api/platform/replacements/route.ts`, `modules/platform/orders.ts`, `modules/platform/replacements.ts`, `modules/orders/state-machine.ts`, `lib/order-detail.ts`, `modules/store-config/keyboard.ts`, `integrations/telegram/client.ts`, `tests/unit/order-board.test.ts`, `.cursor/handoff-step2.md`.
 
-Files: `supabase/migrations/0033_commerce.sql`, `modules/platform/goal.ts`, `app/api/platform/goal/route.ts`, `components/platform/sidebar.tsx`, `tests/unit/revenue-goal.test.ts`, `.cursor/handoff-step2.md`.
+## Phase 3 — Products · Catalogue
+
+`/catalog` is the Products screen from `BTC-2-products@2x.png`. The header counts items, suppliers and products live in the bots. New product sets `?create=1`. Import from supplier sets `?section=suppliers` (the supplier screens are Phase 5). Tabs are Catalogue, Inventory (needs-attention count) and Pricing rules. Inventory and Pricing rules render a titled card until Phase 4.
+
+Search covers name, SKU and supplier name. The stage segment is Live, Not imported, Paused, Out of stock, Archived. Live is the default and still shows published items that are out of stock, so the stock pill can read Out of stock while Live is selected. Grid and list are remembered in `btc-catalog-layout`. Category chips use published counts. Cards use the supplier image when one exists, otherwise the pastel initial tile, plus category, delivery, supplier, price and a stock pill. The list adds margin and the markup rule. Selection shows the sticky bar: Set category, Pricing rule, Pause, Publish to bot, Delete. Delete states how many sold products will be archived and how many unsold items will be deleted.
+
+Price, status and the wholesale/retail markup (percent or fixed) save on the card or the row. `?item=` opens the drawer with history and Edit. Edit and `?create=1` open the full editor: title, description, category, buyer category, delivery, duration, warranty, type label, images, files (upload, download, delete), tiers, stock and status. SKU is entered only on create. Reseller listings use the same catalogue, their retail price, store markup and their tiers.
+
+Catalog search no longer builds a PostgREST `.or()` string. Each column is an `.ilike` parameter, the ids are collected, and the page query uses `.in()`. The other `.or()` sites from Phase 0 stay for Phase 6.
+
+0033 was not edited. The user confirmed it is applied. Nothing was pushed.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 348 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `app/(platform)/catalog/view.tsx`, `app/(platform)/catalog/editor.tsx`, `modules/platform/catalog.ts`, `modules/catalog/index.ts`, `modules/catalog/types.ts`, `app/api/products/[productId]/route.ts`, `lib/validations/catalog.ts`, `lib/hooks/use-action.ts`, `lib/supabase/query.ts`, `app/globals.css`, `tailwind.config.ts`, `components/platform/nav.ts`, `components/platform/sidebar.tsx`, `components/platform/ui/button.tsx`, `components/platform/ui/chrome.tsx`, `tests/fixtures/fake-supabase.ts`, `tests/unit/revenue-goal.test.ts`, `tests/unit/supplier-catalog-page.test.ts`, `.cursor/handoff-step2.md`.
+
+## Resume
+
+Phases 0, 1, 2 and 3 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`. The user confirmed 0033 is applied.
+
+Phase 4 is next. Replace the Inventory and Pricing rules cards in `app/(platform)/catalog/view.tsx`. Keep the catalogue.
+
+Phase 6 still has to fix every remaining user-text `.or()` string, including the product search added in Phase 2 in `modules/platform/orders.ts`. Catalog search in `modules/platform/catalog.ts` is already `.ilike` plus `.in()`.
+
+Nothing has been pushed. Next.js is 14.2.21. React is 18.3.1.

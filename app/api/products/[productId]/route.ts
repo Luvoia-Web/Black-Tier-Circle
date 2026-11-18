@@ -80,6 +80,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       ...(parsed.title !== undefined ? { title: parsed.title } : {}),
       ...(parsed.description !== undefined ? { description: parsed.description } : {}),
       ...(parsed.category !== undefined ? { category: parsed.category } : {}),
+      ...(parsed.buyerCategory !== undefined ? { buyerCategory: parsed.buyerCategory } : {}),
       ...(parsed.deliveryType !== undefined ? { deliveryType: parsed.deliveryType } : {}),
       ...(parsed.wholesalePriceStr !== undefined ? { wholesalePriceMinor: parsed.wholesalePriceStr } : {}),
       ...(parsed.retailPriceStr !== undefined ? { retailPriceMinor: parsed.retailPriceStr } : {}),

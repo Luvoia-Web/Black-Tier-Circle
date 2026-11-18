@@ -100,6 +100,7 @@ export type UpdateProductInput = {
   durationText?: string | null;
   warrantyText?: string | null;
   typeLabel?: string | null;
+  buyerCategory?: string | null;
   pricingMode?: 'manual' | 'markup';
   wholesaleMarkupKind?: 'percent' | 'fixed';
   wholesaleMarkupPercent?: number | null;

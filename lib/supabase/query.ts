@@ -53,6 +53,7 @@ export type QueryBuilder<T> = {
   is: (column: string, value: null) => QueryBuilder<T>;
   gte: (column: string, value: string) => QueryBuilder<T>;
   lte: (column: string, value: string) => QueryBuilder<T>;
+  ilike: (column: string, pattern: string) => QueryBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
   range: (from: number, to: number) => QueryBuilder<T>;
