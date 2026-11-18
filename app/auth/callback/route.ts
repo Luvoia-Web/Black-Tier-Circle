@@ -31,13 +31,17 @@ export async function GET(request: Request): Promise<NextResponse> {
   const requestUrl = new URL(request.url);
   const origin = requestOrigin(request);
   const code = requestUrl.searchParams.get('code');
+  const tokenHash = requestUrl.searchParams.get('token_hash');
+  const otpType = requestUrl.searchParams.get('type');
 
-  if (!code) {
+  if (!code && !(tokenHash && otpType === 'magiclink')) {
     return NextResponse.redirect(`${origin}${ROUTES.login}?error=no_code`);
   }
 
   const { supabase, applyCookies } = createAuthRouteClient();
-  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data, error } = tokenHash && otpType === 'magiclink'
+    ? await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'magiclink' })
+    : await supabase.auth.exchangeCodeForSession(code ?? '');
   if (error || !data.session) {
     return NextResponse.redirect(`${origin}${ROUTES.login}?error=auth_failed`);
   }

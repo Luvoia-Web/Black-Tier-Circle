@@ -17,3 +17,6 @@ coverage/
 # os / editor
 .DS_Store
 *.tsbuildinfo
+
+# signed-in browser state and screenshots — never commit session cookies
+.cursor/e2e/
