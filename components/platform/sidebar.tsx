@@ -65,11 +65,33 @@ export function PlatformSidebar({
   const groups = navGroupsFor(role);
   const [goal, setGoal] = useState(1600);
   const [editingGoal, setEditingGoal] = useState(false);
+  const [goalNeedsMigration, setGoalNeedsMigration] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('btc-revenue-goal');
-    const parsed = stored ? Number(stored) : 1600;
-    if (Number.isFinite(parsed) && parsed > 0) setGoal(parsed);
+    let gone = false;
+    async function load(): Promise<void> {
+      try {
+        const response = await fetch('/api/platform/goal');
+        const payload = (await response.json()) as { success?: boolean; data?: { goalUsdt?: string | null; needsMigration?: boolean } };
+        if (gone || !payload.success || !payload.data) return;
+        if (payload.data.needsMigration) {
+          setGoalNeedsMigration(true);
+          const stored = window.localStorage.getItem('btc-revenue-goal');
+          const parsed = stored ? Number(stored) : 1600;
+          if (Number.isFinite(parsed) && parsed >= 0) setGoal(parsed);
+          return;
+        }
+        setGoalNeedsMigration(false);
+        const parsed = payload.data.goalUsdt ? Number(payload.data.goalUsdt) : 1600;
+        if (Number.isFinite(parsed) && parsed >= 0) setGoal(parsed);
+      } catch {
+        // The ring keeps the last goal.
+      }
+    }
+    void load();
+    return () => {
+      gone = true;
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -226,8 +248,29 @@ export function PlatformSidebar({
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  window.localStorage.setItem('btc-revenue-goal', String(goal));
-                  setEditingGoal(false);
+                  const text = Number.isFinite(goal) && goal >= 0 ? goal.toFixed(6).replace(/\.?0+$/, '') || '0' : '';
+                  if (goalNeedsMigration) {
+                    window.localStorage.setItem('btc-revenue-goal', text);
+                    setEditingGoal(false);
+                    return;
+                  }
+                  void fetch('/api/platform/goal', {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ goal: text }),
+                  })
+                    .then(async (response) => {
+                      const payload = (await response.json()) as { success?: boolean; data?: { needsMigration?: boolean; goalUsdt?: string | null } };
+                      if (payload.data?.needsMigration) {
+                        setGoalNeedsMigration(true);
+                        window.localStorage.setItem('btc-revenue-goal', text);
+                      }
+                      if (payload.success && payload.data?.goalUsdt) {
+                        setGoal(Number(payload.data.goalUsdt));
+                      }
+                      setEditingGoal(false);
+                    })
+                    .catch(() => setEditingGoal(false));
                 }}
               >
                 <label className="text-xs text-ink-faint" htmlFor="today-goal">
@@ -246,6 +289,7 @@ export function PlatformSidebar({
                 {Math.round(progress * 100)}% of a {goal.toLocaleString('en-US')} USDT goal
               </button>
             )}
+            {goalNeedsMigration ? <p className="text-xs text-ink-faint">needs migration 0033</p> : null}
           </div>
         ) : null}
       </div>

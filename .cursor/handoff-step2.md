@@ -24,8 +24,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
-| 0 Evidence | DONE | filled after this commit | Handoff only. Checklist and security findings below. |
-| 1 Migration 0033 | pending | | |
+| 0 Evidence | DONE | cab55633a3c5834349f68d983dbae65ce7557865 | Handoff only. Checklist and security findings below. |
+| 1 Migration 0033 | DONE | filled after this commit | `0033_commerce.sql` written, not applied. Goal ring uses the stored goal. |
 | 2 Orders | pending | | |
 | 3 Products · Catalogue | pending | | |
 | 4 Inventory and Pricing rules | pending | | |
@@ -232,3 +232,50 @@ Working tree. Unrelated dirty files were left out of the commit: `components/lan
 - build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. The build lint printed the same existing `MemoryNav.tsx` warning.
 
 Files: `.cursor/handoff-step2.md`.
+
+## Phase 1 — migration 0033 and the goal ring
+
+`supabase/migrations/0033_commerce.sql` is written and was not applied. It is not edited after this phase.
+
+Columns:
+
+- `platform_settings.revenue_goal_minor` bigint, nullable, check null or `>= 0`. Owner store.
+- `tenant_settings.revenue_goal_minor` bigint, nullable, check null or `>= 0`. One row per reseller store.
+
+No new RLS policies. The migration adds columns and indexes only. Those tables already have RLS. Dashboard routes use the service role and scope the tenant in application code. The reason is in the SQL comment at the bottom of the file.
+
+Indexes, each tied to a query this step runs. Existing indexes that already cover a query were left alone (`idx_orders_tenant_created`, `idx_orders_created_at`, `idx_orders_channel_status`, `idx_orders_manual_pending`, `idx_orders_product_verified`, `idx_supplier_products_supplier`, `idx_order_events_order`).
+
+| Index | Query | Why it helps |
+| --- | --- | --- |
+| `idx_orders_customer_id` | `orders where customer_id = $1` and `customer_id in (...)` | No earlier index leads with `customer_id`. Buyer card and name search both filter orders by customer. |
+| `idx_orders_verified_created` | verified orders with `created_at >= start of day` | Owner revenue today has no tenant filter. The old created_at index includes unpaid rows. |
+| `idx_orders_tenant_verified_created` | `tenant_id = $store and payment_status = verified and created_at >= start` | Reseller revenue today. The old tenant+created index includes every payment status. |
+| `idx_orders_fulfillment_open` | fulfillment in queued, processing, manual_pending, supplier_pending, outcome_unknown, failed, ordered by `created_at` | Fulfilling, Failed, and `attention=fulfillment`. Older partials cover only queued and manual_pending. |
+| `idx_orders_delivery_active` | delivery in sent, review_required, retry_pending, unreachable, ordered by `created_at` | Delivered, the manual queue, and failed delivery. The old retry index has no `created_at`. |
+| `idx_orders_channel_created` | `channel = 'api' order by created_at` | The API store filter. The old channel index does not include `created_at`. |
+| `idx_orders_product_created` | `product_id in (...) order by created_at` | Search by product, including unpaid orders. The verified product index cannot serve that. |
+| `idx_orders_product_sold_recent` | verified orders for one product since 30 days ago | Inventory velocity. The old verified product index has no `created_at`. |
+| `idx_order_events_delivery_sent` | delivery events with `to_status = sent` since the start of the day | Median delivery time. The old event index leads with `order_id`. |
+| `idx_replacement_requests_order` | replacement rows for one order, all statuses | The open-request unique index hides replaced and rejected rows. |
+| `idx_products_status_category_all` | `products where status = $stage` | Category chips. The old category index is only published products. |
+| `idx_products_tracked_stock` | tracked, non-archived products ordered by `stock_count` | Inventory needs-attention. No earlier index includes `stock_count`. |
+| `idx_products_own_status` | `supplier_id is null and status = $stage order by title` | Own catalog. The supplier index excludes null supplier ids. |
+| `idx_product_assets_product` | assets for one product ordered by `created_at` | The editor file list. `product_id` had no index. |
+| `idx_supplier_products_supplier_name` | one supplier ordered by name, paged | Import catalog. The old supplier indexes do not order by name. |
+| `idx_supplier_products_supplier_stock` | one supplier, `in_stock = $2`, ordered by `last_synced_at` | Stock filter and last-synced sort. |
+| `idx_supplier_products_unpublished` | `supplier_id = $1 and product_id is null order by name` | Not published. The unique sku index does not identify those rows. |
+| `idx_fulfillment_supplier_started` | `fulfillment_attempts where method = 'supplier' order by started_at` | Supplier order monitor. The old attempt index leads with `order_id`. |
+
+The goal ring now calls `GET /api/platform/goal` and `PUT /api/platform/goal`. The owner reads and writes `platform_settings`. A reseller reads and writes only `tenant_settings` for the tenant on the session. A missing column (`42703`) returns `needsMigration: true`. The ring then uses `btc-revenue-goal` in localStorage and shows "needs migration 0033". When the column exists, localStorage is not read or written. A null stored goal still displays 1600 until someone saves a number. Zero is allowed.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `no-img-element` warning in `components/landing/MemoryNav.tsx:43`. That file is not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 44 files, 342 tests passed. Six of those are the new revenue-goal tests.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. The build lint printed the same existing image warning. New route: `/api/platform/goal`.
+
+0033 was not applied. Nothing was pushed.
+
+Files: `supabase/migrations/0033_commerce.sql`, `modules/platform/goal.ts`, `app/api/platform/goal/route.ts`, `components/platform/sidebar.tsx`, `tests/unit/revenue-goal.test.ts`, `.cursor/handoff-step2.md`.
