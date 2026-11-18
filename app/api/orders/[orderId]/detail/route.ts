@@ -115,6 +115,7 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
     deliveredContent: resolveDeliveredContent(attempt?.artifactPath ?? null, fulfillment.deliveryAttempts),
     events,
     replacementOpen,
+    canReplaceFromSupplier: Boolean(product.supplierId && product.supplierSku),
   };
 }
 

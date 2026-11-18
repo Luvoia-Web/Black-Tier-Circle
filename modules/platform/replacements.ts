@@ -1,15 +1,43 @@
 /**
  * @file modules/platform/replacements.ts
  *
- * Warranty requests. Approval re-runs the existing delivery retry.
+ * Owner replacement of a delivered order.
+ * A supplier replacement buys a new item. A manual replacement sends what the owner pastes.
+ * The original delivery stays in the history. The buyer is not charged.
  */
 
-import { ValidationError } from '@/lib/errors';
-import { AppError } from '@/lib/errors';
+import { AppError, ValidationError } from '@/lib/errors';
 import { consumeRateLimit } from '@/lib/rate-limiter';
+import { sanitizeInput } from '@/lib/sanitize';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
-import { retryDelivery } from '@/modules/fulfillment';
-import { claimTransition } from '@/modules/orders/state-machine';
+import { deliverReplacementItem } from '@/modules/fulfillment';
+import { SupplierError } from '@/integrations/prodseller/client';
+import { assertSupplierBalanceForReplacement, fulfillViaSupplier, orderCustomerEmail, supplierArtifact } from '@/modules/supplier/place';
+
+export type ReplacementMode = 'supplier' | 'manual';
+
+export type ReplacementPlaceInput = {
+  readonly orderId: string;
+  readonly productId: string;
+  readonly quantity: number;
+  readonly idempotencyKey: string;
+  readonly email?: string;
+};
+
+export type ReplacementPlacement = {
+  readonly content: string;
+  readonly supplierOrderId: string;
+  readonly costMinor: bigint;
+};
+
+export type ReplacementDeliverInput = {
+  readonly orderId: string;
+  readonly actorId: string;
+  readonly content: string;
+  readonly method: 'supplier' | 'manual';
+  readonly artifactPath: string | null;
+  readonly supplierCostMinor: string | null;
+};
 
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
   if (result.error) throw new AppError('READ_FAILED', result.error.message, 500);
@@ -25,6 +53,18 @@ function missing(error: { message: string; code?: string } | null): boolean {
   if (!error) return false;
   const message = error.message.toLowerCase();
   return error.code === '42P01' || error.code === '42703' || message.includes('does not exist') || message.includes('schema cache');
+}
+
+/**
+ * Stable for one replacement number.
+ * A failed attempt is rejected and does not consume the number, so the retry
+ * sends the same key and the supplier does not sell a second item.
+ */
+export function replacementIdempotencyKey(orderId: string, replacementNumber: number): string {
+  if (!Number.isInteger(replacementNumber) || replacementNumber < 1) {
+    throw new ValidationError('REPLACEMENT_FAILED', 'Replacement number is missing.');
+  }
+  return `${orderId}:replacement:${replacementNumber}`;
 }
 
 export async function requestReplacement(db: DbClient, input: { readonly orderId: string; readonly customerId: string; readonly tenantId: string | null; readonly reason: string }): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
@@ -102,26 +142,48 @@ export async function decideReplacement(db: DbClient, input: { readonly id: stri
     }
     return;
   }
-  const approved = await db.from('replacement_requests').update({ status: 'approved', owner_note: input.note.slice(0, 500) }).eq('id', input.id).eq('status', 'pending');
-  if (approved.error) {
-    throw new ValidationError('REPLACEMENT_FAILED', 'The request could not be approved.');
+  throw new ValidationError(
+    'REPLACEMENT_NEEDS_ITEM',
+    'Send a new item from the order. The original delivery is not sent again.',
+  );
+}
+
+async function placeNewSupplierItem(db: DbClient, input: ReplacementPlaceInput): Promise<ReplacementPlacement> {
+  const covered = await assertSupplierBalanceForReplacement(db, input.productId, input.quantity);
+  const placed = await fulfillViaSupplier(db, input.orderId, input.productId, input.quantity, input.email, input.idempotencyKey);
+  if (!placed.deliveryContent) {
+    throw new ValidationError('REPLACEMENT_EMPTY', 'The supplier did not return a new item. Nothing else was bought.');
   }
-  await retryDelivery(db, text(row.order_id));
-  await db.from('replacement_requests').update({ status: 'replaced', resolved_at: new Date().toISOString() }).eq('id', input.id);
+  const reported = placed.amountUsdt > 0 ? BigInt(Math.round(placed.amountUsdt * 1_000_000)) : covered.costMinor;
+  return {
+    content: placed.deliveryContent,
+    supplierOrderId: placed.supplierOrderId,
+    costMinor: reported > 0n ? reported : covered.costMinor,
+  };
 }
 
 /**
  * Owner-only replacement of a delivered order.
- * One open request per order. The owner is the audit actor.
- * retryDelivery is the existing delivery path. A sent order moves to
- * retry_pending first, which is the only legal way back into that path.
+ * One open request. The row is approved, then replaced.
+ * The owner is the audit actor. The buyer's open support thread gets a note.
  */
 export async function ownerReplace(
   db: DbClient,
-  input: { readonly orderId: string; readonly actorId: string; readonly reason?: string },
-  retry: (database: DbClient, orderId: string) => Promise<void> = retryDelivery,
+  input: {
+    readonly orderId: string;
+    readonly actorId: string;
+    readonly mode: ReplacementMode;
+    readonly content?: string;
+    readonly reason?: string;
+  },
+  deps: {
+    readonly place?: (database: DbClient, input: ReplacementPlaceInput) => Promise<ReplacementPlacement>;
+    readonly deliver?: (database: DbClient, input: ReplacementDeliverInput) => Promise<void>;
+  } = {},
 ): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration' }> {
-  const order = (await db.from('orders').select('id, customer_id, tenant_id, delivery_status').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
+  const place = deps.place ?? placeNewSupplierItem;
+  const deliver = deps.deliver ?? ((database, item) => deliverReplacementItem(database, item));
+  const order = (await db.from('orders').select('id, customer_id, tenant_id, product_id, quantity, delivery_status').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
   const row = order.data && typeof order.data === 'object' ? (order.data as Record<string, unknown>) : null;
   if (order.error || !row) {
     throw new ValidationError('REPLACEMENT_NOT_OPEN', 'That order was not found.');
@@ -133,6 +195,15 @@ export async function ownerReplace(
   if (!customerId) {
     throw new ValidationError('REPLACEMENT_NOT_OPEN', 'This order has no buyer.');
   }
+  const productId = text(row.product_id);
+  const quantity = typeof row.quantity === 'number' && row.quantity > 0 ? row.quantity : 1;
+  const product = (await db.from('products').select('id, supplier_id, supplier_sku').eq('id', productId).maybeSingle()) as QueryResult<unknown>;
+  const productRow = product.data && typeof product.data === 'object' ? (product.data as Record<string, unknown>) : null;
+  const supplierId = productRow ? text(productRow.supplier_id) : '';
+  const supplierSku = productRow ? text(productRow.supplier_sku) : '';
+  if (input.mode === 'supplier' && (!supplierId || !supplierSku)) {
+    throw new ValidationError('REPLACEMENT_MANUAL_ONLY', 'This product has no supplier. Paste the replacement item.');
+  }
   const open = (await db.from('replacement_requests').select('id').eq('order_id', input.orderId).in('status', ['pending', 'approved']).limit(1)) as QueryResult<unknown>;
   if (missing(open.error)) {
     throw new ValidationError('REPLACEMENT_NEEDS_MIGRATION', 'Replacements need migration 0032.');
@@ -143,6 +214,9 @@ export async function ownerReplace(
   if (Array.isArray(open.data) && open.data.length > 0) {
     throw new ValidationError('REPLACEMENT_OPEN', 'This order already has an open replacement.');
   }
+  const prior = records((await db.from('replacement_requests').select('id, status').eq('order_id', input.orderId)) as QueryResult<unknown>);
+  const number = prior.filter((item) => text(item.status) !== 'rejected').length + 1;
+  const idempotencyKey = replacementIdempotencyKey(input.orderId, number);
   const reason = (input.reason ?? 'Owner replacement').replace(/\s+/g, ' ').trim().slice(0, 1000) || 'Owner replacement';
   const inserted = (await db.from('replacement_requests').insert({
     order_id: input.orderId,
@@ -150,7 +224,7 @@ export async function ownerReplace(
     tenant_id: text(row.tenant_id) || null,
     reason,
     status: 'approved',
-    owner_note: `actor:${input.actorId}`.slice(0, 500),
+    owner_note: `actor:${input.actorId} replacement:${number}`.slice(0, 500),
   }).select('id').maybeSingle()) as QueryResult<unknown>;
   if (inserted.error?.code === '23505') {
     throw new ValidationError('REPLACEMENT_OPEN', 'This order already has an open replacement.');
@@ -162,18 +236,48 @@ export async function ownerReplace(
   if (inserted.error || !id) {
     throw new ValidationError('REPLACEMENT_FAILED', 'The replacement could not be saved.');
   }
+  let supplierCostMinor: string | null = null;
   try {
-    const moved = await claimTransition(db, input.orderId, 'delivery', 'sent', 'retry_pending', {
-      actorId: input.actorId,
-      trigger: 'manual',
-      note: 'Owner replacement',
-    });
-    if (!moved) {
-      throw new ValidationError('REPLACEMENT_FAILED', 'The order changed before the replacement could start.');
+    if (input.mode === 'supplier') {
+      const email = await orderCustomerEmail(db, input.orderId);
+      const placed = await place(db, {
+        orderId: input.orderId,
+        productId,
+        quantity,
+        idempotencyKey,
+        ...(email ? { email } : {}),
+      });
+      supplierCostMinor = placed.costMinor.toString();
+      await deliver(db, {
+        orderId: input.orderId,
+        actorId: input.actorId,
+        content: placed.content,
+        method: 'supplier',
+        artifactPath: supplierArtifact(placed.supplierOrderId),
+        supplierCostMinor,
+      });
+    } else {
+      const content = sanitizeInput(input.content ?? '');
+      if (content.length < 1 || content.length > 3500) {
+        throw new ValidationError('INVALID_DELIVERY', 'Paste the replacement item, up to 3500 characters.');
+      }
+      await deliver(db, {
+        orderId: input.orderId,
+        actorId: input.actorId,
+        content,
+        method: 'manual',
+        artifactPath: null,
+        supplierCostMinor: null,
+      });
     }
-    await retry(db, input.orderId);
   } catch (error: unknown) {
     await db.from('replacement_requests').update({ status: 'rejected', owner_note: 'Replacement did not finish', resolved_at: new Date().toISOString() }).eq('id', id);
+    if (error instanceof SupplierError && error.code === 'INSUFFICIENT_SUPPLIER_BALANCE') {
+      throw new ValidationError(error.code, error.message);
+    }
+    if (error instanceof AppError && (error.code === 'INSUFFICIENT_SUPPLIER_BALANCE' || error.code === 'SUPPLIER_BALANCE_UNREAD')) {
+      throw new ValidationError(error.code, error.message);
+    }
     throw error;
   }
   await db.from('replacement_requests').update({ status: 'replaced', resolved_at: new Date().toISOString() }).eq('id', id);
@@ -183,6 +287,12 @@ export async function ownerReplace(
     target_type: 'order',
     target_id: input.orderId,
     reason,
+    after_val: {
+      mode: input.mode,
+      replacementNumber: number,
+      supplierCostMinor,
+      idempotencyKey: input.mode === 'supplier' ? idempotencyKey : null,
+    },
   });
   const thread = (await db.from('support_threads').select('id').eq('customer_id', customerId).eq('status', 'open').order('last_message_at', { ascending: false }).limit(1)) as QueryResult<unknown>;
   if (missing(thread.error)) return { support: 'needs-migration' };
@@ -192,7 +302,7 @@ export async function ownerReplace(
   const posted = (await db.from('support_messages').insert({
     thread_id: threadId,
     sender: 'owner',
-    body: `Replacement started for order ${input.orderId.slice(0, 8)}. ${reason}`.slice(0, 2000),
+    body: `A replacement item was sent for order ${input.orderId.slice(0, 8)}. ${reason}`.slice(0, 2000),
   }).select('id').maybeSingle()) as QueryResult<unknown>;
   if (missing(posted.error)) return { support: 'needs-migration' };
   return { support: 'posted' };

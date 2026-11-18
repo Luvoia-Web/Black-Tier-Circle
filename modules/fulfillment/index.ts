@@ -872,6 +872,105 @@ export async function deliverResellerManualOrder(
 }
 
 /**
+ * Sends a replacement item through the store bot.
+ * The order stays delivered. The original delivery attempt is left in place.
+ * The buyer is not charged.
+ */
+export async function deliverReplacementItem(
+  supabase: DbClient,
+  input: {
+    readonly orderId: string;
+    readonly actorId: string;
+    readonly content: string;
+    readonly method: 'supplier' | 'manual';
+    readonly artifactPath: string | null;
+    readonly supplierCostMinor: string | null;
+  },
+): Promise<void> {
+  const cleaned = sanitizeInput(input.content);
+  if (cleaned.length < 1 || cleaned.length > 3500) {
+    throw new ValidationError('INVALID_DELIVERY', 'Paste the replacement item, up to 3500 characters.');
+  }
+  const order = await getOrder(supabase, input.orderId);
+  if (order.deliveryStatus !== 'sent') {
+    throw new FulfillmentError('DELIVERY_NOT_RETRYABLE', 'Replace is available after the order is delivered.');
+  }
+  const attempt = await createFulfillmentAttempt(supabase, order.id, input.method);
+  await completeFulfillmentAttempt(supabase, attempt.id, {
+    status: 'success',
+    artifactPath: input.artifactPath,
+    fulfilledBy: input.actorId,
+  });
+  const existing = await listAllDeliveryAttempts(supabase, order.id);
+  const delivery = await createDeliveryAttempt(supabase, attempt.id, existing.length + 1);
+  try {
+    if (!order.customerId) {
+      throw new Error('missing customer');
+    }
+    const customer = await getCustomerById(supabase, order.customerId);
+    const token = await resolveBotToken(supabase, order);
+    if (!token) {
+      throw new Error('bot unavailable');
+    }
+    const product = await getProduct(supabase, order.productId);
+    await sendTextDelivery(
+      token,
+      customer.telegramChatId,
+      await deliveryTextForOrder(supabase, order.tenantId, {
+        title: product.title,
+        quantity: order.quantity,
+        amountMinor: order.quotedRetailPriceMinor,
+        balanceMinor: customer.creditBalanceMinor,
+        orderId: order.id,
+        content: cleaned,
+      }),
+    );
+    await completeDeliveryAttempt(supabase, delivery.id, { status: 'success', result: 'replacement sent' });
+  } catch (error: unknown) {
+    await completeDeliveryAttempt(supabase, delivery.id, { status: 'failed', error: 'replacement delivery failed' });
+    logger.error('replacement delivery failed', {
+      orderId: order.id,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+    throw new FulfillmentError('REPLACEMENT_DELIVERY_FAILED', 'The replacement could not be sent to the buyer.');
+  }
+  const existingMeta = (await supabase.from('orders').select('metadata').eq('id', order.id).maybeSingle()) as QueryResult<
+    { metadata?: unknown } | null
+  >;
+  const current =
+    existingMeta.data?.metadata && typeof existingMeta.data.metadata === 'object'
+      ? (existingMeta.data.metadata as Record<string, unknown>)
+      : {};
+  const previous = typeof current.replacement_supplier_cost_minor === 'string' || typeof current.replacement_supplier_cost_minor === 'number'
+    ? BigInt(current.replacement_supplier_cost_minor)
+    : 0n;
+  const added = input.supplierCostMinor ? BigInt(input.supplierCostMinor) : 0n;
+  const saved = await supabase.from('orders').update({
+    metadata: {
+      ...current,
+      replacement_supplier_cost_minor: (previous + added).toString(),
+      replacementContent: cleaned,
+    },
+    updated_at: new Date().toISOString(),
+  }).eq('id', order.id);
+  if (saved.error) {
+    throw new AppError('ORDER_UPDATE_FAILED', saved.error.message, 500);
+  }
+  const noted = await supabase.from('order_events').insert({
+    order_id: order.id,
+    track: 'delivery',
+    from_status: 'sent',
+    to_status: 'sent',
+    actor_id: input.actorId,
+    trigger: 'manual',
+    note: 'Replacement delivered',
+  });
+  if (noted.error) {
+    throw new AppError('ORDER_EVENT_WRITE_FAILED', noted.error.message, 500);
+  }
+}
+
+/**
  * Retries Telegram delivery for retry_pending or unreachable orders.
  *
  * @param supabase - Database client
@@ -879,6 +978,12 @@ export async function deliverResellerManualOrder(
  */
 export async function retryDelivery(supabase: DbClient, orderId: string): Promise<void> {
   const order = await getOrder(supabase, orderId);
+  if (order.deliveryStatus === 'sent') {
+    throw new FulfillmentError(
+      'DELIVERY_NOT_RETRYABLE',
+      'A delivered order cannot be re-delivered. Use Replace to send a new item.',
+    );
+  }
   if (order.deliveryStatus !== 'retry_pending' && order.deliveryStatus !== 'unreachable') {
     throw new FulfillmentError('DELIVERY_NOT_RETRYABLE', 'Delivery cannot be retried for this order');
   }

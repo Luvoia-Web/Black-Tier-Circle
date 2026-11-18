@@ -72,6 +72,26 @@ describe('bulkPublishSupplierProducts', () => {
     expect(db.tables.products?.every((product) => product.category === 'Streaming')).toBe(true);
   });
 
+  it('publishes cost 1 at 2 and 3 when wholesale is fixed +1 and retail is fixed +2', async () => {
+    const db = createMemoryDb({
+      supplier_products: [{ ...supplierRow('a'), supplier_price: '1.000000' }],
+    });
+    const result = await bulkPublishSupplierProducts(db, {
+      supplierProductIds: ['a'],
+      wholesaleRule: { kind: 'fixed', percent: null, minor: 1_000_000n },
+      retailRule: { kind: 'fixed', percent: null, minor: 2_000_000n },
+    });
+    expect(result.results[0]?.ok).toBe(true);
+    expect(db.tables.products?.[0]).toMatchObject({
+      wholesale_price: '2000000',
+      retail_price: '3000000',
+      wholesale_markup_kind: 'fixed',
+      retail_markup_kind: 'fixed',
+      wholesale_markup_minor: '1000000',
+      retail_markup_minor: '2000000',
+    });
+  });
+
   it('refreshes the linked product title and description', async () => {
     const db = createMemoryDb({
       supplier_products: [{ ...supplierRow('a'), product_id: 'prod-1', name: 'Fresh title', description: 'Fresh copy' }],

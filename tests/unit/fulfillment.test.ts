@@ -364,6 +364,34 @@ describe('retry', () => {
     await fulfillment.retryDelivery(db, order.id);
     expect(db.tables.delivery_attempts?.length).toBe(before + 1);
   });
+
+  it('deliverReplacementItem keeps the original delivery and does not reopen retry', async () => {
+    const db = seedDb();
+    await attachMainFile(db, FILE_PRODUCT_ID);
+    const order = await createPaidOrder(db, {
+      channel: 'owner_store',
+      botId: 'owner',
+      customerId: CUSTOMER_ID,
+      productId: FILE_PRODUCT_ID,
+      idempotencyKey: 'replace-deliver',
+    });
+    await fulfillment.processQueuedOrder(db, order.id);
+    const beforeDeliveries = db.tables.delivery_attempts?.length ?? 0;
+    const beforeFulfillment = db.tables.fulfillment_attempts?.length ?? 0;
+    await fulfillment.deliverReplacementItem(db, {
+      orderId: order.id,
+      actorId: ACTOR_ID,
+      content: 'fresh-key',
+      method: 'manual',
+      artifactPath: null,
+      supplierCostMinor: null,
+    });
+    const latest = await getOrder(db, order.id);
+    expect(latest.deliveryStatus).toBe('sent');
+    expect(db.tables.delivery_attempts?.length).toBe(beforeDeliveries + 1);
+    expect(db.tables.fulfillment_attempts?.length).toBe(beforeFulfillment + 1);
+    expect(latest.fundingStatus).not.toBe('reversal_pending');
+  });
 });
 
 describe('cancellation', () => {

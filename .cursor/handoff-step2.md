@@ -30,7 +30,8 @@ Local commits only. Do not push. Do not apply SQL. Do not edit migration 0022. M
 | 3 Products · Catalogue | DONE | 5b0c00bb7dfad64712f3d88bfa49496b9dfa364f | Catalogue, drawer, editor, reseller listing editor. |
 | 4 Inventory and Pricing rules | DONE | 54a9b9d308267ad7fd3eb75212a58e365c0c3ea4 | Stock table and store markup preview. |
 | 5 Suppliers | DONE | 273bb1aba5fb1c4c1d646c55789ba5ed292fa2ca | Connected, import, orders, health. |
-| 6 Security | DONE | recorded after this commit | Search filters, pinned supplier fetch, safe next. |
+| 6 Security | DONE | 811a2136e722def5572f57e375b76c337ea7b2c2 | Search filters, pinned supplier fetch, safe next. |
+| 6B Review fixes | DONE | pending-hash | New replacement item, no sent retry, separate bulk prices, per-supplier health, apply default pricing. |
 | 7 Match the mockups | pending | | |
 | 8 Prove it | pending | | |
 
@@ -90,7 +91,7 @@ Sources are the same as `.cursor/feature-ledger.md`: old pages at `77d75c6` and 
 | One order list, payment / supplier / delivery timeline, bulk retry, CSV | rebuild | Filter and export. | `GET /api/platform/orders` | `/orders` |
 | Order drawer | rebuild | Open from the row. | `GET /api/orders/:id/detail` | `/orders?order=` |
 | Refund to wallet | rebuild | Refund. | `POST /api/orders/:id/refund` | Orders drawer |
-| Replacement requests | rebuild | Buyer asks. Owner approves or rejects. This step changes it: owner-initiated only, one open request, status approved, then the existing retry path. | `POST /api/platform/replacements` | Orders drawer. Buyer bot Replace button must go. |
+| Replacement requests | rebuild | Owner starts it. One open request. Approved, then replaced, with a new supplier item or a pasted item. | `POST /api/platform/replacements` | Orders drawer. Buyer bot has no Replace button. |
 
 #### Products · Catalogue
 
@@ -399,12 +400,47 @@ Checks:
 
 Files: `lib/row-ids.ts`, `lib/safe-fetch.ts`, `lib/navigation.ts`, `app/auth/callback/route.ts`, `modules/platform/orders.ts`, `modules/platform/people.ts`, `modules/catalog/manage.ts`, `modules/supplier/index.ts`, `app/api/platform/search/route.ts`, `tests/unit/security-controls.test.ts`, `tests/unit/supplier-catalog-page.test.ts`, `.cursor/handoff-step2.md`.
 
+## Phase 6B — review fixes
+
+Replace no longer calls `retryDelivery`. On a delivered order the owner chooses one of two actions.
+
+- New item from supplier. Shown only when the product has a supplier id and a supplier SKU. The placement goes through `fulfillViaSupplier` with idempotency key `{orderId}:replacement:{number}`. The number is the count of non-rejected replacement rows plus one. A failed attempt is marked rejected, so a retry keeps the same number and the same key. The supplier therefore cannot sell a second item for that attempt. The supplier balance is read first. A short balance, or a balance that cannot be read, refuses before `createOrder`. The message says the buyer was not charged. The new content is sent with `deliverReplacementItem`, which appends a fulfillment attempt and a delivery attempt and leaves the original delivery rows in place. Delivery status stays `sent`. The extra supplier cost is stored on `orders.metadata.replacement_supplier_cost_minor` and on the `audit_log` row (`after_val.supplierCostMinor`). There is no charge to the buyer.
+- Send manually. The owner pastes the item. It is stored on the order metadata as `replacementContent`, sent through the store bot, and recorded the same way. A product with no supplier gets only this choice.
+
+One open replacement per order remains. The row is inserted as `approved` and, after the new item is sent, marked `replaced`. The audit actor is the owner. The buyer's open support thread still gets a note. Approving an old pending request no longer re-sends the original delivery.
+
+`sent` has no outgoing transition in `modules/orders/state-machine.ts`. `retryDelivery` and `POST /api/fulfillment/:orderId/retry-delivery` both refuse a delivered order.
+
+Import catalog bulk publish sends wholesale kind, wholesale value, retail kind, and retail value. The catalogue pricing-rule form already sent those four. A bulk publish with no explicit rule uses the store's wholesale rule and retail rule separately, not one percent copied onto both. Cost 1 with wholesale fixed +1 and retail fixed +2 publishes at 2 and 3.
+
+Supplier health joins `fulfillment_attempts` to `orders.product_id` to `products.supplier_id`. Each supplier gets its own error rate and average fulfilment time. The screen still says there is no balance history yet.
+
+Pricing rules has "Apply to products on the default rule". It shows the count and a before-and-after preview, asks for confirmation, then reprices through `priceWithRule`. A price at or below cost, under `min_margin_percent`, or with retail under wholesale is paused and listed. Products with their own markup, including a stored `markup_percent`, are not changed. The action writes `audit_log`.
+
+The reorder point stays 10, as `REORDER_POINT` in `modules/platform/inventory.ts`. Pricing attention uses that constant.
+
+A search of every `.or(` call found only constant filters, in `modules/platform/orders.ts`, `modules/platform/today.ts`, and `app/api/platform/nav/route.ts`. No user text is interpolated into an `.or()` string. The stale note that Phase 6 still had that work left is removed.
+
+### Needs 0034
+
+Not built in this step. No new migration was written.
+
+- `products.reorder_point` integer, null allowed. Null means the shared constant 10. Today every product uses `REORDER_POINT`.
+- `supplier_balance_snapshots` (`supplier_id` uuid not null references `suppliers(id)`, `balance_usdt` numeric not null, `checked_at` timestamptz not null default now()). Health can only show the latest balance on `suppliers.balance_usdt`.
+
+Checks:
+
+- type-check: `./node_modules/.bin/tsc --noEmit` exit 0
+- lint: `./node_modules/.bin/next lint` exit 0. Same existing `MemoryNav.tsx` image warning, not in this commit.
+- test: `./node_modules/.bin/vitest run` exit 0. 45 files, 361 tests passed.
+- build: `./node_modules/.bin/next build` exit 0. Next.js 14.2.21. Same existing image warning.
+
+Files: `modules/platform/replacements.ts`, `modules/supplier/place.ts`, `modules/fulfillment/index.ts`, `modules/orders/state-machine.ts`, `app/api/fulfillment/[orderId]/retry-delivery/route.ts`, `app/api/platform/replacements/route.ts`, `app/api/orders/[orderId]/detail/route.ts`, `app/(platform)/orders/view.tsx`, `lib/order-detail.ts`, `app/(platform)/catalog/suppliers.tsx`, `modules/supplier/index.ts`, `modules/platform/supplier-desk.ts`, `modules/platform/pricing.ts`, `app/api/platform/pricing/route.ts`, `app/(platform)/catalog/sections.tsx`, `tests/unit/order-board.test.ts`, `tests/unit/supplier-publish.test.ts`, `tests/unit/pricing-rules.test.ts`, `tests/unit/fulfillment.test.ts`, `.cursor/feature-ledger.md`, `.cursor/handoff-step2.md`.
+
 ## Resume
 
-Phases 0 through 6 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
+Phases 0 through 6B are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql`.
 
 Phase 7 is next: screenshot Orders and Products at 1440 dark, compare with `BTC-3-orders@2x.png` and `BTC-2-products@2x.png`, and fix visible differences until only the data differs. Phase 8 extends `scripts/e2e-harness.mjs` and ticks the ledger. Nothing has been pushed.
-
-Phase 6 still has to fix every remaining user-text `.or()` string, including the product search added in Phase 2 in `modules/platform/orders.ts`. Catalog search in `modules/platform/catalog.ts` is already `.ilike` plus `.in()`.
 
 Nothing has been pushed. Next.js is 14.2.21. React is 18.3.1.

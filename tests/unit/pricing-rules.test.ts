@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createProduct } from '@/modules/catalog';
+import { applyDefaultPricing } from '@/modules/platform/pricing';
 import {
   catalogWriteForChange,
   normalizeLinkedProduct,
@@ -208,5 +209,84 @@ describe('quoteCostChange', () => {
     expect(quoted.blocked).toBe(false);
     expect(quoted.toWholesale).toBe(3n * USDT);
     expect(quoted.toRetail).toBe(3n * USDT);
+  });
+});
+
+describe('applyDefaultPricing', () => {
+  it('reprices products on the store default and pauses one that breaks a guard', async () => {
+    const db = createMemoryDb({
+      platform_settings: [{
+        id: 'ps',
+        default_markup_percent: 50,
+        min_margin_percent: 10,
+        auto_stock_sync: true,
+        auto_reprice_on_cost_change: true,
+        default_wholesale_markup_kind: 'fixed',
+        default_wholesale_markup_percent: null,
+        default_wholesale_markup_minor: '1000000',
+        default_retail_markup_kind: 'fixed',
+        default_retail_markup_percent: null,
+        default_retail_markup_minor: '2000000',
+      }],
+      products: [
+        {
+          id: 'on-default',
+          title: 'Default key',
+          status: 'published',
+          supplier_price_minor: '1000000',
+          wholesale_price: '5000000',
+          retail_price: '6000000',
+          markup_percent: null,
+          wholesale_markup_kind: null,
+          retail_markup_kind: null,
+        },
+        {
+          id: 'own-rule',
+          title: 'Own rule',
+          status: 'published',
+          supplier_price_minor: '1000000',
+          wholesale_price: '4000000',
+          retail_price: '7000000',
+          markup_percent: null,
+          wholesale_markup_kind: 'percent',
+          wholesale_markup_percent: 80,
+          wholesale_markup_minor: null,
+          retail_markup_kind: 'percent',
+          retail_markup_percent: 80,
+          retail_markup_minor: null,
+        },
+        {
+          id: 'too-thin',
+          title: 'Thin margin',
+          status: 'published',
+          supplier_price_minor: '100000000',
+          wholesale_price: '200000000',
+          retail_price: '300000000',
+          markup_percent: null,
+          wholesale_markup_kind: null,
+          retail_markup_kind: null,
+        },
+      ],
+      audit_log: [],
+    });
+    const result = await applyDefaultPricing(db, 'owner-1');
+    expect(result.repriced).toBe(1);
+    expect(result.paused.map((item) => item.id)).toEqual(['too-thin']);
+    expect(db.tables.products?.find((row) => row.id === 'on-default')).toMatchObject({
+      wholesale_price: '2000000',
+      retail_price: '3000000',
+      status: 'published',
+    });
+    expect(db.tables.products?.find((row) => row.id === 'own-rule')).toMatchObject({
+      wholesale_price: '4000000',
+      retail_price: '7000000',
+      status: 'published',
+    });
+    expect(db.tables.products?.find((row) => row.id === 'too-thin')).toMatchObject({
+      wholesale_price: '200000000',
+      retail_price: '300000000',
+      status: 'paused',
+    });
+    expect(db.tables.audit_log?.[0]).toMatchObject({ actor_id: 'owner-1', action: 'pricing_default_applied' });
   });
 });

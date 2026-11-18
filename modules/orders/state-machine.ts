@@ -61,8 +61,9 @@ const DELIVERY_TRANSITIONS: Readonly<Record<DeliveryStatus, readonly DeliverySta
   not_ready: ['queued'],
   queued: ['sending'],
   sending: ['sent', 'retry_pending', 'unreachable', 'review_required'],
-  // Owner replacement re-enters the existing retryDelivery path.
-  sent: ['retry_pending'],
+  // A delivered order stays delivered. Replacement sends a new item
+  // without putting the order back on the retry route.
+  sent: [],
   retry_pending: ['queued', 'review_required'],
   unreachable: ['queued', 'review_required'],
   review_required: ['queued'],

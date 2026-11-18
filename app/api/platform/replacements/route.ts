@@ -35,14 +35,20 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    const body = (await readJsonBody(request)) as { id?: unknown; decision?: unknown; note?: unknown; orderId?: unknown };
+    const body = (await readJsonBody(request)) as { id?: unknown; decision?: unknown; note?: unknown; orderId?: unknown; mode?: unknown; content?: unknown };
     if (body.decision === 'replace') {
       if (!current.owner || typeof body.orderId !== 'string') {
         throw new AuthError('FORBIDDEN', 'Only the owner can replace a delivered order', 403);
       }
+      const mode = body.mode === 'supplier' || body.mode === 'manual' ? body.mode : null;
+      if (!mode) {
+        throw new ValidationError('REPLACEMENT_INVALID', 'Choose a new supplier item or paste the replacement.');
+      }
       const replaced = await ownerReplace(current.db, {
         orderId: body.orderId,
         actorId: current.actorId,
+        mode,
+        ...(typeof body.content === 'string' ? { content: body.content } : {}),
         ...(typeof body.note === 'string' ? { reason: body.note } : {}),
       });
       return jsonSuccess({ orderId: body.orderId, decision: 'replace', support: replaced.support });

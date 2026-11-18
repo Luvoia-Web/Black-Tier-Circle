@@ -1147,14 +1147,15 @@ export async function bulkPublishSupplierProducts(
     throw new ValidationError('PUBLISH_BATCH_TOO_LARGE', 'Publish at most 200 products at a time');
   }
   const policy = await loadSyncPolicy(supabase);
-  const markup = input.markupPercent ?? policy.defaultMarkupPercent;
   const results: Array<{ id: string; ok: boolean; productId?: string; error?: string }> = [];
   for (const id of input.supplierProductIds) {
     try {
       const published = await publishSupplierProduct(supabase, id, {
         ...(input.wholesaleRule && input.retailRule
           ? { wholesaleRule: input.wholesaleRule, retailRule: input.retailRule }
-          : { markupPercent: markup }),
+          : input.markupPercent !== undefined
+            ? { markupPercent: input.markupPercent }
+            : { wholesaleRule: policy.wholesale, retailRule: policy.retail }),
         ...(input.buyerCategory ? { buyerCategory: input.buyerCategory } : {}),
       });
       results.push({ id, ok: true, productId: published.productId });

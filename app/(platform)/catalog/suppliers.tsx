@@ -210,7 +210,10 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('name');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [markup, setMarkup] = useState('50');
+  const [wholesaleKind, setWholesaleKind] = useState<'percent' | 'fixed'>('percent');
+  const [wholesaleValue, setWholesaleValue] = useState('50');
+  const [retailKind, setRetailKind] = useState<'percent' | 'fixed'>('percent');
+  const [retailValue, setRetailValue] = useState('50');
   const [category, setCategory] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const query = new URLSearchParams({ supplierId: supplierId ?? '', page: String(page), limit: '24', sort });
@@ -235,10 +238,10 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
     const result = await runAction(API_ROUTES.supplierBulkPublish, {
       body: {
         supplierProductIds: ids,
-        wholesaleMarkupKind: 'percent',
-        wholesaleMarkupValue: Number(markup),
-        retailMarkupKind: 'percent',
-        retailMarkupValue: Number(markup),
+        wholesaleMarkupKind: wholesaleKind,
+        wholesaleMarkupValue: Number(wholesaleValue),
+        retailMarkupKind: retailKind,
+        retailMarkupValue: Number(retailValue),
         ...(category ? { buyerCategory: category } : {}),
       },
     });
@@ -264,7 +267,10 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
           <DataTable caption="Supplier catalog" columns={columns} rows={list.data.products} rowKey={(row) => row.id} selected={selected} onSelected={setSelected} emptyTitle="No supplier products" emptyMessage="Sync the supplier, then filter again." />
           <Pagination page={list.data.page} pageSize={list.data.limit} total={list.data.total} onPage={setPage} />
           <div className="flex flex-wrap items-end gap-2">
-            <TextField id="import-markup" label="Markup percent" value={markup} onChange={(event) => setMarkup(event.target.value)} />
+            <SelectField id="import-wholesale-kind" label="Wholesale" value={wholesaleKind} options={[{ value: 'percent', label: 'Percent' }, { value: 'fixed', label: 'Fixed USDT' }]} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')} />
+            <TextField id="import-wholesale-value" label="Wholesale value" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} />
+            <SelectField id="import-retail-kind" label="Retail" value={retailKind} options={[{ value: 'percent', label: 'Percent' }, { value: 'fixed', label: 'Fixed USDT' }]} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')} />
+            <TextField id="import-retail-value" label="Retail value" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} />
             <TextField id="import-category" label="Category" value={category} onChange={(event) => setCategory(event.target.value)} />
             <Button onClick={() => void publish()}>Publish selected</Button>
           </div>

@@ -82,6 +82,7 @@ export type OrderDetailPayload = {
   readonly deliveredContent: string | null;
   readonly events: readonly OrderDetailEvent[];
   readonly replacementOpen: boolean;
+  readonly canReplaceFromSupplier: boolean;
 };
 
 export type OrderHeaderBadge = 'paid' | 'pending' | 'failed' | 'verified';

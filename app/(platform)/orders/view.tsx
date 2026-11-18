@@ -41,6 +41,7 @@ type DetailPayload = {
   readonly fulfillmentAttempt: { readonly method: string; readonly status: string; readonly error: string | null } | null;
   readonly events: readonly { readonly label: string; readonly at: string; readonly tone: 'ok' | 'fault' | 'neutral'; readonly note: string | null }[];
   readonly replacementOpen: boolean;
+  readonly canReplaceFromSupplier?: boolean;
 };
 
 const CHIPS: readonly { readonly id: OrderChip; readonly label: string }[] = [
@@ -347,6 +348,7 @@ function OrderDrawer({
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
   const [content, setContent] = useState('');
+  const [manualItem, setManualItem] = useState('');
   const status = statusOf(order);
   const buyer = detail.customer?.username ? `@${detail.customer.username}` : detail.customer?.firstName || 'Buyer';
 
@@ -412,14 +414,31 @@ function OrderDrawer({
           </div>
           <Button variant="secondary" loading={busy === 'fulfill'} onClick={() => void act('fulfill', API_ROUTES.fulfillmentManualComplete(order.id), { note: note || 'Marked fulfilled' })}>Mark fulfilled</Button>
           {order.deliveryStatus === 'sent' ? (
-            <Button
-              variant="secondary"
-              loading={busy === 'replace'}
-              disabled={detail.replacementOpen}
-              onClick={() => void act('replace', '/api/platform/replacements', { decision: 'replace', orderId: order.id, note: note || 'Owner replacement' })}
-            >
-              {detail.replacementOpen ? 'Replacement already open' : 'Replace'}
-            </Button>
+            detail.replacementOpen ? (
+              <Button variant="secondary" disabled>Replacement already open</Button>
+            ) : (
+              <div className="space-y-2">
+                {detail.canReplaceFromSupplier ? (
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    loading={busy === 'replace-supplier'}
+                    onClick={() => void act('replace-supplier', '/api/platform/replacements', { decision: 'replace', mode: 'supplier', orderId: order.id, note: note || 'Owner replacement' })}
+                  >
+                    New item from supplier
+                  </Button>
+                ) : null}
+                <TextAreaField id={`replace-${order.id}`} label="Replacement item" value={manualItem} onChange={(event) => setManualItem(event.target.value)} />
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  loading={busy === 'replace-manual'}
+                  onClick={() => void act('replace-manual', '/api/platform/replacements', { decision: 'replace', mode: 'manual', orderId: order.id, content: manualItem, note: note || 'Owner replacement' })}
+                >
+                  Send manually
+                </Button>
+              </div>
+            )
           ) : null}
           <TextAreaField id={`note-${order.id}`} label="Note" value={note} onChange={(event) => setNote(event.target.value)} />
           <Button variant="ghost" loading={busy === 'note'} onClick={() => void act('note', API_ROUTES.orderNote(order.id), { note })}>Add note</Button>

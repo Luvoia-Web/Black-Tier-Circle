@@ -95,6 +95,8 @@ export function PricingSection(): JSX.Element {
   const [toCost, setToCost] = useState('1.20');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmApply, setConfirmApply] = useState(false);
+  const [applyNote, setApplyNote] = useState<string | null>(null);
   if (page.loading && !page.data) return <Skeleton className="h-40 w-full" />;
   if (page.error || !page.data) return <ErrorState message={page.error?.message ?? 'Pricing did not load.'} onRetry={page.refetch} />;
   const data = page.data;
@@ -118,6 +120,23 @@ export function PricingSection(): JSX.Element {
       setError(result.error.message);
       return;
     }
+    page.refetch();
+  }
+
+  async function applyDefaults(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    const result = await runAction('/api/platform/pricing', { method: 'POST' });
+    setBusy(false);
+    setConfirmApply(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    const body = result.data as { repriced?: number; paused?: readonly { title: string }[] };
+    const paused = body.paused ?? [];
+    const names = paused.map((item) => item.title).slice(0, 8).join(', ');
+    setApplyNote(`Repriced ${body.repriced ?? 0}. Paused ${paused.length}${names ? `: ${names}` : ''}.`);
     page.refetch();
   }
 
@@ -148,6 +167,28 @@ export function PricingSection(): JSX.Element {
             {preview.blocked ? ' That retail price is at or below cost, or under the minimum margin, so it would not be saved.' : ' The margin stays above the minimum.'}
           </p>
         ) : <p className="text-sm text-ink-soft">Enter both costs to preview.</p>}
+      </div>
+      <div className="glass-card space-y-3 rounded-lg p-4">
+        <p className="text-sm text-ink">{data.defaultCount} {data.defaultCount === 1 ? 'product uses' : 'products use'} the store default. Products with their own rule stay as they are.</p>
+        {data.defaultPreview.length === 0 ? <p className="text-sm text-ink-soft">Nothing on the default rule has a supplier cost to reprice.</p> : (
+          <ul className="space-y-1 text-sm text-ink">
+            {data.defaultPreview.map((row) => (
+              <li key={row.id}>
+                {row.title}: wholesale {row.fromWholesale} → {row.toWholesale}, retail {row.fromRetail} → {row.toRetail}
+                {row.blocked ? '. This one would break a guard, so it would be paused.' : '.'}
+              </li>
+            ))}
+          </ul>
+        )}
+        {applyNote ? <p className="text-sm text-ink">{applyNote}</p> : null}
+        {confirmApply ? (
+          <div className="flex flex-wrap gap-2">
+            <Button loading={busy} onClick={() => void applyDefaults()}>Confirm reprice</Button>
+            <Button variant="secondary" onClick={() => setConfirmApply(false)}>Cancel</Button>
+          </div>
+        ) : (
+          <Button variant="secondary" disabled={data.defaultCount === 0} onClick={() => setConfirmApply(true)}>Apply to products on the default rule</Button>
+        )}
       </div>
       <DataTable
         caption="Products overriding the store rule"

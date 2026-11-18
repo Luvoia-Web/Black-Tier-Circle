@@ -6,7 +6,7 @@ import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { usdtToMinor } from '@/lib/money';
-import { readPricing, savePricingDefaults } from '@/modules/platform/pricing';
+import { applyDefaultPricing, readPricing, savePricingDefaults } from '@/modules/platform/pricing';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,18 @@ export async function GET(): Promise<Response> {
       throw new AuthError('FORBIDDEN', 'You do not have access to pricing', 403);
     }
     return jsonSuccess(await readPricing(asDbClient(session.admin)));
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function POST(): Promise<Response> {
+  try {
+    const session = await requireUser();
+    if (session.profile.role !== 'owner') {
+      throw new AuthError('FORBIDDEN', 'Only the owner can change store pricing', 403);
+    }
+    return jsonSuccess(await applyDefaultPricing(asDbClient(session.admin), session.user.id));
   } catch (error: unknown) {
     return handleRouteError(error);
   }

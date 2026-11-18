@@ -114,7 +114,76 @@ export async function loadSupplierClient(supabase: DbClient, supplierId: string)
 }
 
 /**
- * Places the supplier order. idempotencyKey is our order id.
+ * Reads the supplier balance and refuses when it cannot cover the cost.
+ * A failed lookup also refuses, so a replacement is not bought blind.
+ */
+export async function assertSupplierBalanceForReplacement(
+  supabase: DbClient,
+  productId: string,
+  quantity: number,
+): Promise<{ readonly costMinor: bigint }> {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    throw new AppError('INVALID_QUANTITY', 'Quantity must be a whole number of at least 1', 400);
+  }
+  const productResult = await supabase
+    .from('products')
+    .select('supplier_id, supplier_sku, supplier_price_minor')
+    .eq('id', productId)
+    .maybeSingle();
+  const product = productResult.data as {
+    supplier_id?: string | null;
+    supplier_sku?: string | null;
+    supplier_price_minor?: string | number | null;
+  } | null;
+  if (productResult.error || !product?.supplier_id || !product.supplier_sku) {
+    throw new AppError('SUPPLIER_NOT_LINKED', 'Product is not linked to a supplier', 400);
+  }
+  const unit = product.supplier_price_minor === null || product.supplier_price_minor === undefined
+    ? 0n
+    : BigInt(product.supplier_price_minor);
+  const costMinor = unit * BigInt(quantity);
+  const needed = Number(costMinor) / 1_000_000;
+  const supplierRow = await supabase.from('suppliers').select('*').eq('id', product.supplier_id).maybeSingle();
+  const saved = supplierRow.data as SupplierRow | null;
+  if (!saved?.api_key_encrypted) {
+    throw new AppError('SUPPLIER_NOT_CONFIGURED', 'Supplier API key is not saved', 400);
+  }
+  let balance: number | null = null;
+  try {
+    if (saved.adapter_name === 'canboso') {
+      const read = await adapterByName('canboso').getBalance(decrypt(saved.api_key_encrypted), saved.base_url);
+      balance = read?.available ?? null;
+    } else {
+      const client = await loadSupplierClient(supabase, product.supplier_id);
+      balance = (await client.getBalance()).balance;
+    }
+  } catch (error: unknown) {
+    throw new AppError(
+      'SUPPLIER_BALANCE_UNREAD',
+      'The supplier balance could not be checked, so the replacement was not bought.',
+      400,
+    );
+  }
+  if (balance === null) {
+    throw new AppError(
+      'SUPPLIER_BALANCE_UNREAD',
+      'The supplier balance could not be checked, so the replacement was not bought.',
+      400,
+    );
+  }
+  if (needed > 0 && balance < needed) {
+    throw new AppError(
+      'INSUFFICIENT_SUPPLIER_BALANCE',
+      `Supplier balance is ${balance} USDT. A replacement needs ${needed} USDT. The buyer was not charged.`,
+      402,
+    );
+  }
+  return { costMinor };
+}
+
+/**
+ * Places the supplier order.
+ * idempotencyKey defaults to our order id. A replacement passes its own key.
  */
 export async function fulfillViaSupplier(
   supabase: DbClient,
@@ -122,7 +191,9 @@ export async function fulfillViaSupplier(
   productId: string,
   quantity: number,
   customerEmail?: string,
+  idempotencyKey?: string,
 ): Promise<SupplierFulfillment> {
+  const placementKey = idempotencyKey && idempotencyKey.length > 0 ? idempotencyKey : orderId;
   if (!Number.isInteger(quantity) || quantity < 1) {
     throw new AppError('INVALID_QUANTITY', 'Quantity must be a whole number of at least 1', 400);
   }
@@ -160,7 +231,7 @@ export async function fulfillViaSupplier(
       product.supplier_sku,
       quantity,
       customerEmail,
-      orderId,
+      placementKey,
       saved.base_url,
     );
     const status = placed.status === 'delivered' ? 'delivered' : placed.status === 'failed' ? 'failed' : 'paid';
@@ -210,7 +281,7 @@ export async function fulfillViaSupplier(
   const placed = await client.createOrder({
     productId: product.supplier_sku,
     quantity,
-    idempotencyKey: orderId,
+    idempotencyKey: placementKey,
     ...(customerEmail ? { email: customerEmail } : {}),
   });
   if (observedBalance !== null) {

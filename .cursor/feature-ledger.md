@@ -111,7 +111,7 @@ They live on the eight current routes and their `/api/platform` handlers. The ne
 | One order list, payment / supplier / delivery timeline, bulk retry, CSV. | `/orders`, `GET /api/platform/orders` | Orders | 2 |
 | Order drawer. | `/orders?order=` | Orders | 2 |
 | Refund to wallet. | `POST /api/orders/:id/refund` | Orders | 2 |
-| Replacement requests. Buyer asks. Owner approves or rejects. | `POST /api/platform/replacements` | Orders | 2 |
+| Replacement requests. Owner-initiated only. The buyer bot no longer has a Replace button. | `POST /api/platform/replacements` | Orders | 2 |
 | Balances, reseller wallets, ledger, supplier warning. | `/money`, `GET /api/platform/money` | Wallets & ledger | 3 |
 | Wallet drawer. | `/money?wallet=` | Reseller wallets | 3 |
 | Top-up review (approve, reject, audit). | `TopupAdmin` on `/money` | Payments → Top-ups | 3 |
@@ -131,7 +131,7 @@ They live on the eight current routes and their `/api/platform` handlers. The ne
 | Detail drawer (order, item, person, wallet, thread). | Shell | Shell | 1 |
 | Notification bell. | Top bar | Top bar | 1 |
 
-Buyer bot screens that must keep working, even though they are not dashboard pages: order history, redeem, discount at checkout, events, and replacement. Their buttons are no longer in the coming-soon list. Step 4 does not remove them.
+Buyer bot screens that must keep working, even though they are not dashboard pages: order history, redeem, discount at checkout, and events. The Replace button is gone. Replacement is owner-initiated only, from the Orders drawer. Step 4 does not remove the screens that remain.
 
 ## Where each old feature lives now
 
