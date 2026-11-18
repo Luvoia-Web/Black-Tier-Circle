@@ -40,11 +40,11 @@ Do not push. Do not apply SQL. Do not edit migration 0022. Migrations through 00
 | 1 Tokens, fonts, glows, glass | DONE | d440ae3f1d0e33f9d55f94f4652f9fcf6a8c7197 | Stylesheet, Tailwind theme, auth-scoped legacy sheet |
 | 2 Shell | DONE | b9b49734595a6906df3018b924d5f0251d0eee8d | Floating sidebar, liquid pill, top bar, palette, nav counts |
 | 3 Remy | DONE | 2d13084f8eb344e6c3346e014506f850d63cc0df | Launcher, panel, and /remy restored from fcc28f6^ and restyled |
-| 4 Component kit and charts | DONE | pending-hash | Glass cards, KPI count-up, charts, relative time |
-| 5 Stop hiding errors | | | |
-| 6 Verification harness | | | |
-| 7 Overview | | | |
-| 8 Prove it | | | |
+| 4 Component kit and charts | DONE | e05719c3d06b0e0698f9ce9a8d590997bfd051d2 | Glass cards, KPI count-up, charts, relative time |
+| 5 Stop hiding errors | DONE | 52834113548ba90137344a04896720510830b926 | Request id, owner details, load timeout, list helpers throw |
+| 6 Verification harness | DONE | 33bcca3cba3cc05b3b4ae41142aff540192da28d | Magic-link sign-in and screenshots. Nothing from the session is committed |
+| 7 Overview | DONE | 18e967fbb598f6b7e00515be4a94476570f1b1a7 | Live Overview. /today redirects there |
+| 8 Prove it | DONE | pending-hash | Harness passed every destination at 1440 and 390 |
 
 ## Libraries added
 
@@ -63,6 +63,54 @@ Glass cards, rose primary buttons, KPI tiles with an icon chip and a count-up, d
 Checks for this phase were run with the later error-handling edits also in the tree, because they landed before the commit split. type-check, lint, test (336), and build all exited 0 on that tree. Next.js 14.2.21.
 
 Files: `components/platform/ui/button.tsx`, `card.tsx`, `charts.tsx`, `count-up.tsx`, `relative-time.tsx`, `index.ts`, `table.tsx`, `package.json`, `package-lock.json`, `.cursor/handoff-step1.md`.
+
+## Phase 5 — stop hiding errors
+
+`handleRouteError` logs the real error with a request id. The response always includes that id. The real message is included as `detail`. ErrorState shows it under Details only when `data-role` is `owner`. If the title and the message are the same sentence, it is printed once. `useData` aborts after 15 seconds. The growth panel does the same. List helpers in `modules/platform` throw on a database error instead of returning an empty list. A missing fraud column still returns an empty lookup so an unapplied column does not take checkout down. Store preview text is shown without raw tags. Money, people, and catalog history use relative time.
+
+Checks: type-check, lint, test (336), and build exited 0. Next.js 14.2.21.
+
+Files: `lib/http.ts`, `lib/hooks/parse-data.ts`, `lib/hooks/use-data.ts`, `components/platform/ui/feedback.tsx`, `components/platform/shell.tsx`, `components/platform/connected-page.tsx`, `components/growth/growth-panel.tsx`, `app/(platform)/store/view.tsx`, `money/view.tsx`, `people/view.tsx`, `catalog/view.tsx`, `app/api/intelligence/customer/route.ts`, and the `records` helpers in `modules/platform`.
+
+## Phase 6 — verification harness
+
+`npm run e2e` builds, starts on port 3210, signs in as the owner with `generateLink` type `magiclink`, and does the same for one active reseller. The link is not printed. Storage state and shots live in `.cursor/e2e/`, which is gitignored. The auth callback accepts `token_hash` so that link can set a cookie.
+
+Checks before the live run: type-check, lint, test (336), and build exited 0.
+
+Files: `scripts/e2e-harness.mjs`, `app/auth/callback/route.ts`, `.gitignore`. Playwright is in the Phase 4 lockfile.
+
+## Phase 7 — Overview
+
+`/overview` reads `/api/platform/overview`. Revenue is split into owner store, reseller stores, and API. The right-hand panel shows buyers active in the last five minutes, stage bars, and the latest sales. KPI tiles, the triage list, top resellers, and top products use the selected range. A reseller does not see the reseller leaderboard. `/today` redirects to `/overview`.
+
+Checks: type-check, lint, test (336), and build exited 0. Next.js 14.2.21.
+
+Files: `modules/platform/overview.ts`, `app/api/platform/overview/route.ts`, `app/(platform)/overview/page.tsx`, `app/(platform)/today/page.tsx`.
+
+## Phase 8 — prove it
+
+`node scripts/e2e-harness.mjs` exited 0. Next.js 14.2.21. 50 screenshots, every one PASS, owner and one active reseller, 1440 and 390, dark theme.
+
+Owner: `/overview`, `/analytics`, `/intelligence`, `/remy`, `/orders`, `/catalog`, `/catalog?stock=out`, `/suppliers/health`, `/people?type=buyer`, `/people?type=reseller`, `/money`, `/store`, `/growth`, `/settings`, `/health`.
+
+Reseller: `/overview`, `/analytics`, `/remy`, `/orders`, `/catalog`, `/people`, `/growth`, `/money`, `/store`, `/settings`.
+
+No page failed, so nothing in that list needed a follow-up fix. Screenshots: `.cursor/e2e/shots/` (gitignored).
+
+### Ledger features restored in this step
+
+Shell and navigation, command palette, notification bell, theme (dark by default), Remy launcher, panel, and page, Overview including the Today triage, the shared kit and charts, and the signed-in harness.
+
+### Scheduled for later steps
+
+Step 2: Products (catalogue, inventory, pricing rules), Orders (timeline, bulk retry, refunds, replacements), Suppliers (connected, import, supplier orders, health).
+
+Step 3: Customers and the support inbox, blocked buyers, Resellers (approve and invite), Wallets and ledger, credit tokens, Payments (top-ups, claims, methods), Bots.
+
+Step 4: Marketing (referrals, points, freebies), Discounts, Broadcasts and announcements, Bot Studio, Settings (account, keys, webhooks, fraud, reseller policy, open or maintenance), Analytics, Intelligence, and System health as full screens. Those routes already load live data. They are not the reference layouts yet.
+
+No migration 0033. Nothing was pushed. Nothing was applied to the database. No commit has a Co-authored-by line. Next.js is 14.2.21 and React is 18.3.1.
 
 ## Phase 0 — feature ledger
 

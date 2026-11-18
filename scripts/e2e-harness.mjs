@@ -51,7 +51,7 @@ async function magicLink(admin, email) {
 async function signIn(browser, link, file) {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(link, { waitUntil: 'networkidle', timeout: 30000 });
+  await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForURL(/\/(overview|today|onboarding|login)/, { timeout: 20000 });
   await context.storageState({ path: file });
   await context.close();
@@ -80,7 +80,7 @@ async function shoot(browser, storage, label, paths) {
       page.on('pageerror', (error) => logs.push(error.message.slice(0, 180)));
       const viewport = { width, height: width === 390 ? 844 : 900 };
       await page.setViewportSize(viewport);
-      const response = await page.goto(`${base}${target}`, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => null);
+      const response = await page.goto(`${base}${target}`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => null);
       await page.waitForTimeout(1500);
       const body = await page.locator('body').innerText().catch(() => '');
       const status = response ? response.status() : 0;
