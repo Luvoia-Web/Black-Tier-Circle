@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ValidationError } from '@/lib/errors';
+import { AppError, ValidationError } from '@/lib/errors';
 import { retryDelivery } from '@/modules/fulfillment';
 import { canTransitionDelivery } from '@/modules/orders/state-machine';
 import { parseOrderFilters } from '@/modules/platform/orders';
@@ -134,21 +134,57 @@ describe('owner replacement', () => {
     await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'manual', content: 'x' }, { deliver: async () => undefined })).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('rejects the row when delivery fails, then retries with the same supplier key', async () => {
+  it('reuses the purchase when delivery fails after the supplier sold the item', async () => {
     const database = db();
-    const placed = placeOk();
+    const placed = placeOk('bought-key');
     await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
       place: placed.place,
       deliver: async () => {
         throw new ValidationError('REPLACEMENT_DELIVERY_FAILED', 'The replacement could not be sent to the buyer.');
       },
     })).rejects.toBeInstanceOf(ValidationError);
-    expect(database.tables.replacement_requests?.[0]?.status).toBe('rejected');
+    const second: string[] = [];
+    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+      place: placed.place,
+      deliver: async (_db, item) => {
+        second.push(item.content);
+        expect(item.artifactPath).toBe('supplier_order:sup-order-9');
+      },
+    });
+    expect(placed.keys).toEqual([replacementIdempotencyKey(ORDER, 1)]);
+    expect(second).toEqual(['bought-key']);
+  });
+
+  it('advances the replacement number after a definitive supplier failure', async () => {
+    const database = db();
+    const placed = placeOk();
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+      place: async () => {
+        throw new AppError('SUPPLIER_ORDER_FAILED', 'The supplier could not place this order.');
+      },
+      deliver: async () => undefined,
+    })).rejects.toThrow(/could not place/);
     await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
       place: placed.place,
       deliver: async () => undefined,
     });
-    expect(placed.keys).toEqual([replacementIdempotencyKey(ORDER, 1), replacementIdempotencyKey(ORDER, 1)]);
+    expect(placed.keys).toEqual([replacementIdempotencyKey(ORDER, 2)]);
+  });
+
+  it('blocks a second purchase when the supplier outcome is unknown', async () => {
+    const database = db();
+    const placed = placeOk();
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+      place: async () => {
+        throw new Error('socket hang up');
+      },
+      deliver: async () => undefined,
+    })).rejects.toThrow(/Reconcile/);
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+      place: placed.place,
+      deliver: async () => undefined,
+    })).rejects.toThrow(/Reconcile/);
+    expect(placed.keys).toEqual([]);
   });
 
   it('refuses a short supplier balance before another purchase', async () => {

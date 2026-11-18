@@ -304,7 +304,10 @@ export function supplierOrderIdFromArtifact(artifactPath: string | null | undefi
   if (!artifactPath?.startsWith(SUPPLIER_ORDER_PREFIX)) {
     return null;
   }
-  return artifactPath.slice(SUPPLIER_ORDER_PREFIX.length);
+  const rest = artifactPath.slice(SUPPLIER_ORDER_PREFIX.length);
+  const marker = rest.indexOf('|replacement:');
+  const id = marker === -1 ? rest : rest.slice(0, marker);
+  return id || null;
 }
 
 export async function orderCustomerEmail(supabase: DbClient, orderId: string): Promise<string | undefined> {

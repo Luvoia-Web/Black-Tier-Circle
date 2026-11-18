@@ -72,61 +72,167 @@ export type DbClient = {
   storage?: StorageAdapter;
 };
 
+const WRITE_CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
+
 /**
- * The live client can filter only after select(). The in-memory test client
- * can filter first. This wrapper remembers filters and applies them on select
- * when the underlying builder has no eq yet.
+ * A write is filtered when the URL carries a row predicate.
+ * PostgREST puts those on the query string. select, order, and on_conflict do not count.
+ */
+export function urlHasRowFilter(url: URL): boolean {
+  for (const key of url.searchParams.keys()) {
+    if (!WRITE_CONTROL_PARAMS.has(key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export const UNFILTERED_WRITE = 'Refusing a write with no filter.';
+
+type FlexibleBuilder = QueryBuilder<unknown> & {
+  neq: (column: string, value: string | number | boolean) => FlexibleBuilder;
+  gt: (column: string, value: string | number) => FlexibleBuilder;
+  lt: (column: string, value: string | number) => FlexibleBuilder;
+  match: (query: Record<string, unknown>) => FlexibleBuilder;
+  filter: (column: string, operator: string, value: string) => FlexibleBuilder;
+  not: (column: string, operator: string, value: unknown) => FlexibleBuilder;
+  upsert: (values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>, options?: Record<string, unknown>) => FlexibleBuilder;
+  url?: URL;
+};
+
+/**
+ * Refuses the request when the write builder is executed with no row filter.
+ * Filters chained after update(), delete(), or upsert() still land on the URL first.
+ */
+export function guardUnfilteredWrite<T extends object>(builder: T): T {
+  return new Proxy(builder, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop === 'then') {
+        const then = value as (onFulfilled?: unknown, onRejected?: unknown) => Promise<unknown>;
+        return (onFulfilled?: unknown, onRejected?: unknown) => {
+          const url = (target as { url?: URL }).url;
+          if (!(url instanceof URL) || !urlHasRowFilter(url)) {
+            return Promise.reject(new Error(UNFILTERED_WRITE)).then(onFulfilled as () => never, onRejected as () => never);
+          }
+          return then.call(target, onFulfilled, onRejected);
+        };
+      }
+      if (typeof value !== 'function') {
+        return value;
+      }
+      return (...args: unknown[]) => {
+        if (prop === 'maybeSingle' || prop === 'single' || prop === 'csv') {
+          const url = (target as { url?: URL }).url;
+          if (!(url instanceof URL) || !urlHasRowFilter(url)) {
+            return Promise.reject(new Error(UNFILTERED_WRITE));
+          }
+        }
+        const result = value.apply(target, args);
+        if (result === target) {
+          return receiver;
+        }
+        return result;
+      };
+    },
+  });
+}
+
+function applyHeld(query: FlexibleBuilder, filters: Array<(query: FlexibleBuilder) => FlexibleBuilder>): FlexibleBuilder {
+  let next = query;
+  for (const apply of filters) {
+    next = apply(next);
+  }
+  return next;
+}
+
+/**
+ * The live client can filter only after select(), update(), delete(), or upsert().
+ * The in-memory test client can filter first, so it is returned unchanged.
+ * This wrapper remembers filters set first and applies them to every read and write.
+ * A write that is executed with no row filter is refused before any request is sent.
  */
 export function fromWithEarlyFilters(client: { from: (relation: string) => QueryBuilder<unknown> }): DbClient['from'] {
   return (relation) => {
-    const raw = client.from(relation);
+    const raw = client.from(relation) as FlexibleBuilder;
     if (typeof raw.eq === 'function') {
       return raw;
     }
-    const filters: Array<(query: QueryBuilder<unknown>) => QueryBuilder<unknown>> = [];
+    const filters: Array<(query: FlexibleBuilder) => FlexibleBuilder> = [];
     let ordering: { column: string; options?: { ascending?: boolean } } | null = null;
     let limitCount: number | null = null;
     let rangeArgs: [number, number] | null = null;
+    const finishRead = (query: FlexibleBuilder): FlexibleBuilder => {
+      let next = applyHeld(query, filters);
+      if (ordering) next = next.order(ordering.column, ordering.options) as FlexibleBuilder;
+      if (limitCount !== null) next = next.limit(limitCount) as FlexibleBuilder;
+      if (rangeArgs) next = next.range(rangeArgs[0], rangeArgs[1]) as FlexibleBuilder;
+      return next;
+    };
     const chain = {
       select(columns?: string, options?: { count?: 'exact'; head?: boolean }) {
-        let query = (raw as unknown as { select: QueryBuilder<unknown>['select'] }).select(columns, options);
-        for (const apply of filters) {
-          query = apply(query);
-        }
-        if (ordering) query = query.order(ordering.column, ordering.options);
-        if (limitCount !== null) query = query.limit(limitCount);
-        if (rangeArgs) query = query.range(rangeArgs[0], rangeArgs[1]);
-        return query;
+        return finishRead(raw.select(columns, options) as FlexibleBuilder);
       },
       insert: (values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>) => raw.insert(values),
-      update: (values: Record<string, unknown>) => raw.update(values),
-      delete: () => raw.delete(),
+      update(values: Record<string, unknown>) {
+        return guardUnfilteredWrite(applyHeld(raw.update(values) as FlexibleBuilder, filters));
+      },
+      delete() {
+        return guardUnfilteredWrite(applyHeld(raw.delete() as FlexibleBuilder, filters));
+      },
+      upsert(values: Record<string, unknown> | ReadonlyArray<Record<string, unknown>>, options?: Record<string, unknown>) {
+        return guardUnfilteredWrite(applyHeld(raw.upsert(values, options) as FlexibleBuilder, filters));
+      },
       eq(column: string, value: string | number | boolean) {
-        filters.push((query) => query.eq(column, value));
+        filters.push((query) => query.eq(column, value) as FlexibleBuilder);
+        return chain;
+      },
+      neq(column: string, value: string | number | boolean) {
+        filters.push((query) => query.neq(column, value));
+        return chain;
+      },
+      gt(column: string, value: string | number) {
+        filters.push((query) => query.gt(column, value));
+        return chain;
+      },
+      lt(column: string, value: string | number) {
+        filters.push((query) => query.lt(column, value));
         return chain;
       },
       in(column: string, values: ReadonlyArray<string>) {
-        filters.push((query) => query.in(column, values));
+        filters.push((query) => query.in(column, values) as FlexibleBuilder);
         return chain;
       },
       is(column: string, value: null) {
-        filters.push((query) => query.is(column, value));
+        filters.push((query) => query.is(column, value) as FlexibleBuilder);
         return chain;
       },
       gte(column: string, value: string) {
-        filters.push((query) => query.gte(column, value));
+        filters.push((query) => query.gte(column, value) as FlexibleBuilder);
         return chain;
       },
       lte(column: string, value: string) {
-        filters.push((query) => query.lte(column, value));
+        filters.push((query) => query.lte(column, value) as FlexibleBuilder);
         return chain;
       },
       ilike(column: string, pattern: string) {
-        filters.push((query) => query.ilike(column, pattern));
+        filters.push((query) => query.ilike(column, pattern) as FlexibleBuilder);
+        return chain;
+      },
+      match(query: Record<string, unknown>) {
+        filters.push((builder) => builder.match(query));
+        return chain;
+      },
+      filter(column: string, operator: string, value: string) {
+        filters.push((builder) => builder.filter(column, operator, value));
+        return chain;
+      },
+      not(column: string, operator: string, value: unknown) {
+        filters.push((builder) => builder.not(column, operator, value));
         return chain;
       },
       or(expression: string) {
-        filters.push((query) => query.or(expression));
+        filters.push((query) => query.or(expression) as FlexibleBuilder);
         return chain;
       },
       order(column: string, options?: { ascending?: boolean }) {

@@ -155,6 +155,7 @@ export class CanbosoAdapter extends BaseSupplierAdapter {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // Sent as a header only. This adapter does not look up an existing Canboso order by the key.
         'Idempotency-Key': idempotencyKey && idempotencyKey.length >= 8 ? idempotencyKey : `order-${Date.now()}`,
       },
       body: JSON.stringify({

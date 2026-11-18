@@ -12,7 +12,7 @@ import { sanitizeInput } from '@/lib/sanitize';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { deliverReplacementItem } from '@/modules/fulfillment';
 import { SupplierError } from '@/integrations/prodseller/client';
-import { assertSupplierBalanceForReplacement, fulfillViaSupplier, orderCustomerEmail, supplierArtifact } from '@/modules/supplier/place';
+import { assertSupplierBalanceForReplacement, fulfillViaSupplier, orderCustomerEmail, supplierArtifact, supplierOrderIdFromArtifact } from '@/modules/supplier/place';
 
 export type ReplacementMode = 'supplier' | 'manual';
 
@@ -65,6 +65,96 @@ export function replacementIdempotencyKey(orderId: string, replacementNumber: nu
     throw new ValidationError('REPLACEMENT_FAILED', 'Replacement number is missing.');
   }
   return `${orderId}:replacement:${replacementNumber}`;
+}
+
+const REPLACEMENT_TAG = '|replacement:';
+
+export type ReplacementPlan =
+  | { readonly action: 'place'; readonly number: number }
+  | { readonly action: 'reuse'; readonly number: number; readonly content: string; readonly supplierOrderId: string; readonly costMinor: string }
+  | { readonly action: 'block'; readonly number: number };
+
+function replacementKeyFromAttempt(row: Record<string, unknown>): string {
+  const artifact = text(row.artifact_path);
+  const tagged = artifact.indexOf(REPLACEMENT_TAG);
+  if (tagged !== -1) {
+    return artifact.slice(tagged + REPLACEMENT_TAG.length);
+  }
+  if (artifact.startsWith('replacement:')) {
+    return artifact.slice('replacement:'.length);
+  }
+  return '';
+}
+
+function replacementNumberFromKey(orderId: string, key: string): number {
+  const prefix = `${orderId}:replacement:`;
+  if (!key.startsWith(prefix)) return 0;
+  const number = Number(key.slice(prefix.length));
+  return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+function attemptOutcome(row: Record<string, unknown>): 'bought' | 'failed' | 'unknown' {
+  const status = text(row.status);
+  const supplierOrderId = supplierOrderIdFromArtifact(text(row.artifact_path));
+  if (status === 'failed' && !supplierOrderId) return 'failed';
+  if (status === 'success' && supplierOrderId) return 'bought';
+  return 'unknown';
+}
+
+type ReplacementHold = { readonly key: string; readonly content: string; readonly supplierOrderId: string; readonly costMinor: string };
+
+function holdOf(metadata: unknown): ReplacementHold | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const hold = (metadata as Record<string, unknown>).replacement_hold;
+  if (!hold || typeof hold !== 'object') return null;
+  const row = hold as Record<string, unknown>;
+  const key = text(row.key);
+  const content = text(row.content);
+  const supplierOrderId = text(row.supplierOrderId);
+  if (!key || !content || !supplierOrderId) return null;
+  return { key, content, supplierOrderId, costMinor: text(row.costMinor) };
+}
+
+/**
+ * Decides whether a replacement may buy something.
+ * A purchase that already succeeded is reused. A definitive failure with nothing
+ * bought advances the number. An unknown outcome blocks another purchase.
+ */
+export function planReplacement(orderId: string, attempts: readonly Record<string, unknown>[], metadata: unknown): ReplacementPlan {
+  const keyed = attempts
+    .map((row) => ({ row, key: replacementKeyFromAttempt(row) }))
+    .filter((item) => replacementNumberFromKey(orderId, item.key) > 0);
+  if (keyed.some((item) => attemptOutcome(item.row) === 'unknown')) {
+    return { action: 'block', number: 0 };
+  }
+  const hold = holdOf(metadata);
+  if (hold && keyed.some((item) => item.key === hold.key && attemptOutcome(item.row) === 'bought')) {
+    return { action: 'reuse', number: replacementNumberFromKey(orderId, hold.key), ...hold };
+  }
+  const numbers = keyed.map((item) => replacementNumberFromKey(orderId, item.key));
+  const number = numbers.length === 0 ? 1 : Math.max(...numbers) + 1;
+  return { action: 'place', number };
+}
+
+export function purchaseOutcome(error: unknown): 'failed' | 'unknown' | 'not_sent' {
+  const code = error instanceof AppError ? error.code : '';
+  if (code === 'INSUFFICIENT_SUPPLIER_BALANCE' || code === 'SUPPLIER_BALANCE_UNREAD' || code === 'SUPPLIER_NOT_LINKED' || code === 'EMAIL_REQUIRED' || code === 'PRODUCT_NOT_FOUND' || code === 'INVALID_QUANTITY') {
+    return 'not_sent';
+  }
+  if (code === 'SUPPLIER_ORDER_FAILED' || code === 'REPLACEMENT_EMPTY') {
+    return 'failed';
+  }
+  const message = error instanceof Error ? error.message : '';
+  if (/could not place|balance is too low|nothing else was bought/i.test(message)) {
+    return 'failed';
+  }
+  return 'unknown';
+}
+
+function supplierOrderFromError(error: unknown): string {
+  if (!(error instanceof AppError) || !error.details || typeof error.details !== 'object') return '';
+  const id = (error.details as Record<string, unknown>).supplierOrderId;
+  return typeof id === 'string' ? id : '';
 }
 
 export async function requestReplacement(db: DbClient, input: { readonly orderId: string; readonly customerId: string; readonly tenantId: string | null; readonly reason: string }): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
@@ -152,6 +242,14 @@ async function placeNewSupplierItem(db: DbClient, input: ReplacementPlaceInput):
   const covered = await assertSupplierBalanceForReplacement(db, input.productId, input.quantity);
   const placed = await fulfillViaSupplier(db, input.orderId, input.productId, input.quantity, input.email, input.idempotencyKey);
   if (!placed.deliveryContent) {
+    if (placed.supplierOrderId) {
+      throw new AppError(
+        'REPLACEMENT_OUTCOME_UNKNOWN',
+        'The supplier accepted an order but did not return the item. Reconcile it before buying again.',
+        400,
+        { supplierOrderId: placed.supplierOrderId },
+      );
+    }
     throw new ValidationError('REPLACEMENT_EMPTY', 'The supplier did not return a new item. Nothing else was bought.');
   }
   const reported = placed.amountUsdt > 0 ? BigInt(Math.round(placed.amountUsdt * 1_000_000)) : covered.costMinor;
@@ -160,6 +258,48 @@ async function placeNewSupplierItem(db: DbClient, input: ReplacementPlaceInput):
     supplierOrderId: placed.supplierOrderId,
     costMinor: reported > 0n ? reported : covered.costMinor,
   };
+}
+
+async function rememberAttempt(
+  db: DbClient,
+  orderId: string,
+  artifact: string,
+  status: 'pending' | 'success' | 'failed',
+  existingId = '',
+): Promise<string> {
+  if (existingId) {
+    await db.from('fulfillment_attempts').update({
+      status,
+      artifact_path: artifact,
+      completed_at: status === 'pending' ? null : new Date().toISOString(),
+      error: status === 'failed' ? 'The supplier failed before anything was bought.' : null,
+    }).eq('id', existingId);
+    return existingId;
+  }
+  const inserted = (await db.from('fulfillment_attempts').insert({
+    order_id: orderId,
+    method: 'supplier',
+    status,
+    artifact_path: artifact,
+    attempt_number: 1,
+  }).select('id').maybeSingle()) as QueryResult<unknown>;
+  const id = inserted.data && typeof inserted.data === 'object' ? text((inserted.data as Record<string, unknown>).id) : '';
+  if (!id) {
+    throw new ValidationError('REPLACEMENT_FAILED', 'The replacement purchase could not be recorded.');
+  }
+  return id;
+}
+
+async function rememberHold(db: DbClient, orderId: string, hold: ReplacementHold | null): Promise<void> {
+  const current = (await db.from('orders').select('metadata').eq('id', orderId).maybeSingle()) as QueryResult<unknown>;
+  const row = current.data && typeof current.data === 'object' ? (current.data as Record<string, unknown>) : null;
+  const metadata = row?.metadata && typeof row.metadata === 'object' ? { ...(row.metadata as Record<string, unknown>) } : {};
+  if (hold) {
+    metadata.replacement_hold = hold;
+  } else {
+    delete metadata.replacement_hold;
+  }
+  await db.from('orders').update({ metadata, updated_at: new Date().toISOString() }).eq('id', orderId);
 }
 
 /**
@@ -183,7 +323,7 @@ export async function ownerReplace(
 ): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration' }> {
   const place = deps.place ?? placeNewSupplierItem;
   const deliver = deps.deliver ?? ((database, item) => deliverReplacementItem(database, item));
-  const order = (await db.from('orders').select('id, customer_id, tenant_id, product_id, quantity, delivery_status').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
+  const order = (await db.from('orders').select('id, customer_id, tenant_id, product_id, quantity, delivery_status, metadata').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
   const row = order.data && typeof order.data === 'object' ? (order.data as Record<string, unknown>) : null;
   if (order.error || !row) {
     throw new ValidationError('REPLACEMENT_NOT_OPEN', 'That order was not found.');
@@ -214,8 +354,12 @@ export async function ownerReplace(
   if (Array.isArray(open.data) && open.data.length > 0) {
     throw new ValidationError('REPLACEMENT_OPEN', 'This order already has an open replacement.');
   }
-  const prior = records((await db.from('replacement_requests').select('id, status').eq('order_id', input.orderId)) as QueryResult<unknown>);
-  const number = prior.filter((item) => text(item.status) !== 'rejected').length + 1;
+  const attempts = records((await db.from('fulfillment_attempts').select('id, order_id, method, status, artifact_path, error').eq('order_id', input.orderId).eq('method', 'supplier')) as QueryResult<unknown>);
+  const plan = input.mode === 'supplier' ? planReplacement(input.orderId, attempts, row.metadata) : { action: 'place' as const, number: 1 };
+  if (plan.action === 'block') {
+    throw new ValidationError('REPLACEMENT_OUTCOME_UNKNOWN', 'An earlier replacement purchase did not finish. Reconcile it before buying again. Nothing new was bought.');
+  }
+  const number = plan.number;
   const idempotencyKey = replacementIdempotencyKey(input.orderId, number);
   const reason = (input.reason ?? 'Owner replacement').replace(/\s+/g, ' ').trim().slice(0, 1000) || 'Owner replacement';
   const inserted = (await db.from('replacement_requests').insert({
@@ -237,8 +381,22 @@ export async function ownerReplace(
     throw new ValidationError('REPLACEMENT_FAILED', 'The replacement could not be saved.');
   }
   let supplierCostMinor: string | null = null;
+  let purchaseAttemptId = '';
+  let bought = plan.action === 'reuse';
   try {
-    if (input.mode === 'supplier') {
+    if (input.mode === 'supplier' && plan.action === 'reuse') {
+      supplierCostMinor = plan.costMinor || null;
+      await deliver(db, {
+        orderId: input.orderId,
+        actorId: input.actorId,
+        content: plan.content,
+        method: 'supplier',
+        artifactPath: supplierArtifact(plan.supplierOrderId),
+        supplierCostMinor,
+      });
+      await rememberHold(db, input.orderId, null);
+    } else if (input.mode === 'supplier') {
+      purchaseAttemptId = await rememberAttempt(db, input.orderId, `replacement:${idempotencyKey}`, 'pending');
       const email = await orderCustomerEmail(db, input.orderId);
       const placed = await place(db, {
         orderId: input.orderId,
@@ -248,6 +406,14 @@ export async function ownerReplace(
         ...(email ? { email } : {}),
       });
       supplierCostMinor = placed.costMinor.toString();
+      bought = true;
+      await rememberAttempt(db, input.orderId, `${supplierArtifact(placed.supplierOrderId)}${REPLACEMENT_TAG}${idempotencyKey}`, 'success', purchaseAttemptId);
+      await rememberHold(db, input.orderId, {
+        key: idempotencyKey,
+        content: placed.content,
+        supplierOrderId: placed.supplierOrderId,
+        costMinor: supplierCostMinor,
+      });
       await deliver(db, {
         orderId: input.orderId,
         actorId: input.actorId,
@@ -256,6 +422,7 @@ export async function ownerReplace(
         artifactPath: supplierArtifact(placed.supplierOrderId),
         supplierCostMinor,
       });
+      await rememberHold(db, input.orderId, null);
     } else {
       const content = sanitizeInput(input.content ?? '');
       if (content.length < 1 || content.length > 3500) {
@@ -271,12 +438,29 @@ export async function ownerReplace(
       });
     }
   } catch (error: unknown) {
-    await db.from('replacement_requests').update({ status: 'rejected', owner_note: 'Replacement did not finish', resolved_at: new Date().toISOString() }).eq('id', id);
+    if (!bought && purchaseAttemptId) {
+      const outcome = purchaseOutcome(error);
+      const seenOrder = supplierOrderFromError(error);
+      if (outcome === 'not_sent') {
+        await db.from('fulfillment_attempts').delete().eq('id', purchaseAttemptId);
+      } else if (outcome === 'failed' && !seenOrder) {
+        await rememberAttempt(db, input.orderId, `replacement:${idempotencyKey}`, 'failed', purchaseAttemptId);
+      } else if (seenOrder) {
+        await rememberAttempt(db, input.orderId, `${supplierArtifact(seenOrder)}${REPLACEMENT_TAG}${idempotencyKey}`, 'pending', purchaseAttemptId);
+      }
+    }
+    await db.from('replacement_requests').update({ status: 'rejected', owner_note: `replacement:${number} did not finish`.slice(0, 500), resolved_at: new Date().toISOString() }).eq('id', id);
     if (error instanceof SupplierError && error.code === 'INSUFFICIENT_SUPPLIER_BALANCE') {
       throw new ValidationError(error.code, error.message);
     }
     if (error instanceof AppError && (error.code === 'INSUFFICIENT_SUPPLIER_BALANCE' || error.code === 'SUPPLIER_BALANCE_UNREAD')) {
       throw new ValidationError(error.code, error.message);
+    }
+    if (error instanceof ValidationError && error.code === 'REPLACEMENT_OUTCOME_UNKNOWN') {
+      throw error;
+    }
+    if (!bought && purchaseOutcome(error) === 'unknown') {
+      throw new ValidationError('REPLACEMENT_OUTCOME_UNKNOWN', 'The supplier did not confirm this replacement. Reconcile it before buying again. Nothing new was bought.');
     }
     throw error;
   }

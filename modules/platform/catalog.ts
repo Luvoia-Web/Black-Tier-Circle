@@ -114,26 +114,36 @@ export function parseCatalogFilters(params: URLSearchParams): Filters {
   };
 }
 
+/**
+ * Live is a published product the buyer bot will sell.
+ * The bot still shows a published product that is sold out, and that row is out_of_stock.
+ * Archived, paused, and draft products are not in the bot list.
+ */
+export function buyerStage(input: {
+  readonly status: string;
+  readonly stockUnlimited: boolean;
+  readonly stockCount: number | null;
+  readonly supplierInStock: boolean;
+}): CatalogStage {
+  if (input.status === 'archived') return 'archived';
+  if (input.status === 'paused') return 'paused';
+  if (input.status !== 'published') return 'imported';
+  const soldOut = input.supplierInStock === false || (!input.stockUnlimited && (input.stockCount ?? 0) <= 0);
+  return soldOut ? 'out_of_stock' : 'live';
+}
+
 function stageOf(product: Record<string, unknown> | null, supplierOut: boolean): CatalogStage {
   if (!product) {
     return 'not_imported';
   }
-  const status = text(product.status);
-  if (status === 'archived') {
-    return 'archived';
-  }
-  if (status === 'paused') {
-    return 'paused';
-  }
-  if (status !== 'published') {
-    return 'imported';
-  }
   const unlimited = product.stock_unlimited === true;
-  const count = typeof product.stock_count === 'number' ? product.stock_count : 0;
-  if (supplierOut || (!unlimited && count <= 0)) {
-    return 'out_of_stock';
-  }
-  return 'live';
+  const count = typeof product.stock_count === 'number' ? product.stock_count : null;
+  return buyerStage({
+    status: text(product.status),
+    stockUnlimited: unlimited,
+    stockCount: count,
+    supplierInStock: !supplierOut && product.supplier_in_stock !== false,
+  });
 }
 
 function ruleOf(row: Record<string, unknown> | null, side: 'wholesale' | 'retail'): { kind: 'percent' | 'fixed'; value: string } {
@@ -443,7 +453,7 @@ function toOwnRow(row: Record<string, unknown>, names: Map<string, string>): Cat
     title: text(row.title) || id,
     sku: text(row.sku),
     category: text(row.category) || null,
-    stage: stageOf(row, false),
+    stage: stageOf(row, row.supplier_in_stock === false),
     product: row,
     supplier: null,
     wholesaleKind: wholesale.kind,
