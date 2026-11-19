@@ -28,8 +28,8 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | --- | --- | --- | --- |
 | 0 Safety | DONE | 2663183986584f27c1502b4a67992c7e4d95def2 | Filter guard, auth verdict, Live counts, replacement reuse. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written. The owner has since applied 0034. |
-| A Audit and crashes | DONE | this commit | `npm run check:pages` is 100 passed, 0 failed. Matrix is `.cursor/page-audit.md`. |
-| B Fresh-start SQL | | | Not started. Write `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Do not run them. |
+| A Audit and crashes | DONE | c208ed1bd89cf3aaae39ca6a4e72a088bd9ac08f | `npm run check:pages` is 100 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
+| B Fresh-start SQL | DONE | this commit | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. |
 | C Products and supplier lifecycle | | | Not started. |
 | D Bots and Bot Studio | | | Not started. `/bots` and `/bot-studio` are still the shared Store page. |
 | E Settings | | | Not started. |
@@ -45,7 +45,7 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 
 ## Resume
 
-Do not restart 0, 1, or A. Continue at Phase B. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms.
+Do not restart 0, 1, A, or B. Continue at Phase C. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
 
 ## Phase A
 
@@ -62,6 +62,14 @@ Catalog, including `?section=suppliers` and every supplier panel, rendered for t
 After the fix, `npm run check:pages` (production build, then a second pass on that build) is 100 passed, 0 failed. One earlier pass failed only `/today` at 390 with `ERR_NETWORK_CHANGED` while the machine changed networks. The retry of that route passed. The checker retries a route once when every problem is a transport failure.
 
 Checks for this phase are the page audit above. type-check, lint, test, and build were exercised by `next build` inside `check:pages` (exit 0, Next.js 14.2.21). The existing `MemoryNav.tsx` image warning is still the only lint warning and is not in this commit.
+
+## Phase B
+
+`scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql` are the full scripts. They were not executed. Part 1 is the preview (counts, wallets with a balance, reseller stores and bot usernames, duplicate discount codes). Part 2 is one transaction: copy every touched table into `fresh_start_backup`, then delete in foreign-key order.
+
+Customer credit is `customers.credit_balance`. Reseller balances are `wallets.balance_total`. There is no separate fraud table; `rate_limit_hits` is the hit log. The owner bot lives on `platform_settings`, not in `bot_connections`. The owner Bot Studio row is `store_config` / `store_config_versions` where `tenant_id` is null. Identical discount codes cannot all keep a null tenant, so the oldest row of each code is kept and `used_count` is reset. Supplier catalogue rows stay, with `product_id` cleared and a published review status returned to `pending_review`, which is how the catalogue shows "Not imported". Undo restores rows from the backup. Storage object rows come back; the file bytes do not.
+
+Phase C is next: archive versus permanent delete, supplier row state, and bulk select on both lists. Catalogue, inventory, and pricing must still pass `npm run check:pages`.
 
 ## Phase 0 — safety
 
