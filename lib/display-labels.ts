@@ -183,10 +183,61 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'topup.approve': 'Approved top-up',
   'topup.reject': 'Rejected top-up',
   'bulk_tiers.save': 'Saved bulk pricing tiers',
+  'customer.block': 'Blocked buyer',
+  'customer.unblock': 'Unblocked buyer',
+  'customer.credit': 'Added wallet credit',
+  'customer.debit': 'Deducted wallet credit',
+  'customer.freeze': 'Blocked buyer',
+  'customer.unfreeze': 'Unblocked buyer',
+  'support.close': 'Closed support thread',
+  'support.reopen': 'Reopened support thread',
+  support_reply_sent: 'Sent support reply',
+  support_reply_failed: 'Support reply failed',
+  order_replaced: 'Sent warranty replacement',
+  'fraud.blocked': 'Blocked account attempt',
+  'fraud.order_refused': 'Unpaid order limit hit',
+  'fraud.freebie_refused': 'Freebie daily limit hit',
+  'fraud.discount_refused': 'Discount limit hit',
+  'fraud.claim_refused': 'Failed claim limit hit',
+  'fraud.support_refused': 'Support message limit hit',
+  'fraud.referral_refused': 'Referral limit hit',
+  'claim.failed': 'Failed payment claim',
 };
 
 export function displayAuditAction(action: string): string {
   return AUDIT_ACTIONS[action] ?? humanizeToken(action);
+}
+
+const SUPPORT_STATUSES: Readonly<Record<string, string>> = {
+  open: 'Open',
+  closed: 'Closed',
+};
+
+export function displaySupportStatus(status: string): string {
+  return SUPPORT_STATUSES[status] ?? humanizeToken(status);
+}
+
+const REPLACEMENT_STATUSES: Readonly<Record<string, string>> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  replaced: 'Replaced',
+  rejected: 'Declined',
+};
+
+export function displayReplacementStatus(status: string): string {
+  return REPLACEMENT_STATUSES[status] ?? humanizeToken(status);
+}
+
+const TOPUP_STATUSES: Readonly<Record<string, string>> = {
+  pending: 'Pending',
+  credited: 'Credited',
+  expired: 'Expired',
+  failed: 'Failed',
+  rejected: 'Rejected',
+};
+
+export function displayTopupStatus(status: string): string {
+  return TOPUP_STATUSES[status] ?? humanizeToken(status);
 }
 
 const PAYMENT_STATUSES: Readonly<Record<string, string>> = {

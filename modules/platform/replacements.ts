@@ -315,12 +315,13 @@ export async function ownerReplace(
     readonly mode: ReplacementMode;
     readonly content?: string;
     readonly reason?: string;
+    readonly threadId?: string;
   },
   deps: {
     readonly place?: (database: DbClient, input: ReplacementPlaceInput) => Promise<ReplacementPlacement>;
     readonly deliver?: (database: DbClient, input: ReplacementDeliverInput) => Promise<void>;
   } = {},
-): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration' }> {
+): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration'; readonly threadId: string | null }> {
   const place = deps.place ?? placeNewSupplierItem;
   const deliver = deps.deliver ?? ((database, item) => deliverReplacementItem(database, item));
   const order = (await db.from('orders').select('id, customer_id, tenant_id, product_id, quantity, delivery_status, metadata').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
@@ -334,6 +335,18 @@ export async function ownerReplace(
   const customerId = text(row.customer_id);
   if (!customerId) {
     throw new ValidationError('REPLACEMENT_NOT_OPEN', 'This order has no buyer.');
+  }
+  let explicitThreadId = '';
+  if (input.threadId) {
+    const threadCheck = (await db.from('support_threads').select('id, customer_id').eq('id', input.threadId).maybeSingle()) as QueryResult<unknown>;
+    if (missing(threadCheck.error)) {
+      throw new ValidationError('REPLACEMENT_NEEDS_MIGRATION', 'Support threads are unavailable.');
+    }
+    const threadRow = threadCheck.data && typeof threadCheck.data === 'object' ? (threadCheck.data as Record<string, unknown>) : null;
+    if (!threadRow || text(threadRow.customer_id) !== customerId) {
+      throw new ValidationError('THREAD_MISMATCH', 'That support thread does not belong to this buyer.');
+    }
+    explicitThreadId = text(threadRow.id);
   }
   const productId = text(row.product_id);
   const quantity = typeof row.quantity === 'number' && row.quantity > 0 ? row.quantity : 1;
@@ -465,8 +478,20 @@ export async function ownerReplace(
     throw error;
   }
   await db.from('replacement_requests').update({ status: 'replaced', resolved_at: new Date().toISOString() }).eq('id', id);
+  let targetThreadId = explicitThreadId;
+  let supportStatus: 'posted' | 'none' | 'needs-migration' = 'none';
+  if (!targetThreadId) {
+    const thread = (await db.from('support_threads').select('id').eq('customer_id', customerId).eq('status', 'open').order('last_message_at', { ascending: false }).limit(1)) as QueryResult<unknown>;
+    if (missing(thread.error)) {
+      supportStatus = 'needs-migration';
+    } else {
+      const threadRow = Array.isArray(thread.data) ? thread.data[0] : null;
+      targetThreadId = threadRow && typeof threadRow === 'object' ? text((threadRow as Record<string, unknown>).id) : '';
+    }
+  }
   await db.from('audit_log').insert({
     actor_id: input.actorId,
+    tenant_id: text(row.tenant_id) || null,
     action: 'order_replaced',
     target_type: 'order',
     target_id: input.orderId,
@@ -475,19 +500,18 @@ export async function ownerReplace(
       mode: input.mode,
       replacementNumber: number,
       supplierCostMinor,
+      threadId: targetThreadId || null,
       idempotencyKey: input.mode === 'supplier' ? idempotencyKey : null,
     },
   });
-  const thread = (await db.from('support_threads').select('id').eq('customer_id', customerId).eq('status', 'open').order('last_message_at', { ascending: false }).limit(1)) as QueryResult<unknown>;
-  if (missing(thread.error)) return { support: 'needs-migration' };
-  const threadRow = Array.isArray(thread.data) ? thread.data[0] : null;
-  const threadId = threadRow && typeof threadRow === 'object' ? text((threadRow as Record<string, unknown>).id) : '';
-  if (!threadId) return { support: 'none' };
+  if (supportStatus === 'needs-migration') return { support: 'needs-migration', threadId: null };
+  if (!targetThreadId) return { support: 'none', threadId: null };
   const posted = (await db.from('support_messages').insert({
-    thread_id: threadId,
+    thread_id: targetThreadId,
     sender: 'owner',
     body: `A replacement item was sent for order ${input.orderId.slice(0, 8)}. ${reason}`.slice(0, 2000),
   }).select('id').maybeSingle()) as QueryResult<unknown>;
-  if (missing(posted.error)) return { support: 'needs-migration' };
-  return { support: 'posted' };
+  if (missing(posted.error)) return { support: 'needs-migration', threadId: targetThreadId };
+  await db.from('support_threads').update({ last_message_at: new Date().toISOString() }).eq('id', targetThreadId);
+  return { support: 'posted', threadId: targetThreadId };
 }

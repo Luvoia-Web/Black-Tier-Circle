@@ -1,16 +1,35 @@
 /**
  * @file app/api/platform/replacements/route.ts
  *
- * Owner and reseller decisions on warranty requests.
+ * Owner-initiated warranty replacements and request reviews.
  */
 
+import { z } from 'zod';
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { consumeRateLimit } from '@/lib/rate-limiter';
 import { decideReplacement, listReplacements, ownerReplace } from '@/modules/platform/replacements';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
+
+const ReplaceSchema = z.object({
+  decision: z.literal('replace'),
+  orderId: z.string().uuid(),
+  mode: z.enum(['supplier', 'manual']),
+  content: z.string().max(3500).optional(),
+  note: z.string().max(1000).optional(),
+  threadId: z.string().uuid().optional(),
+});
+
+const DecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  id: z.string().uuid(),
+  note: z.string().max(1000).optional(),
+});
+
+const PostSchema = z.discriminatedUnion('decision', [ReplaceSchema, DecisionSchema]);
 
 async function scope() {
   const session = await requireUser();
@@ -35,36 +54,47 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    const body = (await readJsonBody(request)) as { id?: unknown; decision?: unknown; note?: unknown; orderId?: unknown; mode?: unknown; content?: unknown };
-    if (body.decision === 'replace') {
-      if (!current.owner || typeof body.orderId !== 'string') {
+    const rate = await consumeRateLimit({ key: `replacements:${current.actorId}`, limit: 20, fail: 'closed' });
+    if (!rate.allowed) {
+      throw new ValidationError('RATE_LIMITED', 'Too many replacement requests. Please wait a minute.');
+    }
+    const parsed = PostSchema.parse(await readJsonBody(request));
+    if (parsed.decision === 'replace') {
+      if (!current.owner) {
         throw new AuthError('FORBIDDEN', 'Only the owner can replace a delivered order', 403);
       }
-      const mode = body.mode === 'supplier' || body.mode === 'manual' ? body.mode : null;
-      if (!mode) {
-        throw new ValidationError('REPLACEMENT_INVALID', 'Choose a new supplier item or paste the replacement.');
-      }
       const replaced = await ownerReplace(current.db, {
-        orderId: body.orderId,
+        orderId: parsed.orderId,
         actorId: current.actorId,
-        mode,
-        ...(typeof body.content === 'string' ? { content: body.content } : {}),
-        ...(typeof body.note === 'string' ? { reason: body.note } : {}),
+        mode: parsed.mode,
+        ...(parsed.content !== undefined ? { content: parsed.content } : {}),
+        ...(parsed.note !== undefined ? { reason: parsed.note } : {}),
+        ...(parsed.threadId !== undefined ? { threadId: parsed.threadId } : {}),
       });
-      return jsonSuccess({ orderId: body.orderId, decision: 'replace', support: replaced.support });
+      return jsonSuccess({
+        orderId: parsed.orderId,
+        decision: 'replace',
+        support: replaced.support,
+        threadId: replaced.threadId,
+      });
     }
-    const decision = body.decision === 'approved' || body.decision === 'rejected' ? body.decision : null;
-    if (typeof body.id !== 'string' || !decision) {
-      throw new ValidationError('REPLACEMENT_INVALID', 'Choose a request and approve or reject it.');
-    }
+
     await decideReplacement(current.db, {
-      id: body.id,
+      id: parsed.id,
       tenantId: current.tenantId,
       owner: current.owner,
-      decision,
-      note: typeof body.note === 'string' ? body.note : '',
+      decision: parsed.decision,
+      note: parsed.note ?? '',
     });
-    return jsonSuccess({ id: body.id, decision });
+    await current.db.from('audit_log').insert({
+      actor_id: current.actorId,
+      tenant_id: current.tenantId,
+      action: parsed.decision === 'approved' ? 'replacement.approved' : 'replacement.rejected',
+      target_type: 'replacement_request',
+      target_id: parsed.id,
+      reason: parsed.note?.trim() || `Marked replacement ${parsed.decision}`,
+    });
+    return jsonSuccess({ id: parsed.id, decision: parsed.decision });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

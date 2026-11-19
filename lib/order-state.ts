@@ -71,9 +71,11 @@ export function orderCanRetry(tracks: OrderTracks): boolean {
   );
 }
 
+export type OrderTone = 'ok' | 'fault' | 'warn' | 'neutral' | 'info';
+
 export function orderDisplayStatus(tracks: OrderTracks): {
   readonly label: string;
-  readonly tone: 'ok' | 'fault' | 'warn' | 'neutral' | 'info';
+  readonly tone: OrderTone;
 } {
   if (tracks.deliveryStatus === 'sent') {
     return { label: 'Delivered', tone: 'ok' };
