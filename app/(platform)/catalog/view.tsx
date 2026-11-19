@@ -169,10 +169,8 @@ export function CatalogView(): JSX.Element {
 
   const rows = list.data?.rows ?? [];
   const chosen = rows.filter((row) => selected.has(row.id));
-  const archiveCount = chosen.filter((row) => row.productId && row.salesCount > 0).length;
-  const deleteCount = chosen.filter((row) => !row.productId || row.salesCount === 0).length;
 
-  async function applyBulk(action: 'publish' | 'pause' | 'delete' | 'set-category' | 'rule', rule?: { wholesaleKind: 'percent' | 'fixed'; wholesaleValue: string; retailKind: 'percent' | 'fixed'; retailValue: string }): Promise<void> {
+  async function applyBulk(action: 'publish' | 'pause' | 'delete' | 'purge' | 'restore' | 'set-category' | 'rule', rule?: { wholesaleKind: 'percent' | 'fixed'; wholesaleValue: string; retailKind: 'percent' | 'fixed'; retailValue: string }): Promise<void> {
     if (chosen.length === 0) return;
     setBusy(true);
     setNotice(null);
@@ -197,12 +195,21 @@ export function CatalogView(): JSX.Element {
       }
     }
     if (productIds.length > 0 && role === 'owner' && action !== 'rule') {
-      const result = await runAction(API_ROUTES.productBulk, {
-        body: { productIds: productIds.slice(0, 200), action, ...(action === 'set-category' ? { category } : {}) },
+      const bulkAction = action === 'delete' ? 'archive' : action;
+      const result = await runAction<{ results: Array<{ ok: boolean; error?: string }> }>(API_ROUTES.productBulk, {
+        body: { productIds: productIds.slice(0, 200), action: bulkAction, ...(action === 'set-category' ? { category } : {}) },
       });
       if (!result.ok) {
         setNotice(result.error.message);
         setBusy(false);
+        return;
+      }
+      const failed = result.data.results.find((item) => !item.ok);
+      if (failed?.error) {
+        setNotice(failed.error);
+        setBusy(false);
+        setDeleteOpen(false);
+        list.refetch();
         return;
       }
     }
@@ -347,7 +354,9 @@ export function CatalogView(): JSX.Element {
               {role === 'owner' ? <Button variant="secondary" onClick={() => setRuleOpen(true)}><Percent className="h-3.5 w-3.5" aria-hidden="true" />Pricing rule</Button> : null}
               {role === 'owner' ? <Button variant="secondary" loading={busy} onClick={() => void applyBulk('pause')}><Pause className="h-3.5 w-3.5" aria-hidden="true" />Pause</Button> : null}
               {role === 'owner' ? <Button loading={busy} onClick={() => void applyBulk('publish')}><Send className="h-3.5 w-3.5" aria-hidden="true" />Publish to bot</Button> : null}
-              {role === 'owner' ? <Button variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button> : null}
+              {role === 'owner' && activeStage === 'archived' ? <Button variant="secondary" onClick={() => void applyBulk('restore')}>Restore</Button> : null}
+              {role === 'owner' && activeStage === 'archived' ? <Button variant="destructive" onClick={() => setDeleteOpen(true)}>Delete permanently</Button> : null}
+              {role === 'owner' && activeStage !== 'archived' ? <Button variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button> : null}
             </div>
           ) : null}
         </>
@@ -373,9 +382,9 @@ export function CatalogView(): JSX.Element {
         <RuleForm busy={busy} onSave={(rule) => void applyBulk('rule', rule)} />
       </Modal>
       <Modal open={deleteOpen} title="Delete products" onClose={() => setDeleteOpen(false)}>
-        <p className="text-sm text-ink">{archiveCount} sold {archiveCount === 1 ? 'product' : 'products'} will be archived. {deleteCount} unsold {deleteCount === 1 ? 'item' : 'items'} will be deleted.</p>
+        <p className="text-sm text-ink">{chosen.length} selected {chosen.length === 1 ? 'product' : 'products'} will be archived and leave the active list. Restore them from Archived.</p>
         <div className="mt-3 flex gap-2">
-          <Button variant="destructive" loading={busy} onClick={() => void applyBulk('delete')}>Confirm delete</Button>
+          <Button variant="destructive" loading={busy} onClick={() => void applyBulk(activeStage === 'archived' ? 'purge' : 'delete')}>{activeStage === 'archived' ? 'Delete permanently' : 'Archive'}</Button>
           <Button variant="secondary" onClick={() => setDeleteOpen(false)}>Cancel</Button>
         </div>
       </Modal>

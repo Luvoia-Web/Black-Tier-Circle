@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 const Body = z.object({
   productIds: z.array(z.string().min(1)).min(1).max(200),
-  action: z.enum(['delete', 'publish', 'pause', 'archive', 'set-category']),
+  action: z.enum(['delete', 'publish', 'pause', 'archive', 'set-category', 'purge', 'restore']),
   category: z.string().trim().max(80).nullable().optional(),
 });
 

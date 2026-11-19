@@ -29,8 +29,8 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | 0 Safety | DONE | 2663183986584f27c1502b4a67992c7e4d95def2 | Filter guard, auth verdict, Live counts, replacement reuse. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written. The owner has since applied 0034. |
 | A Audit and crashes | DONE | c208ed1bd89cf3aaae39ca6a4e72a088bd9ac08f | `npm run check:pages` is 100 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
-| B Fresh-start SQL | DONE | this commit | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. |
-| C Products and supplier lifecycle | | | Not started. |
+| B Fresh-start SQL | DONE | c25861ede681ce1d4c7be8a951cdf6d2b3d8c70d | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. The environment appended a Co-authored-by trailer. Strip it before any push. |
+| C Products and supplier lifecycle | DONE | this commit | Delete archives. Permanent delete refuses while an order exists and unlinks the supplier row. `npm run check:pages` is 100 passed, 0 failed. |
 | D Bots and Bot Studio | | | Not started. `/bots` and `/bot-studio` are still the shared Store page. |
 | E Settings | | | Not started. |
 | F Customers and support | | | Not started. People is the current screen. |
@@ -45,7 +45,7 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 
 ## Resume
 
-Do not restart 0, 1, A, or B. Continue at Phase C. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
+Do not restart 0, 1, A, B, or C. Continue at Phase D. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
 
 ## Phase A
 
@@ -69,7 +69,13 @@ Checks for this phase are the page audit above. type-check, lint, test, and buil
 
 Customer credit is `customers.credit_balance`. Reseller balances are `wallets.balance_total`. There is no separate fraud table; `rate_limit_hits` is the hit log. The owner bot lives on `platform_settings`, not in `bot_connections`. The owner Bot Studio row is `store_config` / `store_config_versions` where `tenant_id` is null. Identical discount codes cannot all keep a null tenant, so the oldest row of each code is kept and `used_count` is reset. Supplier catalogue rows stay, with `product_id` cleared and a published review status returned to `pending_review`, which is how the catalogue shows "Not imported". Undo restores rows from the backup. Storage object rows come back; the file bytes do not.
 
-Phase C is next: archive versus permanent delete, supplier row state, and bulk select on both lists. Catalogue, inventory, and pricing must still pass `npm run check:pages`.
+## Phase C
+
+Delete on Products archives. The product leaves the active list and shows under Archived, with Restore (back to paused) and Delete permanently. Permanent delete removes the product, its assets, tiers, and listings. If any order still references it, the API returns "This product still has orders, so it cannot be deleted. It stays archived." The supplier catalogue row is not deleted. Its `product_id` is cleared and `review_status` returns to `pending_review`, so the row shows "Not imported" and can be imported again.
+
+The supplier import list labels each row Not imported, or In products: Draft, Paused, Live, Out of stock, or Archived. The Catalogue state filter uses `lifecycle` on `GET /api/supplier/products`. Bulk select was already on both tables and still is. Catalogue, inventory, pricing, and every supplier panel passed `npm run check:pages` for the owner and the reseller at 1440 and 390: 100 passed, 0 failed.
+
+Phase D is next. `/bots` does not exist. Bots and Bot Studio are both the Store page (`/store` and `/store?section=bots`). Split them. Bot Studio must match `BTC-5-bot-studio@2x.png`. Redirect `/store` to `/bot-studio`. Remove the accordion Store page. A reseller sees only their own bots. Do not edit migrations 0022, 0033, or 0034. Do not apply SQL. Do not push. Do not commit `.cursor/e2e/` or `.cursor/design-reference/`.
 
 ## Phase 0 — safety
 

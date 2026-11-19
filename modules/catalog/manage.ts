@@ -1,6 +1,6 @@
 /**
  * Owner product removal, bulk actions, and a paged catalog list.
- * A product with orders is archived. A product with none is deleted.
+ * Delete archives. Permanent delete refuses while an order still points at the product.
  */
 
 import { AppError, NotFoundError, ValidationError } from '@/lib/errors';
@@ -174,15 +174,37 @@ export async function listOwnerProducts(supabase: DbClient, query: OwnerListQuer
 export async function removeOrArchiveProduct(
   supabase: DbClient,
   productId: string,
-): Promise<{ action: 'deleted' | 'archived'; productId: string }> {
+): Promise<{ action: 'archived'; productId: string }> {
+  await getProduct(supabase, productId);
+  await updateProductStatus(supabase, productId, 'archived');
+  return { action: 'archived', productId };
+}
+
+/**
+ * Removes the product row. An order that still points at it blocks the delete.
+ * The supplier catalogue row stays, with the product link cleared, so it can be imported again.
+ */
+export async function deleteProductPermanently(
+  supabase: DbClient,
+  productId: string,
+): Promise<{ action: 'deleted'; productId: string }> {
   await getProduct(supabase, productId);
   const orders = (await supabase
     .from('orders')
     .select('id', { count: 'exact', head: true })
     .eq('product_id', productId)) as Listed;
   if ((orders.count ?? 0) > 0) {
-    await updateProductStatus(supabase, productId, 'archived');
-    return { action: 'archived', productId };
+    throw new ValidationError(
+      'PRODUCT_HAS_ORDERS',
+      'This product still has orders, so it cannot be deleted. It stays archived.',
+    );
+  }
+  const unlinked = (await supabase
+    .from('supplier_products')
+    .update({ product_id: null, review_status: 'pending_review' })
+    .eq('product_id', productId)) as { error?: { message: string } | null };
+  if (unlinked.error) {
+    throw new AppError('PRODUCT_DELETE_FAILED', unlinked.error.message, 500);
   }
   for (const table of ['reseller_listings', 'product_bulk_tiers', 'product_assets'] as const) {
     const removed = (await supabase.from(table).delete().eq('product_id', productId)) as { error?: { message: string } | null };
@@ -201,7 +223,7 @@ export async function bulkManageProducts(
   supabase: DbClient,
   input: {
     readonly productIds: readonly string[];
-    readonly action: 'delete' | 'publish' | 'pause' | 'archive' | 'set-category';
+    readonly action: 'delete' | 'publish' | 'pause' | 'archive' | 'set-category' | 'purge' | 'restore';
     readonly category?: string | null;
   },
 ): Promise<{ results: Array<{ id: string; ok: boolean; action?: string; error?: string }> }> {
@@ -214,9 +236,19 @@ export async function bulkManageProducts(
   const results: Array<{ id: string; ok: boolean; action?: string; error?: string }> = [];
   for (const id of input.productIds) {
     try {
-      if (input.action === 'delete') {
+      if (input.action === 'delete' || input.action === 'archive') {
         const outcome = await removeOrArchiveProduct(supabase, id);
         results.push({ id, ok: true, action: outcome.action });
+        continue;
+      }
+      if (input.action === 'purge') {
+        const outcome = await deleteProductPermanently(supabase, id);
+        results.push({ id, ok: true, action: outcome.action });
+        continue;
+      }
+      if (input.action === 'restore') {
+        await updateProductStatus(supabase, id, 'paused');
+        results.push({ id, ok: true, action: 'paused' });
         continue;
       }
       if (input.action === 'set-category') {

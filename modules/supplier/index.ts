@@ -85,6 +85,7 @@ export type SupplierProductRecord = {
   readonly wholesalePriceMinor: string | null;
   readonly retailPriceMinor: string | null;
   readonly productId: string | null;
+  readonly catalogueState: string;
 };
 
 type CatalogRow = {
@@ -154,6 +155,7 @@ function mapCatalog(row: CatalogRow, linkedProductId: string | null = null): Sup
     wholesalePriceMinor: row.wholesale_price_minor === null ? null : String(row.wholesale_price_minor),
     retailPriceMinor: row.retail_price_minor === null ? null : String(row.retail_price_minor),
     productId: row.product_id ?? linkedProductId,
+    catalogueState: 'Not imported',
   };
 }
 
@@ -852,6 +854,7 @@ export type SupplierCatalogQuery = {
   readonly sort?: 'name' | 'cost' | 'stock' | 'synced';
   readonly stock?: 'all' | 'in' | 'out';
   readonly pushed?: 'all' | 'published' | 'not_published';
+  readonly lifecycle?: 'all' | 'not_imported' | 'draft' | 'paused' | 'live' | 'out_of_stock' | 'archived';
   readonly searchIds?: readonly string[];
 };
 
@@ -946,6 +949,44 @@ async function statusCounts(
   return counts;
 }
 
+function lifecycleOf(row: Record<string, unknown>): string {
+  const status = typeof row.status === 'string' ? row.status : '';
+  if (status === 'archived') return 'archived';
+  if (status === 'paused') return 'paused';
+  if (status === 'draft') return 'draft';
+  if (status !== 'published') return 'draft';
+  const out = row.supplier_in_stock === false || (row.stock_unlimited !== true && Number(row.stock_count ?? 0) <= 0);
+  return out ? 'out_of_stock' : 'live';
+}
+
+const LIFECYCLE_LABEL: Record<string, string> = {
+  not_imported: 'Not imported',
+  draft: 'In products: Draft',
+  paused: 'In products: Paused',
+  live: 'In products: Live',
+  out_of_stock: 'In products: Out of stock',
+  archived: 'In products: Archived',
+};
+
+async function lifecycleByProduct(supabase: DbClient, ids: readonly string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return map;
+  const result = (await supabase.from('products').select('id, status, stock_unlimited, stock_count, supplier_in_stock').in('id', unique)) as ListedResult;
+  if (result.error) throw new AppError('SUPPLIER_PRODUCT_LIST_FAILED', result.error.message, 500);
+  for (const row of result.data ?? []) {
+    const id = typeof row.id === 'string' ? row.id : '';
+    if (id) map.set(id, lifecycleOf(row as unknown as Record<string, unknown>));
+  }
+  return map;
+}
+
+function withState(row: CatalogRow, links: Map<string, string>, states: Map<string, string>): SupplierProductRecord {
+  const mapped = mapCatalog(row, links.get(row.supplier_sku) ?? null);
+  const key = mapped.productId && states.has(mapped.productId) ? states.get(mapped.productId) ?? 'not_imported' : 'not_imported';
+  return { ...mapped, catalogueState: LIFECYCLE_LABEL[key] ?? 'Not imported' };
+}
+
 export async function listSupplierProducts(
   supabase: DbClient,
   filters: SupplierCatalogQuery,
@@ -963,7 +1004,9 @@ export async function listSupplierProducts(
     statusCounts(supabase, filters.supplierId),
   ]);
   const pushed = filters.pushed ?? 'all';
-  if (pushed === 'all') {
+  const lifecycle = filters.lifecycle ?? 'all';
+  const states = await lifecycleByProduct(supabase, [...links.values()]);
+  if (pushed === 'all' && lifecycle === 'all') {
     const result = (await applyListFilters(supabase, scoped)
       .order(ordering.column, { ascending: ordering.ascending })
       .range(offset, offset + limit - 1)) as ListedResult & { count?: number | null };
@@ -972,7 +1015,7 @@ export async function listSupplierProducts(
     }
     const counted = (await applyListFilters(supabase, scoped).select('*', { count: 'exact', head: true })) as ListedResult;
     return {
-      products: (result.data ?? []).map((row) => mapCatalog(row, links.get(row.supplier_sku) ?? null)),
+      products: (result.data ?? []).map((row) => withState(row, links, states)),
       total: counted.count ?? result.data?.length ?? 0,
       page,
       limit,
@@ -991,7 +1034,10 @@ export async function listSupplierProducts(
     const rows = chunk.data ?? [];
     for (const row of rows) {
       const isPushed = links.has(row.supplier_sku);
-      if (pushed === 'published' ? isPushed : !isPushed) {
+      const pushedOk = pushed === 'all' || (pushed === 'published' ? isPushed : !isPushed);
+      const stateKey = (row.product_id && states.get(row.product_id)) || (links.get(row.supplier_sku) ? states.get(links.get(row.supplier_sku) ?? '') : undefined) || 'not_imported';
+      const stateOk = lifecycle === 'all' || stateKey === lifecycle;
+      if (pushedOk && stateOk) {
         matched.push(row);
       }
     }
@@ -1001,7 +1047,7 @@ export async function listSupplierProducts(
     cursor += RANGE_PAGE;
   }
   return {
-    products: matched.slice(offset, offset + limit).map((row) => mapCatalog(row, links.get(row.supplier_sku) ?? null)),
+    products: matched.slice(offset, offset + limit).map((row) => withState(row, links, states)),
     total: matched.length,
     page,
     limit,

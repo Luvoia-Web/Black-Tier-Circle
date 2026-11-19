@@ -39,6 +39,7 @@ type ImportRow = {
   readonly lastSyncedAt: string | null;
   readonly reviewStatus: string;
   readonly productId: string | null;
+  readonly catalogueState?: string;
   readonly imageUrl: string | null;
 };
 
@@ -208,6 +209,7 @@ function SettingsForm({ supplierId, name, status, onDone }: { readonly supplierI
 function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: string | null; readonly suppliers: readonly BalanceRow[]; readonly onSupplier: (id: string) => void }): JSX.Element {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('all');
+  const [lifecycle, setLifecycle] = useState('all');
   const [sort, setSort] = useState('name');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [wholesaleKind, setWholesaleKind] = useState<'percent' | 'fixed'>('percent');
@@ -220,6 +222,7 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
   if (filter === 'published' || filter === 'not_published') query.set('pushed', filter);
   if (filter === 'rejected' || filter === 'paused') query.set('status', filter);
   if (filter === 'in' || filter === 'out') query.set('stock', filter);
+  if (lifecycle !== 'all') query.set('lifecycle', lifecycle);
   const list = useData<ImportPayload>(supplierId ? `/api/supplier/products?${query.toString()}` : null);
   const columns: Column<ImportRow>[] = [
     { id: 'name', header: 'Product', render: (row) => row.name },
@@ -230,7 +233,7 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
     { id: 'delivery', header: 'Delivery', render: (row) => row.deliveryType },
     { id: 'card', header: 'Card', render: (row) => [row.durationText, row.warrantyText, row.typeLabel].filter(Boolean).join(' · ') || '—' },
     { id: 'synced', header: 'Synced', render: (row) => row.lastSyncedAt ? <RelativeTime value={row.lastSyncedAt} /> : '—' },
-    { id: 'state', header: 'State', render: (row) => row.productId ? <a className="underline" href={`/catalog?item=${row.productId}`}>Published</a> : <span>Not published</span> },
+    { id: 'state', header: 'State', render: (row) => row.productId ? <a className="underline" href={`/catalog?item=${row.productId}`}>{row.catalogueState ?? 'In products'}</a> : <span>{row.catalogueState ?? 'Not imported'}</span> },
   ];
   async function publish(): Promise<void> {
     const ids = [...selected].slice(0, 200);
@@ -257,6 +260,7 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
       <div className="flex flex-wrap gap-2">
         <SelectField id="import-supplier" label="Supplier" value={supplierId} options={suppliers.map((row) => ({ value: row.supplierId, label: row.supplierName }))} onChange={(event) => { setPage(1); onSupplier(event.target.value); }} />
         <SelectField id="import-filter" label="Filter" value={filter} options={[{ value: 'all', label: 'All' }, { value: 'published', label: 'Published' }, { value: 'not_published', label: 'Not published' }, { value: 'rejected', label: 'Rejected' }, { value: 'paused', label: 'Paused' }, { value: 'in', label: 'In stock' }, { value: 'out', label: 'Out of stock' }]} onChange={(event) => { setPage(1); setFilter(event.target.value); }} />
+        <SelectField id="import-lifecycle" label="Catalogue state" value={lifecycle} options={[{ value: 'all', label: 'Every state' }, { value: 'not_imported', label: 'Not imported' }, { value: 'draft', label: 'Draft' }, { value: 'paused', label: 'Paused' }, { value: 'live', label: 'Live' }, { value: 'out_of_stock', label: 'Out of stock' }, { value: 'archived', label: 'Archived' }]} onChange={(event) => { setPage(1); setLifecycle(event.target.value); }} />
         <SelectField id="import-sort" label="Sort" value={sort} options={[{ value: 'name', label: 'Name' }, { value: 'cost', label: 'Cost' }, { value: 'stock', label: 'Stock' }, { value: 'synced', label: 'Last synced' }]} onChange={(event) => setSort(event.target.value)} />
       </div>
       {notice ? <p className="text-sm text-ink">{notice}</p> : null}

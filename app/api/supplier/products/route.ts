@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 const SORTS = ['name', 'cost', 'stock', 'synced'] as const;
 const STOCKS = ['all', 'in', 'out'] as const;
 const PUSHED = ['all', 'published', 'not_published'] as const;
+const LIFECYCLE = ['all', 'not_imported', 'draft', 'paused', 'live', 'out_of_stock', 'archived'] as const;
 
 function oneOf<T extends string>(value: string | null, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
@@ -45,6 +46,7 @@ export async function GET(request: Request): Promise<Response> {
       sort: oneOf(url.searchParams.get('sort'), SORTS, 'name'),
       stock: oneOf(url.searchParams.get('stock'), STOCKS, 'all'),
       pushed: oneOf(url.searchParams.get('pushed'), PUSHED, 'all'),
+      lifecycle: oneOf(url.searchParams.get('lifecycle'), LIFECYCLE, 'all'),
     });
     return jsonSuccess(listed);
   } catch (error: unknown) {
