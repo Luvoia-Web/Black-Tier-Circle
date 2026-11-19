@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+import { duplicatePaths, routesFor } from '../components/platform/nav-manifest.mjs';
 
 const homeBrowsers = path.join(homedir(), 'Library', 'Caches', 'ms-playwright');
 const currentBrowsers = process.env.PLAYWRIGHT_BROWSERS_PATH;
@@ -26,63 +27,12 @@ const base = `http://127.0.0.1:${port}`;
 const auditPath = path.join(root, '.cursor', 'page-audit.md');
 const logPath = path.join(root, '.cursor', 'e2e', 'check-pages-server.log');
 
-const ownerRoutes = [
-  '/overview',
-  '/today',
-  '/analytics',
-  '/intelligence',
-  '/remy',
-  '/orders',
-  '/orders?chip=all',
-  '/orders?chip=attention',
-  '/orders?chip=awaiting',
-  '/orders?chip=fulfilling',
-  '/orders?chip=delivered',
-  '/orders?chip=failed',
-  '/orders?chip=expired',
-  '/orders?attention=fulfillment',
-  '/orders?attention=delivery',
-  '/catalog',
-  '/catalog?section=inventory',
-  '/catalog?section=pricing',
-  '/catalog?section=suppliers',
-  '/catalog?section=suppliers&panel=connected',
-  '/catalog?section=suppliers&panel=import',
-  '/catalog?section=suppliers&panel=orders',
-  '/catalog?section=suppliers&panel=health',
-  '/catalog?section=suppliers&connect=1',
-  '/people?type=buyer',
-  '/people?type=reseller',
-  '/money',
-  '/money?section=payments',
-  '/store',
-  '/store?section=bots',
-  '/growth',
-  '/growth?section=discounts',
-  '/growth?section=broadcasts',
-  '/settings',
-  '/health',
-  '/suppliers/health',
-];
+const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 
-const resellerRoutes = [
-  '/overview',
-  '/analytics',
-  '/remy',
-  '/orders',
-  '/orders?chip=all',
-  '/catalog',
-  '/catalog?section=inventory',
-  '/catalog?section=pricing',
-  '/people',
-  '/money',
-  '/store',
-  '/growth',
-  '/growth?section=discounts',
-  '/settings',
-];
+const ownerRoutes = routesFor('owner');
+const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase/i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase/i;
 
 function loadEnv(text) {
   const env = {};
@@ -100,7 +50,7 @@ function problemsIn(body, errors, failedNetwork) {
   const problems = [];
   if (/Something went wrong/i.test(body)) problems.push('error boundary');
   if (/The request failed \(\d+\)/i.test(body)) problems.push('unparseable or failed request');
-  if (/arrives in a later step|full layout|coming soon|full charts arrive/i.test(body)) problems.push('placeholder text');
+  if (/arrives in a later step|later step|full layout|coming soon|full charts arrive/i.test(body)) problems.push('placeholder text');
   if (/<\/?[a-z][^>\n]{0,40}>/i.test(body)) problems.push('raw HTML tag');
   if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(body)) problems.push('raw ISO timestamp');
   if (/Loading…|Loading balances|Loading codes/.test(body)) problems.push('stuck loading');
@@ -248,6 +198,13 @@ async function openRoute(context, role, route, width, serverLog) {
   const fresh = serverLog.text.slice(logMark);
   const serverHit = fresh.split('\n').filter((line) => /Error|error|TypeError|Exception/.test(line) && !/AuthRetryableFetchError/.test(line)).slice(0, 2);
   if (serverHit.length > 0 && problems.length > 0) problems.push(`server: ${serverHit.join(' ').replace(/\s+/g, ' ').slice(0, 220)}`);
+  const landed = new URL(page.url()).pathname;
+  const expected = route.split('?')[0];
+  if (landed !== expected) problems.push(`landed on ${landed}`);
+  if (width === 1440) {
+    const slug = `${role}-${route.replace(/[/?=&]/g, '-')}`;
+    await page.screenshot({ path: path.join(shotDir, `${slug}.png`) }).catch(() => {});
+  }
   await page.close();
   return { route, role, width, pass: problems.length === 0, problems };
 }
@@ -301,6 +258,7 @@ async function main() {
   const url = env.NEXT_PUBLIC_SUPABASE_URL;
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Supabase admin credentials are missing');
+  await mkdir(shotDir, { recursive: true });
   await mkdir(path.dirname(logPath), { recursive: true });
 
   if (process.env.CHECK_PAGES_SKIP_BUILD !== '1') {
@@ -356,6 +314,11 @@ async function main() {
     }
 
     const rows = [];
+    for (const role of ['owner', 'reseller']) {
+      for (const problem of duplicatePaths(role)) {
+        rows.push({ route: '(nav)', role, width: 1440, pass: false, problems: [problem] });
+      }
+    }
     const ownerContext = await browser.newContext({ storageState: path.join(stateDir, 'owner.json'), colorScheme: 'dark' });
     for (const route of ownerRoutes) {
       for (const width of [1440, 390]) {

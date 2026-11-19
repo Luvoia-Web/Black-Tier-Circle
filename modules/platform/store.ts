@@ -55,7 +55,8 @@ export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenant
   const products = await previewProducts(db, role, tenantId);
   const status = role === 'owner' ? await ownerStatus(db) : await resellerStatus(db, tenantId);
   const bot = role === 'owner' ? await ownerBot(db) : await resellerBot(db, tenantId);
-  return { role, studio, products, ...status, bot };
+  const history = await versions(db, role === 'owner' ? null : tenantId);
+  return { role, studio, products, ...status, bot, history };
 }
 
 async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null): Promise<readonly PreviewProduct[]> {
@@ -139,6 +140,22 @@ async function resellerBot(db: DbClient, tenantId: string | null) {
     status: connection.status,
     lastHealthAt: connection.lastHealthAt ? connection.lastHealthAt.toISOString() : null,
   };
+}
+
+async function versions(db: DbClient, tenantId: string | null): Promise<readonly { readonly version: number; readonly savedAt: string }[]> {
+  const query = db.from('store_config_versions').select('version, saved_at').order('version', { ascending: false }).limit(12);
+  const result = (await (tenantId === null ? query.is('tenant_id', null) : query.eq('tenant_id', tenantId))) as QueryResult<unknown>;
+  if (missing(result.error)) return [];
+  if (result.error) throw new ValidationError('STORE_HISTORY_FAILED', result.error.message);
+  if (!Array.isArray(result.data)) return [];
+  return result.data.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const record = row as Record<string, unknown>;
+    const version = typeof record.version === 'number' ? record.version : Number(record.version);
+    const savedAt = typeof record.saved_at === 'string' ? record.saved_at : '';
+    if (!Number.isFinite(version) || !savedAt) return [];
+    return [{ version, savedAt }];
+  });
 }
 
 export async function saveOwnerStoreStatus(db: DbClient, status: 'open' | 'maintenance', message: string): Promise<{ readonly needsMigration: boolean }> {

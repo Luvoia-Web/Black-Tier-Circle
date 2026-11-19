@@ -10,7 +10,6 @@ import { TopupAdmin } from '@/components/dashboard/topup-admin';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Card, DataTable, ErrorState, FilterBar, RelativeTime, SelectField, StatTile, StatusPill, type Column } from '@/components/platform/ui';
 import { useData } from '@/lib/hooks/use-data';
-import { ROUTES } from '@/lib/navigation';
 
 type MoneyPayload = {
   readonly role: 'owner' | 'reseller';
@@ -32,7 +31,7 @@ const KINDS = [
   { value: 'wholesale_reversal', label: 'Reversal' },
 ];
 
-export function MoneyView(): JSX.Element {
+export function MoneyView({ focus = 'all' }: { readonly focus?: 'all' | 'wallets' | 'payments' } = {}): JSX.Element {
   const router = useRouter();
   const params = useSearchParams();
   const setDrawer = useSetDrawerBody();
@@ -74,8 +73,8 @@ export function MoneyView(): JSX.Element {
     <section className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl text-ink">Money</h1>
-          <p className="mt-1 text-sm text-ink-soft">Balances, top-ups, debts, and the ledger.</p>
+          <h1 className="text-2xl text-ink">{focus === 'payments' ? 'Payments' : 'Wallets & ledger'}</h1>
+          <p className="mt-1 text-sm text-ink-soft">{focus === 'payments' ? 'Top-ups and payment review.' : 'Balances and the ledger.'}</p>
         </div>
         <a className="inline-flex min-h-11 items-center rounded-md border border-stroke px-3 text-sm text-ink" href={`/api/platform/money?format=csv${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`}>Export ledger</a>
       </header>
@@ -102,18 +101,24 @@ export function MoneyView(): JSX.Element {
               </ul>
             </Card>
           ) : null}
+          {focus !== 'payments' ? (
+          <>
           <Card title="Wallets">
-            <DataTable caption="Wallets" columns={walletColumns} rows={money.data.wallets} rowKey={(row) => row.id} emptyTitle="No wallets yet" emptyMessage="A reseller wallet appears here after the first top-up." onOpen={(row) => { const next = new URLSearchParams(params.toString()); next.set('wallet', row.id); router.replace(`${ROUTES.platform.money}?${next}`); }} />
+            <DataTable caption="Wallets" columns={walletColumns} rows={money.data.wallets} rowKey={(row) => row.id} emptyTitle="No wallets yet" emptyMessage="A reseller wallet appears here after the first top-up." onOpen={(row) => { const next = new URLSearchParams(params.toString()); next.set('wallet', row.id); router.replace(`/wallets?${next}`); }} />
           </Card>
           <FilterBar>
-            <SelectField id="ledger-kind" label="Ledger" value={kind} options={KINDS} onChange={(event) => { const next = new URLSearchParams(params.toString()); if (event.target.value) next.set('kind', event.target.value); else next.delete('kind'); router.replace(`${ROUTES.platform.money}${next.toString() ? `?${next}` : ''}`); }} />
+            <SelectField id="ledger-kind" label="Ledger" value={kind} options={KINDS} onChange={(event) => { const next = new URLSearchParams(params.toString()); if (event.target.value) next.set('kind', event.target.value); else next.delete('kind'); router.replace(`/wallets${next.toString() ? `?${next}` : ''}`); }} />
           </FilterBar>
           <DataTable caption="Ledger" columns={ledgerColumns} rows={money.data.ledger} rowKey={(row) => row.id} emptyTitle="No ledger entries" emptyMessage="Credits and debits will list here." />
+          </>
+          ) : null}
         </>
       ) : null}
+      {focus !== 'wallets' ? (
       <Card title="Top-ups">
         <TopupAdmin />
       </Card>
+      ) : null}
     </section>
   );
 }

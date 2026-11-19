@@ -1,6 +1,6 @@
 /**
- * Sidebar destinations. Screens that are rebuilt in later steps link to the
- * page that already works, so nothing here 404s.
+ * Sidebar destinations. Hrefs live in nav-manifest.mjs so the page checker
+ * visits the same list.
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -24,7 +24,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { ROUTES } from '@/lib/navigation';
+import { ownerNav, resellerNav } from '@/components/platform/nav-manifest.mjs';
 import type { UserRole } from '@/modules/identity/types';
 
 export type NavBadge = 'orders' | 'support' | 'resellers';
@@ -45,117 +45,94 @@ export type NavGroup = {
   readonly items: readonly NavLink[];
 };
 
+type ManifestItem = {
+  readonly id: string;
+  readonly href: string;
+  readonly children?: readonly { readonly id: string; readonly href: string }[];
+};
+
+const LABELS: Record<string, string> = {
+  overview: 'Overview',
+  analytics: 'Analytics',
+  intelligence: 'Intelligence',
+  remy: 'Remy AI',
+  orders: 'Orders',
+  products: 'Products',
+  catalogue: 'Catalogue',
+  inventory: 'Inventory',
+  pricing: 'Pricing rules',
+  suppliers: 'Suppliers',
+  customers: 'Customers',
+  resellers: 'Resellers',
+  wallets: 'Wallets & ledger',
+  payments: 'Payments',
+  bots: 'Bots',
+  marketing: 'Marketing',
+  discounts: 'Discounts',
+  broadcasts: 'Broadcasts',
+  studio: 'Bot Studio',
+  settings: 'Settings',
+  system: 'System health',
+  wallet: 'Wallet',
+};
+
+const ICONS: Record<string, LucideIcon> = {
+  overview: LayoutDashboard,
+  analytics: ChartColumnBig,
+  intelligence: BrainCircuit,
+  remy: Sparkles,
+  orders: ShoppingBag,
+  products: Package,
+  suppliers: Truck,
+  customers: Users,
+  resellers: Store,
+  wallets: Wallet,
+  payments: CreditCard,
+  bots: Bot,
+  marketing: Megaphone,
+  discounts: TicketPercent,
+  broadcasts: RadioTower,
+  studio: Palette,
+  settings: Settings,
+  system: Activity,
+  wallet: Wallet,
+};
+
+const BADGES: Record<string, NavBadge | undefined> = {
+  orders: 'orders',
+  customers: 'support',
+  resellers: 'resellers',
+};
+
+function toLink(item: ManifestItem): NavLink {
+  const badge = BADGES[item.id];
+  const link: NavLink = {
+    id: item.id,
+    label: LABELS[item.id] ?? item.id,
+    href: item.href,
+    icon: ICONS[item.id] ?? LayoutDashboard,
+    ...(item.children
+      ? { children: item.children.map((child) => ({ id: child.id, label: LABELS[child.id] ?? child.id, href: child.href })) }
+      : {}),
+  };
+  return badge ? { ...link, badge } : link;
+}
+
+function pick(source: readonly ManifestItem[], ids: readonly string[]): NavLink[] {
+  return ids.map((id) => source.find((item) => item.id === id)).filter((item): item is ManifestItem => Boolean(item)).map(toLink);
+}
+
 const ownerGroups: readonly NavGroup[] = [
-  {
-    id: 'workspace',
-    label: 'Workspace',
-    items: [
-      { id: 'overview', label: 'Overview', href: ROUTES.platform.overview, icon: LayoutDashboard },
-      { id: 'analytics', label: 'Analytics', href: ROUTES.platform.analytics, icon: ChartColumnBig },
-      { id: 'intelligence', label: 'Intelligence', href: ROUTES.platform.intelligence, icon: BrainCircuit },
-      { id: 'remy', label: 'Remy AI', href: ROUTES.platform.remy, icon: Sparkles },
-    ],
-  },
-  {
-    id: 'commerce',
-    label: 'Commerce',
-    items: [
-      { id: 'orders', label: 'Orders', href: ROUTES.platform.orders, icon: ShoppingBag, badge: 'orders' },
-      {
-        id: 'products',
-        label: 'Products',
-        href: ROUTES.platform.catalog,
-        icon: Package,
-        children: [
-          { id: 'catalogue', label: 'Catalogue', href: ROUTES.platform.catalog },
-          { id: 'inventory', label: 'Inventory', href: `${ROUTES.platform.catalog}?section=inventory` },
-          { id: 'pricing', label: 'Pricing rules', href: `${ROUTES.platform.catalog}?section=pricing` },
-        ],
-      },
-      { id: 'suppliers', label: 'Suppliers', href: `${ROUTES.platform.catalog}?section=suppliers`, icon: Truck },
-      {
-        id: 'customers',
-        label: 'Customers',
-        href: `${ROUTES.platform.people}?type=buyer`,
-        icon: Users,
-        badge: 'support',
-      },
-    ],
-  },
-  {
-    id: 'network',
-    label: 'Network',
-    items: [
-      { id: 'resellers', label: 'Resellers', href: `${ROUTES.platform.people}?type=reseller`, icon: Store, badge: 'resellers' },
-      {
-        id: 'wallets',
-        label: 'Wallets & ledger',
-        href: ROUTES.platform.money,
-        icon: Wallet,
-      },
-      { id: 'payments', label: 'Payments', href: `${ROUTES.platform.money}?section=payments`, icon: CreditCard },
-      { id: 'bots', label: 'Bots', href: `${ROUTES.platform.store}?section=bots`, icon: Bot },
-    ],
-  },
-  {
-    id: 'growth',
-    label: 'Growth',
-    items: [
-      {
-        id: 'marketing',
-        label: 'Marketing',
-        href: ROUTES.platform.growth,
-        icon: Megaphone,
-      },
-      { id: 'discounts', label: 'Discounts', href: `${ROUTES.platform.growth}?section=discounts`, icon: TicketPercent },
-      { id: 'broadcasts', label: 'Broadcasts', href: `${ROUTES.platform.growth}?section=broadcasts`, icon: RadioTower },
-    ],
-  },
-  {
-    id: 'configure',
-    label: 'Configure',
-    items: [
-      { id: 'studio', label: 'Bot Studio', href: ROUTES.platform.store, icon: Palette },
-      { id: 'settings', label: 'Settings', href: ROUTES.platform.settings, icon: Settings },
-      { id: 'system', label: 'System health', href: ROUTES.platform.health, icon: Activity },
-    ],
-  },
+  { id: 'workspace', label: 'Workspace', items: pick(ownerNav, ['overview', 'analytics', 'intelligence', 'remy']) },
+  { id: 'commerce', label: 'Commerce', items: pick(ownerNav, ['orders', 'products', 'suppliers', 'customers']) },
+  { id: 'network', label: 'Network', items: pick(ownerNav, ['resellers', 'wallets', 'payments', 'bots']) },
+  { id: 'growth', label: 'Growth', items: pick(ownerNav, ['marketing', 'discounts', 'broadcasts']) },
+  { id: 'configure', label: 'Configure', items: pick(ownerNav, ['studio', 'settings', 'system']) },
 ];
 
 const resellerGroups: readonly NavGroup[] = [
-  {
-    id: 'workspace',
-    label: 'Workspace',
-    items: [
-      { id: 'overview', label: 'Overview', href: ROUTES.platform.overview, icon: LayoutDashboard },
-      { id: 'analytics', label: 'Analytics', href: ROUTES.platform.analytics, icon: ChartColumnBig },
-      { id: 'remy', label: 'Remy AI', href: ROUTES.platform.remy, icon: Sparkles },
-    ],
-  },
-  {
-    id: 'store',
-    label: 'Store',
-    items: [
-      { id: 'orders', label: 'Orders', href: ROUTES.platform.orders, icon: ShoppingBag, badge: 'orders' },
-      {
-        id: 'products',
-        label: 'Products',
-        href: ROUTES.platform.catalog,
-        icon: Package,
-        children: [
-          { id: 'catalogue', label: 'Catalogue', href: ROUTES.platform.catalog },
-          { id: 'inventory', label: 'Inventory', href: `${ROUTES.platform.catalog}?section=inventory` },
-          { id: 'pricing', label: 'Pricing rules', href: `${ROUTES.platform.catalog}?section=pricing` },
-        ],
-      },
-      { id: 'customers', label: 'Customers', href: ROUTES.platform.people, icon: Users, badge: 'support' },
-      { id: 'marketing', label: 'Marketing', href: ROUTES.platform.growth, icon: Megaphone },
-      { id: 'discounts', label: 'Discounts', href: `${ROUTES.platform.growth}?section=discounts`, icon: TicketPercent },
-      { id: 'wallet', label: 'Wallet', href: ROUTES.platform.money, icon: Wallet },
-      { id: 'studio', label: 'Bot & Studio', href: ROUTES.platform.store, icon: Palette },
-      { id: 'settings', label: 'Settings', href: ROUTES.platform.settings, icon: Settings },
-    ],
-  },
+  { id: 'workspace', label: 'Workspace', items: pick(resellerNav, ['overview', 'analytics', 'remy']) },
+  { id: 'store', label: 'Store', items: pick(resellerNav, ['orders', 'products', 'customers', 'marketing', 'discounts', 'wallet', 'bots', 'studio', 'settings']) },
 ];
 
 export function navGroupsFor(role: UserRole): readonly NavGroup[] {

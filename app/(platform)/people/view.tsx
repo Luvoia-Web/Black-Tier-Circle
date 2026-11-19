@@ -10,7 +10,7 @@ import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Button, Card, DataTable, EmptyState, ErrorState, FilterBar, Pagination, RelativeTime, SelectField, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
-import { API_ROUTES, ROUTES } from '@/lib/navigation';
+import { API_ROUTES } from '@/lib/navigation';
 import type { PersonRow } from '@/modules/platform/people';
 import type { SupportMessage, SupportThread } from '@/modules/platform/support';
 
@@ -97,11 +97,11 @@ function PersonPanel({ personId, kind, person, onDone }: { readonly personId: st
   );
 }
 
-export function PeopleView(): JSX.Element {
+export function PeopleView({ lockedType, base = '/people' }: { readonly lockedType?: 'buyer' | 'reseller'; readonly base?: string } = {}): JSX.Element {
   const router = useRouter();
   const params = useSearchParams();
   const setDrawer = useSetDrawerBody();
-  const type = params.get('type') ?? 'buyer';
+  const type = lockedType ?? params.get('type') ?? 'buyer';
   const q = params.get('q') ?? '';
   const page = params.get('page') ?? '1';
   const pageSize = params.get('pageSize') ?? '24';
@@ -118,7 +118,7 @@ export function PeopleView(): JSX.Element {
     if (value) next.set(key, value);
     else next.delete(key);
     if (key !== 'page' && key !== 'person' && key !== 'thread') next.delete('page');
-    router.replace(`${ROUTES.platform.people}?${next}`);
+    router.replace(`${base}?${next}`);
   }
 
   const { data: detailData, loading: detailLoading, error: detailError, refetch: refetchDetail } = detail;
@@ -161,12 +161,12 @@ export function PeopleView(): JSX.Element {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-2xl text-ink">People</h1>
-        <p className="mt-1 text-sm text-ink-soft">Buyers, resellers, and support.</p>
+        <h1 className="text-2xl text-ink">{lockedType === 'reseller' ? 'Resellers' : lockedType === 'buyer' ? 'Customers' : 'People'}</h1>
+        <p className="mt-1 text-sm text-ink-soft">{lockedType === 'reseller' ? 'Stores in your network.' : lockedType === 'buyer' ? 'Buyers, wallets, and support.' : 'Buyers, resellers, and support.'}</p>
       </header>
       <FilterBar>
         <TextField id="people-search" label="Search" value={q} onChange={(event) => setFilter('q', event.target.value)} />
-        <SelectField id="people-type" label="Type" value={type} options={[{ value: 'buyer', label: 'Buyers' }, { value: 'reseller', label: 'Resellers' }]} onChange={(event) => setFilter('type', event.target.value)} />
+        {lockedType ? null : <SelectField id="people-type" label="Type" value={type} options={[{ value: 'buyer', label: 'Buyers' }, { value: 'reseller', label: 'Resellers' }]} onChange={(event) => setFilter('type', event.target.value)} />}
       </FilterBar>
       {type === 'reseller' ? (
         <Card title="Invite a reseller">

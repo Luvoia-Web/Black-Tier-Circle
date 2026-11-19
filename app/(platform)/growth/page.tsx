@@ -1,5 +1,5 @@
-import { GrowthView } from './view';
+import { redirect } from 'next/navigation';
 
-export default function GrowthPage(): JSX.Element {
-  return <GrowthView />;
+export default function GrowthPage(): never {
+  redirect('/marketing');
 }

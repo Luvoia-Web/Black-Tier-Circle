@@ -4,9 +4,11 @@
  * Store editor, open or maintenance, and bot reconnect.
  */
 
+import { z } from 'zod';
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { reconnectResellerBot } from '@/modules/bots';
 import { reconnectOwnerBot } from '@/modules/platform/index';
 import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
@@ -39,11 +41,27 @@ export async function GET(): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    const body = (await readJsonBody(request)) as Record<string, unknown>;
+    await assertRateLimit(`store:${current.userId}`, 30);
+    const body = z.object({
+      config: z.unknown(),
+      version: z.number().int().nonnegative(),
+      publish: z.boolean().optional(),
+    }).parse(await readJsonBody(request));
     if (current.role === 'reseller') {
       await assertResellerFieldsAllowed(current.db, ['botCopy']);
     }
     const saved = await writeStudio(current.db, current.role, current.tenantId, body, current.userId);
+    if (body.publish) {
+      const inserted = await current.db.from('store_config_versions').insert({
+        tenant_id: current.tenantId,
+        version: saved.version,
+        config: saved.config,
+        saved_by: current.userId,
+      });
+      if (inserted.error && !/does not exist|schema cache/i.test(inserted.error.message)) {
+        throw new ValidationError('STORE_VERSION_FAILED', inserted.error.message);
+      }
+    }
     return jsonSuccess(saved);
   } catch (error: unknown) {
     return handleRouteError(error);

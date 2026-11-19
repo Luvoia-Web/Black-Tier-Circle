@@ -52,6 +52,18 @@ async function callTelegramApi<T>(token: string, method: string, body?: Record<s
  *
  * @param token - Plaintext bot token (never log)
  */
+export async function telegramSetMyName(token: string, name: string): Promise<void> {
+  await callTelegramApi<boolean>(token, 'setMyName', { name });
+}
+
+export async function telegramSetMyShortDescription(token: string, short_description: string): Promise<void> {
+  await callTelegramApi<boolean>(token, 'setMyShortDescription', { short_description });
+}
+
+export async function telegramSetMyDescription(token: string, description: string): Promise<void> {
+  await callTelegramApi<boolean>(token, 'setMyDescription', { description });
+}
+
 export async function telegramGetMe(token: string): Promise<BotInfo> {
   const result = await callTelegramApi<TelegramGetMeResult>(token, 'getMe');
   return {
@@ -89,8 +101,8 @@ const BOT_COMMANDS = [
  * Registers the slash-command menu and the chat Menu button.
  * Failures are ignored by callers that must not block checkout.
  */
-export async function telegramSetMyCommands(token: string): Promise<void> {
-  await callTelegramApi<boolean>(token, 'setMyCommands', { commands: BOT_COMMANDS });
+export async function telegramSetMyCommands(token: string, commands: readonly { command: string; description: string }[] = BOT_COMMANDS): Promise<void> {
+  await callTelegramApi<boolean>(token, 'setMyCommands', { commands: [...commands] });
   await callTelegramApi<boolean>(token, 'setChatMenuButton', {
     menu_button: { type: 'commands' },
   });

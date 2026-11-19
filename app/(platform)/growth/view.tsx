@@ -29,7 +29,7 @@ type GrowthPayload = {
   readonly recipients: number;
 };
 
-export function GrowthView(): JSX.Element {
+export function GrowthView({ focus = 'all' }: { readonly focus?: 'all' | 'marketing' | 'discounts' | 'broadcasts' } = {}): JSX.Element {
   const growth = useData<GrowthPayload>('/api/platform/growth');
   const [code, setCode] = useState('');
   const [kind, setKind] = useState<'percent' | 'fixed'>('percent');
@@ -55,13 +55,14 @@ export function GrowthView(): JSX.Element {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-2xl text-ink">Growth</h1>
-        <p className="mt-1 text-sm text-ink-soft">Referrals, codes, announcements, and broadcasts.</p>
+        <h1 className="text-2xl text-ink">{focus === 'discounts' ? 'Discounts' : focus === 'broadcasts' ? 'Broadcasts' : 'Marketing'}</h1>
+        <p className="mt-1 text-sm text-ink-soft">{focus === 'discounts' ? 'Codes buyers can redeem.' : focus === 'broadcasts' ? 'Messages to your buyers.' : 'Referrals and announcements.'}</p>
       </header>
-      {growth.data ? <GrowthPanel base={growth.data.role === 'owner' ? API_ROUTES.ownerGrowth : API_ROUTES.resellerGrowth} /> : null}
+      {focus === 'marketing' || focus === 'all' ? (growth.data ? <GrowthPanel base={growth.data.role === 'owner' ? API_ROUTES.ownerGrowth : API_ROUTES.resellerGrowth} /> : null) : null}
       {growth.loading ? <p className="text-sm text-ink-soft">Loading codes…</p> : null}
       {growth.error ? <ErrorState message={growth.error.message} onRetry={growth.refetch} /> : null}
       {growth.data?.needsMigration ? <p className="text-sm text-ink">Discount codes need migration 0032.</p> : null}
+      {focus === 'discounts' || focus === 'all' ? (
       <Card title="Discount codes">
         <div className="grid gap-2 sm:grid-cols-2">
           <TextField id="discount-code" label="Code" value={code} onChange={(event) => setCode(event.target.value)} />
@@ -83,6 +84,8 @@ export function GrowthView(): JSX.Element {
           ))}
         </ul>
       </Card>
+      ) : null}
+      {focus === 'marketing' || focus === 'all' ? (
       <Card title="Announcements">
         <div className="space-y-2">
           <SwitchField id="events-on" label="Show announcements" checked={enabled} onChange={setEnabled} />
@@ -92,6 +95,8 @@ export function GrowthView(): JSX.Element {
           <Button onClick={() => { void runAction('/api/platform/growth', { method: 'POST', body: { action: 'events', events: { enabled, title, body, link } } }).then((result) => setNote(result.ok ? 'Announcement saved.' : result.error.message)); }}>Save announcement</Button>
         </div>
       </Card>
+      ) : null}
+      {focus === 'broadcasts' || focus === 'all' ? (
       <Card title="Broadcast">
         <p className="text-sm text-ink-soft">{growth.data?.recipients ?? 0} buyers will receive this. Blocked buyers are left out.</p>
         <TextAreaField id="broadcast-body" label="Message" value={broadcast} onChange={(event) => setBroadcast(event.target.value)} />
@@ -101,6 +106,7 @@ export function GrowthView(): JSX.Element {
           <Button variant="secondary" onClick={() => setArmed(true)}>Review send to {growth.data?.recipients ?? 0} buyers</Button>
         )}
       </Card>
+      ) : null}
       {note ? <p className="text-sm text-ink">{note}</p> : null}
     </section>
   );

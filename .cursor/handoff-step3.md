@@ -30,22 +30,23 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written. The owner has since applied 0034. |
 | A Audit and crashes | DONE | c208ed1bd89cf3aaae39ca6a4e72a088bd9ac08f | `npm run check:pages` is 100 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | B Fresh-start SQL | DONE | c25861ede681ce1d4c7be8a951cdf6d2b3d8c70d | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. The environment appended a Co-authored-by trailer. Strip it before any push. |
-| C Products and supplier lifecycle | DONE | this commit | Delete archives. Permanent delete refuses while an order exists and unlinks the supplier row. `npm run check:pages` is 100 passed, 0 failed. |
-| D Bots and Bot Studio | | | Not started. `/bots` and `/bot-studio` are still the shared Store page. |
-| E Settings | | | Not started. |
-| F Customers and support | | | Not started. People is the current screen. |
-| G Resellers | | | Not started. |
-| H Wallets and Payments | | | Not started. Money is the current screen. |
-| I Analytics, Intelligence, Remy | | | Analytics and Intelligence now load real data. Phase I still owes the fuller charts, funnel, and Remy chat pass. |
-| J Marketing, Discounts, Broadcasts | | | Not started. |
-| K System health | | | Health lists launch checks. Phase K still owes supplier trend, webhooks, jobs, and cron. |
+| C Products and supplier lifecycle | DONE | a1c802fe08aa4713874cd3cec6086b81b3bfdd07 | Delete archives. Permanent delete refuses while an order exists. |
+| D Bots and Bot Studio | DONE | this commit | `/bots` and `/bot-studio` are separate. `/store` redirects to Bot Studio. check:pages is 84 passed, 0 failed. |
+| E Settings | | | Not started. `/settings` is still the previous screen. |
+| F Customers and support | | | `/customers` shows buyers. The fuller detail and inbox are not done. |
+| G Resellers | | | `/resellers` shows the reseller list. The BTC-4 layout is not done. |
+| H Wallets and Payments | | | `/wallets` and `/payments` split the money screen. |
+| I Analytics, Intelligence, Remy | | | Real data is loaded. The fuller charts and Remy pass are not done. |
+| J Marketing, Discounts, Broadcasts | | | `/marketing`, `/discounts`, and `/broadcasts` split the growth screen. |
+| K System health | | | `/system-health` lists launch checks. `/health` redirects there. Trend, jobs, and cron are not done. |
 | L Security | | | Not started. |
 | M Reseller experience | | | Not started. |
-| N Final proof | | | Not started. |
+| N Fresh-start SQL fixes | | | Not started. Apply the reviewed fixes. Do not run the SQL. |
+| O Final proof | | | Not started. |
 
 ## Resume
 
-Do not restart 0, 1, A, B, or C. Continue at Phase D. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
+Do not restart 0, 1, A, B, C, or D. Continue at Phase E. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
 
 ## Phase A
 
@@ -75,7 +76,15 @@ Delete on Products archives. The product leaves the active list and shows under 
 
 The supplier import list labels each row Not imported, or In products: Draft, Paused, Live, Out of stock, or Archived. The Catalogue state filter uses `lifecycle` on `GET /api/supplier/products`. Bulk select was already on both tables and still is. Catalogue, inventory, pricing, and every supplier panel passed `npm run check:pages` for the owner and the reseller at 1440 and 390: 100 passed, 0 failed.
 
-Phase D is next. `/bots` does not exist. Bots and Bot Studio are both the Store page (`/store` and `/store?section=bots`). Split them. Bot Studio must match `BTC-5-bot-studio@2x.png`. Redirect `/store` to `/bot-studio`. Remove the accordion Store page. A reseller sees only their own bots. Do not edit migrations 0022, 0033, or 0034. Do not apply SQL. Do not push. Do not commit `.cursor/e2e/` or `.cursor/design-reference/`.
+Phase D is done. `/bots` is the operations page. `/bot-studio` is the editor. `/store` redirects to `/bot-studio` and the accordion Store view is deleted. The sidebar list lives in `components/platform/nav-manifest.mjs`. `npm run check:pages` imports that file, visits every href, child, and panel, saves a 1440 screenshot under `.cursor/e2e/shots/`, and fails if two sidebar items share the same href. The latest run is 84 passed, 0 failed.
+
+Bot cards show username, store, owner, stored status, orders, revenue, buyers, conversion, and a 7-day sparkline. Opening a bot calls getMe and getWebhookInfo and shows orders, buyers, and the webhook error. Connect, pause, resume, re-set webhook, and disconnect are on the card. A reseller only receives their own rows.
+
+Bot Studio is three columns: surfaces, a formatted editor that stores the Telegram HTML subset, and a Telegram preview filled from a real product. Save draft writes the store config. Publish also inserts `store_config_versions`. Publish to Telegram calls setMyName, setMyShortDescription, setMyDescription, and setMyCommands. There is no buyer replace button in the menu editor.
+
+The other sidebar items now have their own URLs so they no longer share `/people`, `/money`, `/growth`, or `/store`. Those screens still use the previous views. Phases E through K replace them. Do not edit 0022, 0033, or 0034. Do not apply SQL. Do not push.
+
+Phase E is next: tabbed Settings.
 
 ## Phase 0 — safety
 
