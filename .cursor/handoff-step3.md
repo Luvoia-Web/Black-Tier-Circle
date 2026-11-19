@@ -20,27 +20,48 @@ Loaded before UI. Project `.cursor/skills` (7):
 
 Local commits only. Do not push. Do not apply SQL. Do not touch migration 0022. Do not edit 0033, which is applied. This step writes `supabase/migrations/0034_platform_final.sql`, printed in full, not applied. Code must work whether or not 0034 is applied, and show a clear "needs migration 0034" note wherever a feature depends on it. No Co-authored-by line. Next.js stays 14.2.21. React stays 18. The harness is read-only against the live database. Do not commit `.cursor/e2e/` or `.cursor/design-reference/`.
 
+The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 stay done. 0034 has been applied by the owner. Do not edit 0022, 0033, or 0034. Do not apply SQL. Do not push.
+
 ## Phase status
 
 | Phase | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | 0 Safety | DONE | 2663183986584f27c1502b4a67992c7e4d95def2 | Filter guard, auth verdict, Live counts, replacement reuse. The environment appended a Co-authored-by trailer. Strip it before any push. |
-| 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written, not applied. Reorder point and balance trend fall back while 0034 is unapplied. |
+| 1 Migration 0034 | DONE | 1dc3181057e7edba5264d944f1412bd5162739d7 | SQL written. The owner has since applied 0034. |
+| A Audit and crashes | DONE | this commit | `npm run check:pages` is 100 passed, 0 failed. Matrix is `.cursor/page-audit.md`. |
+| B Fresh-start SQL | | | Not started. Write `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Do not run them. |
+| C Products and supplier lifecycle | | | Not started. |
+| D Bots and Bot Studio | | | Not started. `/bots` and `/bot-studio` are still the shared Store page. |
+| E Settings | | | Not started. |
+| F Customers and support | | | Not started. People is the current screen. |
+| G Resellers | | | Not started. |
+| H Wallets and Payments | | | Not started. Money is the current screen. |
+| I Analytics, Intelligence, Remy | | | Analytics and Intelligence now load real data. Phase I still owes the fuller charts, funnel, and Remy chat pass. |
+| J Marketing, Discounts, Broadcasts | | | Not started. |
+| K System health | | | Health lists launch checks. Phase K still owes supplier trend, webhooks, jobs, and cron. |
+| L Security | | | Not started. |
+| M Reseller experience | | | Not started. |
+| N Final proof | | | Not started. |
 
 ## Resume
 
-Phases 0 and 1 are done. Do not restart them. Do not edit `supabase/migrations/0033_commerce.sql` or `supabase/migrations/0034_platform_final.sql`. Continue at Phase 2.
-| 2 Customers and support | | | Not started. |
-| 3 Resellers | | | Not started. |
-| 4 Wallets, Payments, Bots | | | Not started. |
-| 5 Analytics and Intelligence | | | Not started. |
-| 6 Marketing, Discounts, Broadcasts | | | Not started. |
-| 7 Bot Studio | | | Not started. |
-| 8 Settings and System health | | | Not started. |
-| 9 Security | | | Not started. |
-| 10 Reseller experience | | | Not started. |
-| 11 Match the mockups | | | Not started. |
-| 12 Final proof | | | Not started. |
+Do not restart 0, 1, or A. Continue at Phase B. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms.
+
+## Phase A
+
+Baseline before the fix: 88 passed, 12 failed, of 100 route × role × viewport rows.
+
+Real failures:
+
+- `/intelligence` showed "Something went wrong" and "The request failed (200)". `GET /api/intelligence/platform` returned `{ memoryCount, status, degraded }` at HTTP 200. `parseData` only accepts `{ success: true, data }`. The error-state title was the same phrase as the app error boundary, so a handled failure looked like a crash.
+- `/analytics`, `/health`, and `/suppliers/health` rendered the placeholder "arrives in a later step" / "The full charts arrive in a later step".
+- Screens looked light pink when `btc-theme` was `light` at theme version 2. `:root` was already the dark palette (`#0b0709`). Version 3 clears that stored choice once. The document starts on `data-theme="dark"`.
+
+Catalog, including `?section=suppliers` and every supplier panel, rendered for the owner at both widths. The harness server log had no `TypeError` and no catalog or supplier-desk exception. `readSupplierDesk` still treats a missing `supplier_balance_snapshots` as "needs migration 0034"; the table is present, and the health panel returned rows. `fromWithEarlyFilters` leaves the live client alone when `eq` already exists, and these reads call `select` before the filters, so the Phase 0 wrapper did not drop them. Supplier orders and health now refuse a payload that is not the desk shape instead of calling `.map` on a missing list.
+
+After the fix, `npm run check:pages` (production build, then a second pass on that build) is 100 passed, 0 failed. One earlier pass failed only `/today` at 390 with `ERR_NETWORK_CHANGED` while the machine changed networks. The retry of that route passed. The checker retries a route once when every problem is a transport failure.
+
+Checks for this phase are the page audit above. type-check, lint, test, and build were exercised by `next build` inside `check:pages` (exit 0, Next.js 14.2.21). The existing `MemoryNav.tsx` image warning is still the only lint warning and is not in this commit.
 
 ## Phase 0 — safety
 

@@ -25,7 +25,7 @@ type ErrorStateProps = {
   readonly onRetry?: () => void;
 };
 
-export function ErrorState({ title = 'Something went wrong', message, requestId, detail, onRetry }: ErrorStateProps): JSX.Element {
+export function ErrorState({ title = 'This did not load', message, requestId, detail, onRetry }: ErrorStateProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [owner, setOwner] = useState(false);
   useEffect(() => {

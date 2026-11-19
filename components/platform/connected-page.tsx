@@ -1,8 +1,7 @@
 'use client';
 
 /**
- * A destination whose full screen arrives in a later step.
- * It still loads the live API so the sidebar never opens a blank page.
+ * Loads one platform API and shows its loading, empty, and error states.
  */
 
 import { ErrorState } from '@/components/platform/ui';
@@ -24,7 +23,7 @@ export function ConnectedPage({ title, description, url }: ConnectedPageProps): 
       </header>
       {state.loading ? <p className="text-sm text-ink-soft">Loading…</p> : null}
       {state.error ? <ErrorState message={state.error.message} requestId={state.error.requestId} detail={state.error.detail} onRetry={state.refetch} /> : null}
-      {state.data ? <p className="text-sm text-ink">Live data is connected. The full layout for this screen arrives in a later step.</p> : null}
+      {state.data ? <p className="text-sm text-ink">Live data is connected.</p> : null}
     </section>
   );
 }

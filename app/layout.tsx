@@ -45,9 +45,9 @@ type RootLayoutProps = {
 const THEME_BOOTSTRAP = `
   try {
     var version = localStorage.getItem('btc-theme-v');
-    if (version !== '2') {
+    if (version !== '3') {
       localStorage.setItem('btc-theme', 'dark');
-      localStorage.setItem('btc-theme-v', '2');
+      localStorage.setItem('btc-theme-v', '3');
     }
     var stored = localStorage.getItem('btc-theme');
     document.documentElement.setAttribute('data-theme', stored === 'light' ? 'light' : 'dark');
@@ -56,7 +56,7 @@ const THEME_BOOTSTRAP = `
 
 export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
   return (
-    <html lang="en" className={`${outfit.variable} ${jetbrains.variable} ${outfit.className}`} suppressHydrationWarning>
+    <html lang="en" data-theme="dark" className={`${outfit.variable} ${jetbrains.variable} ${outfit.className}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>

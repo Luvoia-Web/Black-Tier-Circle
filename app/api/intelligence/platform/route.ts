@@ -7,7 +7,6 @@
  * @module Api
  */
 
-import { NextResponse } from 'next/server';
 import { ZodError, z } from 'zod';
 
 import { requireOwner } from '@/lib/auth/session';
@@ -18,8 +17,9 @@ import {
   resolvePlatformMemoryBank,
   runMemoryObservation,
   toPublicMemory,
+  type PublicMemory,
 } from '@/lib/hindsight';
-import { handleRouteError, readJsonBody } from '@/lib/http';
+import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,11 +29,22 @@ const PlatformQuerySchema = z.object({
 
 const DEFAULT_QUERY = 'What operational patterns should the platform watch across stores?';
 
-const DEGRADED_POST = {
+type PlatformIntelligence = {
+  readonly memoryCount: number;
+  readonly status: 'operational' | 'degraded';
+  readonly degraded: boolean;
+  readonly platformIntelligence: string | null;
+  readonly recentEvents: readonly PublicMemory[];
+  readonly evidence: readonly PublicMemory[];
+};
+
+const DEGRADED: PlatformIntelligence = {
+  memoryCount: 0,
+  status: 'degraded',
+  degraded: true,
   platformIntelligence: null,
   recentEvents: [],
   evidence: [],
-  degraded: true,
 };
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,20 +59,23 @@ export async function POST(request: Request): Promise<Response> {
       return { decision, recent };
     });
     if (observed.degraded || observed.result === null) {
-      return NextResponse.json(DEGRADED_POST);
+      return jsonSuccess(DEGRADED);
     }
     const intelligence = observed.result.decision.reason.trim();
-    return NextResponse.json({
-      platformIntelligence: intelligence.length > 0 ? intelligence : null,
-      recentEvents: observed.result.recent.map(toPublicMemory),
-      evidence: observed.result.decision.memories.map(toPublicMemory),
+    const recentEvents = observed.result.recent.map(toPublicMemory);
+    return jsonSuccess({
+      memoryCount: recentEvents.length,
+      status: 'operational' as const,
       degraded: false,
+      platformIntelligence: intelligence.length > 0 ? intelligence : null,
+      recentEvents,
+      evidence: observed.result.decision.memories.map(toPublicMemory),
     });
   } catch (error: unknown) {
     if (error instanceof AppError || error instanceof ZodError) {
       return handleRouteError(error);
     }
-    return NextResponse.json(DEGRADED_POST);
+    return jsonSuccess(DEGRADED);
   }
 }
 
@@ -72,17 +86,19 @@ export async function GET(): Promise<Response> {
       recallTenantExperience(resolvePlatformMemoryBank(), 'platform activity'),
     );
     if (observed.degraded || observed.result === null) {
-      return NextResponse.json({ memoryCount: 0, status: 'degraded', degraded: true });
+      return jsonSuccess(DEGRADED);
     }
-    return NextResponse.json({
+    return jsonSuccess({
+      ...DEGRADED,
       memoryCount: observed.result.length,
-      status: 'operational',
+      status: 'operational' as const,
       degraded: false,
+      recentEvents: observed.result.map(toPublicMemory),
     });
   } catch (error: unknown) {
     if (error instanceof AppError) {
       return handleRouteError(error);
     }
-    return NextResponse.json({ memoryCount: 0, status: 'degraded', degraded: true });
+    return jsonSuccess(DEGRADED);
   }
 }

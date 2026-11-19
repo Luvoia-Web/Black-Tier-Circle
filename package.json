@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
     "e2e": "node scripts/e2e-harness.mjs",
+    "check:pages": "node scripts/check-pages.mjs",
     "seed:owner": "tsx scripts/seed-owner.ts",
     "tunnel": "tsx scripts/dev-tunnel.ts",
     "memory:seed": "npx ts-node scripts/seed-memory-demo.ts",

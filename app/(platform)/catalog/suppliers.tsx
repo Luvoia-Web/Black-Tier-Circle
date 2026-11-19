@@ -285,7 +285,7 @@ function Orders(): JSX.Element {
   const [delivery, setDelivery] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   if (desk.loading && !desk.data) return <Skeleton className="h-32 w-full" />;
-  if (desk.error || !desk.data) return <ErrorState message={desk.error?.message ?? 'Supplier orders did not load.'} onRetry={desk.refetch} />;
+  if (desk.error || !desk.data || !Array.isArray(desk.data.orders)) return <ErrorState message={desk.error?.message ?? 'Supplier orders did not load.'} onRetry={desk.refetch} />;
   async function act(orderId: string, kind: 'complete' | 'fail' | 'resubmit' | 'reconcile'): Promise<void> {
     const url = kind === 'complete' ? API_ROUTES.supplierManualComplete(orderId)
       : kind === 'fail' ? API_ROUTES.supplierManualFail(orderId)
@@ -329,7 +329,7 @@ function Orders(): JSX.Element {
 function Health(): JSX.Element {
   const desk = useData<SupplierDesk>('/api/platform/catalog?section=suppliers');
   if (desk.loading && !desk.data) return <Skeleton className="h-32 w-full" />;
-  if (desk.error || !desk.data) return <ErrorState message={desk.error?.message ?? 'Health did not load.'} onRetry={desk.refetch} />;
+  if (desk.error || !desk.data || !Array.isArray(desk.data.health)) return <ErrorState message={desk.error?.message ?? 'Health did not load.'} onRetry={desk.refetch} />;
   const health = desk.data;
   return (
     <div className="space-y-3">
