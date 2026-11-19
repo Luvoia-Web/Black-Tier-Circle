@@ -21,6 +21,7 @@ export const InviteAcceptSchema = z.object({
 
 export const UpdateTenantStatusSchema = z.object({
   status: z.enum(['active', 'suspended']),
+  reason: z.string().trim().max(300).optional(),
 });
 
 export type InviteCreateInput = z.infer<typeof InviteCreateSchema>;

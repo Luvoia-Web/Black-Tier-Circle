@@ -202,6 +202,12 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'fraud.support_refused': 'Support message limit hit',
   'fraud.referral_refused': 'Referral limit hit',
   'claim.failed': 'Failed payment claim',
+  'reseller.approve': 'Approved reseller',
+  'reseller.suspend': 'Suspended reseller',
+  'reseller.unblock': 'Reactivated reseller',
+  'reseller.invite': 'Sent reseller invite',
+  'replacement.approved': 'Approved replacement',
+  'replacement.rejected': 'Declined replacement',
 };
 
 export function displayAuditAction(action: string): string {
