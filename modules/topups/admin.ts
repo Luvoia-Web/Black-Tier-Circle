@@ -51,6 +51,8 @@ export type TopupHealth = {
   readonly notice: string | null;
   readonly provider: 'ok' | 'down';
   readonly confirmations: number;
+  readonly expiryMinutes: number;
+  readonly overrideActive: boolean;
 };
 
 function asMinor(value: unknown): bigint {
@@ -154,6 +156,8 @@ export async function topupHealth(
     notice: payee.notice,
     provider,
     confirmations: policy.confirmations,
+    expiryMinutes: policy.expiryMinutes,
+    overrideActive: policy.overrideActive,
   };
 }
 

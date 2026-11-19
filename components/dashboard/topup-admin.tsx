@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { SkeletonTable } from '@/components/ui/Skeleton';
-import { formatPlainDatesInText } from '@/lib/display-labels';
+import { displayTopupStatus, formatPlainDatesInText } from '@/lib/display-labels';
 import { PUBLIC_ADDRESS_NOTE } from '@/lib/eth-address';
 import { API_ROUTES } from '@/lib/navigation';
 
@@ -50,7 +50,7 @@ function statusClass(status: string): string {
   return 'bg-[var(--amber-soft)] text-[var(--amber)]';
 }
 
-export function TopupAdmin(): JSX.Element {
+export function TopupAdmin({ hideHealth = false }: { readonly hideHealth?: boolean } = {}): JSX.Element {
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('all');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -133,7 +133,7 @@ export function TopupAdmin(): JSX.Element {
   const columns: ReadonlyArray<DataTableColumn<Row>> = [
     { key: 'buyer', header: 'Buyer', render: (row) => row.buyer },
     { key: 'amount', header: 'Amount', render: (row) => row.creditedAmount ?? row.amount },
-    { key: 'status', header: 'Status', render: (row) => <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass(row.status)}`}>{row.status}</span> },
+    { key: 'status', header: 'Status', render: (row) => <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass(row.status)}`}>{displayTopupStatus(row.status)}</span> },
     {
       key: 'hash',
       header: 'Transaction',
@@ -163,36 +163,40 @@ export function TopupAdmin(): JSX.Element {
   const active = data?.rows.find((row) => row.id === activeId) ?? null;
 
   return (
-    <section className="mt-10">
-      <div className="mb-6">
-        <h2 className="text-base font-semibold text-[var(--text-1)]">Wallet top-ups</h2>
-        <p className="mt-1 text-sm text-[var(--text-2)]">USDT on BNB Smart Chain. A credit needs a chain check, or a manual review with a reason.</p>
-      </div>
-      <p className="mb-4 text-sm text-[var(--text-2)]">{data?.note ?? PUBLIC_ADDRESS_NOTE}</p>
-      {health?.notice ? (
-        <p className="mb-4 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--amber-soft)] p-4 text-sm text-[var(--text-1)]" role="status">
-          {health.notice}
-        </p>
-      ) : null}
-      {health ? (
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-            <p className="text-xs text-[var(--text-2)]">Receiving address</p>
-            <p className={`mt-1 break-all text-sm ${health.addressValid ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}>
-              {health.cryptoEnabled && health.addressValid ? health.address : 'Not enabled'}
+    <section className={hideHealth ? '' : 'mt-10'}>
+      {!hideHealth ? (
+        <>
+          <div className="mb-6">
+            <h2 className="text-base font-semibold text-[var(--text-1)]">Wallet top-ups</h2>
+            <p className="mt-1 text-sm text-[var(--text-2)]">USDT on BNB Smart Chain. A credit needs a chain check, or a manual review with a reason.</p>
+          </div>
+          <p className="mb-4 text-sm text-[var(--text-2)]">{data?.note ?? PUBLIC_ADDRESS_NOTE}</p>
+          {health?.notice ? (
+            <p className="mb-4 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--amber-soft)] p-4 text-sm text-[var(--text-1)]" role="status">
+              {health.notice}
             </p>
-          </div>
-          <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-            <p className="text-xs text-[var(--text-2)]">Chain provider</p>
-            <p className={`mt-1 text-sm ${health.provider === 'ok' ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
-              {health.provider === 'ok' ? 'Reachable' : 'Not reachable'}
-            </p>
-          </div>
-          <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
-            <p className="text-xs text-[var(--text-2)]">Confirmations required</p>
-            <p className="mt-1 text-sm text-[var(--text-1)]">{health.confirmations}</p>
-          </div>
-        </div>
+          ) : null}
+          {health ? (
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
+                <p className="text-xs text-[var(--text-2)]">Receiving address</p>
+                <p className={`mt-1 break-all text-sm ${health.addressValid ? 'text-[var(--green)]' : 'text-[var(--amber)]'}`}>
+                  {health.cryptoEnabled && health.addressValid ? health.address : 'Not enabled'}
+                </p>
+              </div>
+              <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
+                <p className="text-xs text-[var(--text-2)]">Chain provider</p>
+                <p className={`mt-1 text-sm ${health.provider === 'ok' ? 'text-[var(--green)]' : 'text-[var(--red)]'}`}>
+                  {health.provider === 'ok' ? 'Reachable' : 'Not reachable'}
+                </p>
+              </div>
+              <div className="rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-4">
+                <p className="text-xs text-[var(--text-2)]">Confirmations required</p>
+                <p className="mt-1 text-sm text-[var(--text-1)]">{health.confirmations}</p>
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <label className="text-sm text-[var(--text-2)]">

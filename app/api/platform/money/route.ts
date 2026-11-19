@@ -1,7 +1,7 @@
 /**
  * @file app/api/platform/money/route.ts
  *
- * Balances for Money. Top-up approve and reject stay on /api/payments/topups.
+ * Wallets, filtered ledger, CSV export, and wholesale debts.
  */
 
 import { asDbClient, requireUser } from '@/lib/auth/session';
@@ -22,7 +22,22 @@ export async function GET(request: Request): Promise<Response> {
     const db = asDbClient(session.admin);
     const tenant = role === 'reseller' ? await getTenantByUserId(db, session.user.id) : null;
     const url = new URL(request.url);
-    const payload = await readMoney(db, { role, tenantId: tenant?.id ?? null }, url.searchParams.get('kind') ?? '');
+    const kind = url.searchParams.get('kind') ?? '';
+    const walletId = url.searchParams.get('wallet') ?? '';
+    const from = url.searchParams.get('from') ?? '';
+    const to = url.searchParams.get('to') ?? '';
+    const q = url.searchParams.get('q') ?? '';
+    const payload = await readMoney(
+      db,
+      { role, tenantId: tenant?.id ?? null },
+      {
+        ...(kind ? { kind } : {}),
+        ...(walletId ? { walletId } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        ...(q ? { q } : {}),
+      },
+    );
     if (url.searchParams.get('format') === 'csv') {
       return new Response(moneyCsv(payload), {
         headers: {

@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
 
 function loadEnv(text) {
   const env = {};

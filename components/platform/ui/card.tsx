@@ -60,7 +60,7 @@ export function StatTile({ label, value, hint, icon: Icon, tone = 'rose', delta,
         ) : null}
       </div>
       <p className="mt-1.5 text-[1.625rem] leading-tight font-light tracking-[-0.03em] tabular-nums text-ink sm:mt-2 sm:text-display">
-        {numeric.length > 0 && !value.includes('/') ? <CountUp value={Number(numeric)} digits={value.includes('.') ? 2 : 0} suffix={suffix ? ` ${suffix}` : ''} /> : value}
+        {numeric.length > 0 && !value.includes('/') && !/^0x/i.test(value.trim()) ? <CountUp value={Number(numeric)} digits={value.includes('.') ? 2 : 0} suffix={suffix ? ` ${suffix}` : ''} /> : value}
       </p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:mt-2 sm:gap-2">
         {delta ? <DeltaPill tone={deltaTone}>{delta}</DeltaPill> : null}

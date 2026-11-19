@@ -208,6 +208,11 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'reseller.invite': 'Sent reseller invite',
   'replacement.approved': 'Approved replacement',
   'replacement.rejected': 'Declined replacement',
+  'token.create': 'Created credit token',
+  'token.revoke': 'Revoked credit token',
+  'wallet.credit': 'Credited reseller wallet',
+  'wallet.debit': 'Debited reseller wallet',
+  'payment.override': 'Overrode payment status',
 };
 
 export function displayAuditAction(action: string): string {
@@ -260,6 +265,29 @@ const PAYMENT_STATUSES: Readonly<Record<string, string>> = {
 
 export function displayPaymentStatus(status: string): string {
   return PAYMENT_STATUSES[status] ?? humanizeToken(status);
+}
+
+const ORDER_CHANNELS: Readonly<Record<string, string>> = {
+  owner_store: 'Owner store',
+  reseller_bot: 'Reseller bot',
+  api: 'API',
+};
+
+export function displayOrderChannel(channel: string): string {
+  return ORDER_CHANNELS[channel] ?? humanizeToken(channel);
+}
+
+const PAYMENT_METHODS: Readonly<Record<string, string>> = {
+  bep20: 'USDT BEP20',
+  binance_pay: 'Binance Pay',
+  wallet: 'Wallet balance',
+  credit: 'Wallet balance',
+  demo: 'Demo',
+};
+
+export function displayPaymentMethod(method: string | null | undefined): string {
+  if (!method) return 'Wallet balance';
+  return PAYMENT_METHODS[method] ?? humanizeToken(method);
 }
 
 const SUPPLIER_ORDER_STATUSES: Readonly<Record<string, string>> = {
