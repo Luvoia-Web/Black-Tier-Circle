@@ -62,7 +62,23 @@ export const ownerNav = [
   { id: 'discounts', href: '/discounts' },
   { id: 'broadcasts', href: '/broadcasts' },
   { id: 'studio', href: '/bot-studio', panels: studioPanels },
-  { id: 'settings', href: '/settings' },
+  {
+    id: 'settings',
+    href: '/settings',
+    panels: [
+      '/settings?section=business',
+      '/settings?section=legal',
+      '/settings?section=policy',
+      '/settings?section=pricing',
+      '/settings?section=fraud',
+      '/settings?section=notifications',
+      '/settings?section=payments',
+      '/settings?section=store',
+      '/settings?section=integrations',
+      '/settings?section=security',
+      '/settings?section=danger',
+    ],
+  },
   { id: 'system', href: '/system-health' },
 ];
 
@@ -86,7 +102,11 @@ export const resellerNav = [
   { id: 'wallet', href: '/wallets' },
   { id: 'bots', href: '/bots' },
   { id: 'studio', href: '/bot-studio', panels: studioPanels },
-  { id: 'settings', href: '/settings' },
+  {
+    id: 'settings',
+    href: '/settings',
+    panels: ['/settings?section=account', '/settings?section=keys', '/settings?section=webhooks'],
+  },
 ];
 
 export function routesFor(role) {

@@ -32,8 +32,8 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | B Fresh-start SQL | DONE | c25861ede681ce1d4c7be8a951cdf6d2b3d8c70d | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | C Products and supplier lifecycle | DONE | a1c802fe08aa4713874cd3cec6086b81b3bfdd07 | Delete archives. Permanent delete refuses while an order exists. |
 | D Bots and Bot Studio | DONE | 3d1478a | `/bots` and `/bot-studio` are separate. `/store` redirects to Bot Studio. |
-| D2 Bot Studio gaps | DONE | this commit | Rotate token, studio tabs, and the missing editor pieces. check:pages is 168 passed, 0 failed. |
-| E Settings | | | Not started. `/settings` is still the previous screen. |
+| D2 Bot Studio gaps | DONE | 7b4725f4add5b24de45fd7d6412fa530833f7d81 | Rotate token, studio tabs, and the missing editor pieces. check:pages is 168 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
+| E Settings | DONE | this commit | Tabbed settings. Legal is platform-wide. check:pages is 196 passed, 0 failed. |
 | F Customers and support | | | `/customers` shows buyers. The fuller detail and inbox are not done. |
 | G Resellers | | | `/resellers` shows the reseller list. The BTC-4 layout is not done. |
 | H Wallets and Payments | | | `/wallets` and `/payments` split the money screen. |
@@ -47,7 +47,7 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 
 ## Resume
 
-Do not restart 0, 1, A, B, C, D, or D2. Continue at Phase E. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every route from `components/platform/nav-manifest.mjs` (href, child, and panel) at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL. Do not apply `supabase/migrations/0035_platform_gaps.sql`.
+Do not restart 0, 1, A, B, C, D, D2, or E. Continue at Phase F. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every route from `components/platform/nav-manifest.mjs` (href, child, and panel) at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL. Do not apply `supabase/migrations/0035_platform_gaps.sql`.
 
 ## Phase A
 
@@ -103,7 +103,27 @@ Bot Studio is the mockup's tabs: Home, Buttons, Catalogue, Product card, Message
 
 Compared with `BTC-5-bot-studio@2x.png`: the tab row, card-layout toggles, footer, and phone chrome match. Differences that remain: the saved card includes a Type row the mockup does not draw; Stock is on because the saved config includes it; the phone shows the real product `[KEY] HMA VPN 30D FW` and buyer Asha instead of the mockup's Gemini sample; that product has no preview file so the photo is initials; field rows use a grip instead of a separate field icon; the unsaved bar is hidden until the draft changes; the 0035 note is on screen until the SQL is applied.
 
-Phase E is next: tabbed Settings.
+## Phase E
+
+Settings is a left sub-nav. Each section saves on its own through `PATCH /api/platform/settings` with a zod body, a rate limit, and an audit row. The tenant comes from the session.
+
+Owner sections: Business (name, logo URL, support contact, timezone), Legal, Reseller policy, Pricing defaults, Fraud and abuse, Payments, Notifications, Store status and the revenue goal, Integrations (status only), Security (sign out of other sessions, recent audit log), Danger zone.
+
+Legal terms, refund policy, and privacy policy are owner-only and platform-wide. The bot reads them from `platform_settings`, not from the reseller store. `PATCH /api/reseller/settings` rejects those three fields. They are gone from the reseller policy list. The columns are in `0035_platform_gaps.sql`, which is not applied, so the page says needs migration 0035 until the owner runs it.
+
+Reseller policy switches are store name, welcome and messages, support contact, open or maintenance, the maintenance message, product selection, retail price, markup, discounts, broadcasts, API keys, and webhooks. Each says "Resellers can change this" and has one line of help. A per-store override writes `tenants.reseller_policy_override`.
+
+Fraud thresholds include the 0032 set and the 0034 freebie and discount caps. The page says a paid order is never blocked.
+
+Payments shows the BEP20 address masked. A blank address field keeps the saved one. Confirmations, top-up min/max, and expiry save with the payments section.
+
+Notifications are failed order, low supplier balance, new reseller, and large top-up, plus quiet hours. Those columns are also in 0035.
+
+Reseller sections, and the ones the checker clicks: Account (profile and change password), API keys (list, create once, revoke), Webhooks (list, create, delete), all through the existing `/api/reseller/` routes.
+
+`npm run check:pages` is 196 passed, 0 failed.
+
+Phase F is next: customers and support.
 
 0035, not applied:
 

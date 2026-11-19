@@ -119,11 +119,24 @@ export async function resolveBotContext(
     supportTelegramUrl: tenant?.supportChatUrl?.trim() || platform.supportTelegram,
     resellerSignupEnabled: tenant?.resellerSignupEnabled === true,
     resellerSignupMessage: tenant?.resellerSignupMessage ?? null,
-    termsOfService: tenant?.termsOfService ?? null,
+    termsOfService: await platformLegalText(supabase),
     botConnectionId,
     binanceMerchantId: payments.binance?.merchantId.trim() || null,
     minimumDepositMinor: limits.min,
     maximumDepositMinor: limits.max,
     studio: studio.source === 'stored' ? studio : null,
   };
+}
+
+/**
+ * Terms, refund policy, and privacy policy are platform-wide.
+ * A reseller store cannot replace or hide them.
+ */
+async function platformLegalText(db: DbClient): Promise<string | null> {
+  const result = (await db.from('platform_settings').select('terms_of_service, refund_policy, privacy_policy').limit(1).maybeSingle()) as QueryResult<unknown>;
+  if (result.error || !result.data || typeof result.data !== 'object') return null;
+  const row = result.data as Record<string, unknown>;
+  const part = (label: string, value: unknown): string => (typeof value === 'string' && value.trim() ? `${label}\n${value.trim()}` : '');
+  const text = [part('Terms', row.terms_of_service), part('Refund policy', row.refund_policy), part('Privacy policy', row.privacy_policy)].filter(Boolean).join('\n\n');
+  return text.length > 0 ? text : null;
 }

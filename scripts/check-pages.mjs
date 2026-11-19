@@ -133,15 +133,12 @@ async function clickControls(page, selector, noun) {
       if (await control.isDisabled().catch(() => true)) continue;
       seen.add(label);
       await control.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
-      let clicked = await control.click({ timeout: 1500 }).then(() => true).catch(() => false);
-      if (!clicked) clicked = await control.click({ timeout: 1500, force: true }).then(() => true).catch(() => false);
-      if (!clicked) {
-        clicked = await control.evaluate((node) => {
-          if (!(node instanceof HTMLElement)) return false;
-          node.click();
-          return true;
-        }).catch(() => false);
-      }
+      let clicked = await control.evaluate((node) => {
+        if (!(node instanceof HTMLElement)) return false;
+        node.click();
+        return true;
+      }).catch(() => false);
+      if (!clicked) clicked = await control.click({ timeout: 800, force: true }).then(() => true).catch(() => false);
       if (!clicked) problems.push(`dead ${noun}: ${label.slice(0, 60)}`);
       await page.keyboard.press('Escape').catch(() => {});
       await page.waitForTimeout(40);

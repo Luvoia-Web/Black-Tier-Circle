@@ -10,6 +10,7 @@
 
 import { prepareBep20Address } from '@/lib/eth-address';
 import { asDbClient, requireReseller } from '@/lib/auth/session';
+import { ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { sanitizeInput } from '@/lib/sanitize';
 import { UpdateTenantSettingsSchema } from '@/lib/validations/tenant-settings';
@@ -47,6 +48,9 @@ export async function PATCH(request: Request): Promise<Response> {
     const session = await requireReseller();
     const parsed = UpdateTenantSettingsSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
+    if (parsed.termsOfService !== undefined || parsed.refundPolicy !== undefined || parsed.privacyPolicy !== undefined) {
+      throw new ValidationError('LEGAL_LOCKED', 'Terms, the refund policy, and the privacy policy are set by the platform owner and apply to every store.');
+    }
     await assertResellerFieldsAllowed(
       db,
       Object.entries(parsed)
@@ -65,9 +69,6 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.supportChatUrl !== undefined ? { supportChatUrl: cleanText(parsed.supportChatUrl) ?? null } : {}),
       ...(parsed.supportPhone !== undefined ? { supportPhone: cleanText(parsed.supportPhone) ?? null } : {}),
       ...(parsed.supportMessage !== undefined ? { supportMessage: cleanText(parsed.supportMessage) ?? null } : {}),
-      ...(parsed.termsOfService !== undefined ? { termsOfService: cleanText(parsed.termsOfService) ?? null } : {}),
-      ...(parsed.refundPolicy !== undefined ? { refundPolicy: cleanText(parsed.refundPolicy) ?? null } : {}),
-      ...(parsed.privacyPolicy !== undefined ? { privacyPolicy: cleanText(parsed.privacyPolicy) ?? null } : {}),
       ...(parsed.binanceMerchantUid !== undefined
         ? { binanceMerchantUid: cleanText(parsed.binanceMerchantUid) ?? null }
         : {}),
