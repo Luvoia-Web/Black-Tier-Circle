@@ -24,7 +24,7 @@ type AssistantWidgetProps = {
 };
 
 /**
- * Bottom-right launcher and glass panel. The Claude request stays in AssistantChat.
+ * Bottom-right launcher and glass panel. Chat requests go through AssistantChat (/api/assistant).
  */
 export function AssistantWidget({ role, displayName }: AssistantWidgetProps): JSX.Element {
   const router = useRouter();
@@ -76,6 +76,7 @@ export function AssistantWidget({ role, displayName }: AssistantWidgetProps): JS
             messages={messages}
             onMessages={setMessages}
             compact
+            role={role === 'reseller' ? 'reseller' : 'owner'}
             {...(displayName ? { displayName } : {})}
             onLoadingChange={setThinking}
           />

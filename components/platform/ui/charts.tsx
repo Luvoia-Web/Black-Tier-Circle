@@ -4,7 +4,9 @@
  * Charts in the dashboard palette. Lines draw once. Legends are chips with values.
  */
 
-import { Area, AreaChart, Bar, BarChart, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { useId } from 'react';
+import Link from 'next/link';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export const CHART_COLORS = {
   rose: '#FF4D8D',
@@ -26,6 +28,22 @@ type TrendProps = {
   readonly data: readonly Point[];
   readonly series: readonly Series[];
   readonly height?: number;
+  readonly xKey?: string;
+  readonly showAxes?: boolean;
+  readonly stacked?: boolean;
+  readonly valueFormatter?: (value: number) => string;
+};
+
+function compactTick(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2);
+}
+
+const axisTickStyle = {
+  fill: 'rgba(244, 240, 246, 0.52)',
+  fontSize: 11,
 };
 
 function Legend({ series }: { readonly series: readonly Series[] }): JSX.Element {
@@ -49,23 +67,34 @@ const tooltipStyle = {
   color: '#F4F0F6',
 };
 
-export function AreaTrend({ data, series, height = 240 }: TrendProps): JSX.Element {
+export function AreaTrend({ data, series, height = 240, xKey = 'label', showAxes = true, valueFormatter }: TrendProps): JSX.Element {
+  const uid = useId().replace(/:/g, '');
   return (
     <div>
       <Legend series={series} />
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={[...data]}>
+        <AreaChart data={[...data]} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
           <defs>
             {series.map((item) => (
-              <linearGradient key={item.key} id={`fill-${item.key}`} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient key={item.key} id={`fill-${uid}-${item.key}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={item.color} stopOpacity={0.55} />
                 <stop offset="100%" stopColor={item.color} stopOpacity={0.02} />
               </linearGradient>
             ))}
           </defs>
-          <Tooltip contentStyle={tooltipStyle} />
+          {showAxes ? (
+            <>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <XAxis dataKey={xKey} tick={axisTickStyle} tickLine={false} axisLine={false} minTickGap={16} />
+              <YAxis width={44} tick={axisTickStyle} tickLine={false} axisLine={false} tickFormatter={compactTick} />
+            </>
+          ) : null}
+          <Tooltip
+            contentStyle={tooltipStyle}
+            {...(valueFormatter ? { formatter: (value: number) => valueFormatter(Number(value)) } : {})}
+          />
           {series.map((item) => (
-            <Area key={item.key} type="monotone" dataKey={item.key} stackId="sales" stroke={item.color} fill={`url(#fill-${item.key})`} strokeWidth={2} isAnimationActive />
+            <Area key={item.key} type="monotone" dataKey={item.key} name={item.label} stackId="sales" stroke={item.color} fill={`url(#fill-${uid}-${item.key})`} strokeWidth={2} isAnimationActive />
           ))}
         </AreaChart>
       </ResponsiveContainer>
@@ -73,15 +102,25 @@ export function AreaTrend({ data, series, height = 240 }: TrendProps): JSX.Eleme
   );
 }
 
-export function LineTrend({ data, series, height = 220 }: TrendProps): JSX.Element {
+export function LineTrend({ data, series, height = 220, xKey = 'label', showAxes = true, valueFormatter }: TrendProps): JSX.Element {
   return (
     <div>
       <Legend series={series} />
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={[...data]}>
-          <Tooltip contentStyle={tooltipStyle} />
+        <LineChart data={[...data]} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+          {showAxes ? (
+            <>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <XAxis dataKey={xKey} tick={axisTickStyle} tickLine={false} axisLine={false} minTickGap={16} />
+              <YAxis width={44} tick={axisTickStyle} tickLine={false} axisLine={false} tickFormatter={compactTick} />
+            </>
+          ) : null}
+          <Tooltip
+            contentStyle={tooltipStyle}
+            {...(valueFormatter ? { formatter: (value: number) => valueFormatter(Number(value)) } : {})}
+          />
           {series.map((item) => (
-            <Line key={item.key} type="monotone" dataKey={item.key} stroke={item.color} strokeWidth={2} dot={false} isAnimationActive />
+            <Line key={item.key} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={2} dot={false} isAnimationActive />
           ))}
         </LineChart>
       </ResponsiveContainer>
@@ -89,19 +128,106 @@ export function LineTrend({ data, series, height = 220 }: TrendProps): JSX.Eleme
   );
 }
 
-export function BarTrend({ data, series, height = 220 }: TrendProps): JSX.Element {
+export function BarTrend({ data, series, height = 220, xKey = 'label', showAxes = true, stacked = false, valueFormatter }: TrendProps): JSX.Element {
   return (
     <div>
       <Legend series={series} />
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={[...data]}>
-          <Tooltip contentStyle={tooltipStyle} />
+        <BarChart data={[...data]} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+          {showAxes ? (
+            <>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <XAxis dataKey={xKey} tick={axisTickStyle} tickLine={false} axisLine={false} minTickGap={16} />
+              <YAxis width={36} allowDecimals={false} tick={axisTickStyle} tickLine={false} axisLine={false} tickFormatter={compactTick} />
+            </>
+          ) : null}
+          <Tooltip
+            contentStyle={tooltipStyle}
+            {...(valueFormatter ? { formatter: (value: number) => valueFormatter(Number(value)) } : {})}
+          />
           {series.map((item) => (
-            <Bar key={item.key} dataKey={item.key} fill={item.color} radius={[8, 8, 0, 0]} isAnimationActive />
+            <Bar
+              key={item.key}
+              dataKey={item.key}
+              name={item.label}
+              fill={item.color}
+              radius={stacked ? [2, 2, 0, 0] : [8, 8, 0, 0]}
+              isAnimationActive
+              {...(stacked ? { stackId: 'stack' } : {})}
+            />
           ))}
         </BarChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+const RANK_PALETTE = [
+  CHART_COLORS.rose,
+  CHART_COLORS.sky,
+  CHART_COLORS.amber,
+  CHART_COLORS.mint,
+] as const;
+
+export type RankedBarItem = {
+  readonly id: string;
+  readonly rank: number;
+  readonly label: string;
+  readonly sublabel?: string;
+  readonly value: number;
+  readonly primaryText: string;
+  readonly secondaryText?: string;
+  readonly color?: string;
+  readonly href?: string;
+};
+
+export function RankedBars({
+  items,
+  empty = 'Nothing recorded in this range.',
+}: {
+  readonly items: readonly RankedBarItem[];
+  readonly empty?: string;
+}): JSX.Element {
+  if (items.length === 0) {
+    return <p className="mt-3 text-sm text-ink-soft">{empty}</p>;
+  }
+  const max = Math.max(1, ...items.map((item) => item.value));
+  return (
+    <ol className="mt-3 space-y-2.5">
+      {items.map((item, index) => {
+        const barColor = item.color ?? RANK_PALETTE[index % RANK_PALETTE.length] ?? CHART_COLORS.rose;
+        const widthPct = item.value > 0 ? Math.max(6, Math.round((item.value / max) * 100)) : 0;
+        const inner = (
+          <div className="grid grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2.5 sm:gap-3">
+            <span className="grid h-6 w-6 place-items-center rounded-md bg-white/[0.06] font-num text-[11px] text-ink-soft">
+              {item.rank}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm text-ink">{item.label}</p>
+              {item.sublabel ? <p className="truncate text-[11px] text-ink-faint">{item.sublabel}</p> : null}
+            </div>
+            <div className="h-2 min-w-[40px] overflow-hidden rounded-pill bg-white/10">
+              <div className="h-full rounded-pill transition-[width] duration-300" style={{ width: `${widthPct}%`, background: barColor }} />
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-num text-sm text-ink">{item.primaryText}</p>
+              {item.secondaryText ? <p className="font-num text-[11px] text-ink-faint">{item.secondaryText}</p> : null}
+            </div>
+          </div>
+        );
+        return (
+          <li key={item.id}>
+            {item.href ? (
+              <Link href={item.href} className="block rounded-lg px-2 py-1.5 transition hover:bg-white/[0.04]">
+                {inner}
+              </Link>
+            ) : (
+              <div className="rounded-lg px-2 py-1.5">{inner}</div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

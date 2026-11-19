@@ -5,7 +5,9 @@
  */
 
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { AssistantWidget } from '@/components/assistant/assistant-widget';
+import { ROUTES } from '@/lib/navigation';
 import { CommandPalette } from '@/components/platform/command-palette';
 import { DrawerBodyContext } from '@/components/platform/drawer-body';
 import { PlatformDrawer } from '@/components/platform/drawer';
@@ -21,6 +23,7 @@ type ShellProps = {
 };
 
 export function PlatformShell({ displayName, role, children }: ShellProps): JSX.Element {
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -77,7 +80,7 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
           <PlatformDrawer>{drawerBody}</PlatformDrawer>
         </Suspense>
         <CommandPalette role={role} open={palette} onClose={() => setPalette(false)} />
-        <AssistantWidget role={role} displayName={displayName} />
+        {pathname !== ROUTES.platform.remy ? <AssistantWidget role={role} displayName={displayName} /> : null}
       </div>
     </DrawerBodyContext.Provider>
   );

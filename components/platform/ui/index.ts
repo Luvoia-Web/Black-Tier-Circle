@@ -9,7 +9,7 @@ export { Button } from '@/components/platform/ui/button';
 export { Card, Badge, DeltaPill, StatTile, StatusPill } from '@/components/platform/ui/card';
 export { CountUp } from '@/components/platform/ui/count-up';
 export { RelativeTime, relativeLabel } from '@/components/platform/ui/relative-time';
-export { AreaTrend, BarTrend, DonutShare, LineTrend, Sparkline, RadialRing, StageBars } from '@/components/platform/ui/charts';
+export { AreaTrend, BarTrend, DonutShare, LineTrend, RankedBars, Sparkline, RadialRing, StageBars, type RankedBarItem } from '@/components/platform/ui/charts';
 export { CheckboxField, RadioField, SelectField, SwitchField, TextAreaField, TextField } from '@/components/platform/ui/fields';
 export { EmptyState, ErrorState, Skeleton } from '@/components/platform/ui/feedback';
 export { DataTable, type Column } from '@/components/platform/ui/table';

@@ -213,6 +213,8 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'wallet.credit': 'Credited reseller wallet',
   'wallet.debit': 'Debited reseller wallet',
   'payment.override': 'Overrode payment status',
+  'assistant.chat': 'Asked Remy AI',
+  'intelligence.ask': 'Queried platform intelligence',
 };
 
 export function displayAuditAction(action: string): string {
@@ -278,6 +280,7 @@ export function displayOrderChannel(channel: string): string {
 }
 
 const PAYMENT_METHODS: Readonly<Record<string, string>> = {
+  usdt_bep20: 'USDT BEP20',
   bep20: 'USDT BEP20',
   binance_pay: 'Binance Pay',
   wallet: 'Wallet balance',

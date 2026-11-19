@@ -11,6 +11,7 @@
 import { useState, type ReactNode } from 'react';
 import { AIOrb } from '@/components/ai/AIOrb';
 import type { ChatMessage } from '@/components/assistant/assistant-chat';
+import { formatPlainDatesInText } from '@/lib/display-labels';
 
 type AIChatMessageProps = {
   readonly message: ChatMessage;
@@ -81,7 +82,7 @@ export function AIChatMessage({ message, showTime = true, showOrb = false }: AIC
           <div className="mt-1 max-w-sm rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg-card)] p-2 text-xs text-[var(--text-2)]">
             {message.memories.map((item) => (
               <p key={item.text} className="py-1">
-                {item.text}
+                {formatPlainDatesInText(item.text)}
               </p>
             ))}
           </div>

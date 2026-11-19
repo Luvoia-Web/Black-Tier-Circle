@@ -64,6 +64,7 @@ function problemsIn(body, errors, failedNetwork) {
     problems.push(`raw snake_case (${sample})`);
   }
   if (/Loading…|Loading balances|Loading codes/.test(body)) problems.push('stuck loading');
+  if (/Powered by Claude/i.test(body)) problems.push('stale Claude branding');
   if (errors.length > 0) problems.push(`console: ${errors.slice(0, 3).join(' | ')}`);
   if (failedNetwork.length > 0) problems.push(`network: ${failedNetwork.slice(0, 3).join(', ')}`);
   return problems;
@@ -253,6 +254,16 @@ async function openRoute(context, role, route, width, serverLog) {
   if (serverHit.length > 0 && problems.length > 0) problems.push(`server: ${serverHit.join(' ').replace(/\s+/g, ' ').slice(0, 220)}`);
   const landed = new URL(page.url()).pathname;
   const expected = route.split('?')[0];
+  if (expected === '/remy') {
+    if (/Back to dashboard/i.test(body)) problems.push('remy Back to dashboard link');
+    const hasInnerSide = await page.evaluate(() => Boolean(document.querySelector('main .ai-side'))).catch(() => false);
+    if (hasInnerSide) problems.push('remy inner sidebar');
+  }
+  if (expected === '/intelligence') {
+    if (/\bplatform\s+lacks?\b.*\binfrastructure\b|\b(?:lacks?|lacking|insufficient)\s+(?:the\s+|sufficient\s+|necessary\s+)?infrastructure\b/i.test(body)) {
+      problems.push('unfiltered infrastructure noise');
+    }
+  }
   if (landed !== expected) problems.push(`landed on ${landed}`);
   await page.close();
   return { route, role, width, pass: problems.length === 0, problems };

@@ -351,7 +351,35 @@ async function readDocument(
   }
 }
 
-async function recallExperience(bankId: string, query: string): Promise<MemoryEvidence[]> {
+export type RecallOptions = {
+  readonly budget?: 'low' | 'mid' | 'high';
+  readonly timeoutMs?: number;
+};
+
+const TIMEOUT_SENTINEL = Symbol('hindsight-recall-timeout');
+
+const NOISE_MEMORY_PATTERN =
+  /\bplatform\s+lacks?\b.*\binfrastructure\b|\b(?:lacks?|lacking|insufficient)\s+(?:the\s+|sufficient\s+|necessary\s+)?infrastructure\b|\bno\s+infrastructure\s+(?:to|for|exists)\b/i;
+
+const MEMORY_MARKER_PATTERN = /\n?(?:MEMORY_DECISION_V1|MEMORY_OUTCOME_V1)\s+[\s\S]*$/;
+
+export function stripMemoryMarkers(raw: string): string {
+  return raw.replace(MEMORY_MARKER_PATTERN, '').trim();
+}
+
+export function isNoiseMemoryText(raw: string): boolean {
+  const cleaned = stripMemoryMarkers(raw);
+  if (!cleaned) {
+    return true;
+  }
+  return NOISE_MEMORY_PATTERN.test(cleaned);
+}
+
+async function recallExperience(
+  bankId: string,
+  query: string,
+  options?: RecallOptions,
+): Promise<MemoryEvidence[]> {
   const client = getClient();
   if (client === null || bankId.trim().length === 0 || query.trim().length === 0) {
     if (client === null) {
@@ -359,9 +387,25 @@ async function recallExperience(bankId: string, query: string): Promise<MemoryEv
     }
     return [];
   }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const response = await client.recall(bankId, query, { budget: 'mid' });
-    return response.results.map(toEvidence);
+    const work = client.recall(bankId, query, { budget: options?.budget ?? 'mid' });
+    const timeoutMs = options?.timeoutMs ?? 0;
+    const outcome = timeoutMs > 0
+      ? await Promise.race([
+          work,
+          new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+            timer = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+          }),
+        ])
+      : await work;
+    if (outcome === TIMEOUT_SENTINEL) {
+      void work.catch(() => undefined);
+      logFailure('recall', new Error(`recall timed out after ${timeoutMs}ms`));
+      markMemoryDegraded();
+      return [];
+    }
+    return outcome.results.map(toEvidence);
   } catch (error) {
     if (error instanceof HindsightError && error.statusCode === 404) {
       return [];
@@ -369,6 +413,10 @@ async function recallExperience(bankId: string, query: string): Promise<MemoryEv
     logFailure('recall', error);
     markMemoryDegraded();
     return [];
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -410,13 +458,15 @@ async function reflectIntelligence(
       memories: factsToEvidence(response.based_on?.memories),
       currentState: [...currentState],
     };
-    await retainCommerceExperience(
-      bankId,
-      decision.decisionId,
-      serializeDecision(decision),
-      'memory_decision',
-      `${subjectLabel} decision`,
-    );
+    if (decision.reason.trim().length > 0 && !isNoiseMemoryText(decision.reason)) {
+      await retainCommerceExperience(
+        bankId,
+        decision.decisionId,
+        serializeDecision(decision),
+        'memory_decision',
+        `${subjectLabel} decision`,
+      );
+    }
     return decision;
   } catch (error) {
     if (error instanceof HindsightError && error.statusCode === 404) {
@@ -495,12 +545,20 @@ export async function retainCommerceExperience(
   }
 }
 
-export async function recallCustomerExperience(bankId: string, query: string): Promise<MemoryEvidence[]> {
-  return recallExperience(bankId, query);
+export async function recallCustomerExperience(
+  bankId: string,
+  query: string,
+  options?: RecallOptions,
+): Promise<MemoryEvidence[]> {
+  return recallExperience(bankId, query, options);
 }
 
-export async function recallTenantExperience(bankId: string, query: string): Promise<MemoryEvidence[]> {
-  return recallExperience(bankId, query);
+export async function recallTenantExperience(
+  bankId: string,
+  query: string,
+  options?: RecallOptions,
+): Promise<MemoryEvidence[]> {
+  return recallExperience(bankId, query, options);
 }
 
 export async function reflectCustomerIntelligence(

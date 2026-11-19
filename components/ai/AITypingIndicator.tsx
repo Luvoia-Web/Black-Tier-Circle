@@ -1,7 +1,7 @@
 /**
  * @file components/ai/AITypingIndicator.tsx
  *
- * Three-dot indicator shown while Claude is streaming.
+ * Three-dot indicator shown while Remy is streaming.
  *
  * @module Components
  */

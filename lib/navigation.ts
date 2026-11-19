@@ -81,6 +81,7 @@ export const ROUTES = {
     orders: '/orders',
     money: '/money',
     people: '/people',
+    resellers: '/resellers',
     store: '/store',
     growth: '/growth',
     settings: '/settings',

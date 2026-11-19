@@ -27,6 +27,7 @@ type AssistantChatProps = {
   readonly onMessages: (next: ChatMessage[]) => void;
   readonly compact?: boolean;
   readonly displayName?: string;
+  readonly role?: 'owner' | 'reseller';
   readonly onLoadingChange?: (loading: boolean) => void;
 };
 
@@ -89,13 +90,24 @@ async function readAssistantStream(
 /**
  * Message list, suggestions, and composer.
  */
-const QUICK = ['What does my top customer prefer?', 'Which products convert best?', 'Show recovery patterns from store memory'];
+const OWNER_QUICK = [
+  'Which products convert best this week?',
+  'How do I fix a failed supplier order?',
+  'Show recovery patterns from memory',
+];
+
+const RESELLER_QUICK = [
+  'How do I set margins on my catalogue?',
+  'How do I connect my Telegram bot?',
+  'How do wallet top-ups and wholesale charges work?',
+];
 
 export function AssistantChat({
   messages,
   onMessages,
   compact = false,
   displayName,
+  role = 'owner',
   onLoadingChange,
 }: AssistantChatProps): JSX.Element {
   const [draft, setDraft] = useState('');
@@ -103,6 +115,7 @@ export function AssistantChat({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const quickPrompts = role === 'reseller' ? RESELLER_QUICK : OWNER_QUICK;
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
@@ -194,6 +207,7 @@ export function AssistantChat({
         {messages.length === 0 ? (
           <AIWelcomeScreen
             variant={compact ? 'panel' : 'page'}
+            role={role}
             {...(displayName ? { displayName } : {})}
             onPick={setDraft}
           />
@@ -205,7 +219,11 @@ export function AssistantChat({
           return <AIChatMessage key={message.id} message={message} showTime={edge} showOrb={!compact && message.role === 'assistant' && previous?.role !== 'assistant'} />;
         })}
         {loading && messages[messages.length - 1]?.role === 'user' ? <AITypingIndicator /> : null}
-        {notice ? <p className="ai-error" role="status">{notice}</p> : null}
+        {notice ? (
+          <p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-ink-soft" role="status">
+            {notice}
+          </p>
+        ) : null}
         {error ? (
           <p className="ai-error" role="alert">
             {error}
@@ -215,7 +233,7 @@ export function AssistantChat({
       <form onSubmit={onSubmit} className="ai-composer">
         {!compact && messages.length === 0 ? (
           <div className="ai-quick">
-            {QUICK.map((item) => (
+            {quickPrompts.map((item) => (
               <button key={item} type="button" className="ai-quick-pill" onClick={() => setDraft(item)}>
                 {item}
               </button>
@@ -231,7 +249,7 @@ export function AssistantChat({
             rows={compact ? 1 : 2}
             value={draft}
             maxLength={4000}
-            placeholder="Ask me anything..."
+            placeholder="Ask Remy anything..."
             className="ai-input"
             onChange={(event) => {
               setDraft(event.target.value);
@@ -257,7 +275,7 @@ export function AssistantChat({
             )}
           </button>
         </div>
-        <p className="ai-footnote">BTC Assistant · Powered by Claude · Responses may be inaccurate</p>
+        <p className="ai-footnote">Remy AI · Powered by Groq · Check important numbers against your dashboard</p>
       </form>
     </div>
   );
