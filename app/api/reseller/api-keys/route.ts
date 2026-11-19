@@ -27,7 +27,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    await assertResellerFieldsAllowed(asDbClient(session.admin), ['apiKeys']);
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['apiKeys'], session.tenant.id);
     const parsed = DashboardCreateApiKeySchema.parse(await readJsonBody(request));
     const created = await generateApiKey(asDbClient(session.admin), {
       tenantId: session.tenant.id,

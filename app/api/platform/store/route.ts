@@ -53,7 +53,7 @@ export async function PUT(request: Request): Promise<Response> {
       publish: z.boolean().optional(),
     }).parse(await readJsonBody(request));
     if (current.role === 'reseller') {
-      await assertResellerFieldsAllowed(current.db, ['botCopy']);
+      await assertResellerFieldsAllowed(current.db, ['botCopy'], current.tenantId);
     }
     const saved = await writeStudio(current.db, current.role, current.tenantId, body, current.userId);
     if (body.publish) {
@@ -88,7 +88,7 @@ export async function PATCH(request: Request): Promise<Response> {
     if (!current.tenantId) {
       throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
     }
-    await assertResellerFieldsAllowed(current.db, ['storeStatus', 'maintenanceMsg']);
+    await assertResellerFieldsAllowed(current.db, ['storeStatus', 'maintenanceMsg'], current.tenantId);
     await saveResellerStoreStatus(current.db, current.tenantId, storeStatus, message);
     return jsonSuccess({ needsMigration: false });
   } catch (error: unknown) {

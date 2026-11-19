@@ -31,7 +31,7 @@
   { "source": "/reseller/orders/:orderId", "destination": "/orders?order=:orderId" },
   { "source": "/reseller/orders", "destination": "/orders" },
   { "source": "/reseller/deliveries", "destination": "/orders?attention=delivery" },
-  { "source": "/reseller/settings/api-keys", "destination": "/settings?section=api-keys" },
+  { "source": "/reseller/settings/api-keys", "destination": "/settings?section=keys" },
   { "source": "/reseller/settings/webhooks", "destination": "/settings?section=webhooks" },
   { "source": "/reseller/settings", "destination": "/settings" },
   { "source": "/reseller/wallet/history", "destination": "/money?section=ledger" },

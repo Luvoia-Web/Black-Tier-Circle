@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { BrainCircuit } from 'lucide-react';
 import { Button, EmptyState, ErrorState, RelativeTime, Skeleton } from '@/components/platform/ui';
+import { displayMemoryType, formatPlainDatesInText } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import type { PublicMemory } from '@/lib/hindsight';
@@ -59,18 +60,18 @@ export default function IntelligencePage(): JSX.Element {
       {state.error && !data ? <ErrorState message={state.error.message} requestId={state.error.requestId} detail={state.error.detail} onRetry={state.refetch} /> : null}
       {data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <article className="glass-card rounded-lg p-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
+            <article className="glass-card rounded-lg p-3 sm:p-4">
               <p className="text-xs text-ink-faint">Memories</p>
-              <p className="mt-1 font-num text-2xl text-ink">{data.memoryCount}</p>
+              <p className="mt-1 font-num text-xl text-ink sm:text-2xl">{data.memoryCount}</p>
             </article>
-            <article className="glass-card rounded-lg p-4">
+            <article className="glass-card rounded-lg p-3 sm:p-4">
               <p className="text-xs text-ink-faint">Bank</p>
               <p className="mt-1 text-sm text-ink">{data.degraded ? 'Unavailable' : 'Answering'}</p>
             </article>
-            <article className="glass-card rounded-lg p-4">
+            <article className="glass-card col-span-2 rounded-lg p-3 sm:col-span-1 sm:p-4">
               <p className="text-xs text-ink-faint">Evidence</p>
-              <p className="mt-1 font-num text-2xl text-ink">{data.evidence.length}</p>
+              <p className="mt-1 font-num text-xl text-ink sm:text-2xl">{data.evidence.length}</p>
             </article>
           </div>
           <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void ask(question); }}>
@@ -111,8 +112,8 @@ function MemoryList({ title, rows, empty }: { readonly title: string; readonly r
       <ul className="mt-3 space-y-2">
         {rows.map((row) => (
           <li key={row.id} className="rounded-md bg-black/20 px-3 py-2">
-            <p className="text-sm text-ink">{row.text.replace(/<\/?[a-z][^>]*>/gi, '')}</p>
-            <p className="mt-1 text-xs text-ink-faint">{row.type}{row.occurredAt ? <> · <RelativeTime value={row.occurredAt} /></> : null}</p>
+            <p className="text-sm text-ink">{formatPlainDatesInText(row.text)}</p>
+            <p className="mt-1 text-xs text-ink-faint">{displayMemoryType(row.type)}{row.occurredAt ? <> · <RelativeTime value={row.occurredAt} /></> : null}</p>
           </li>
         ))}
       </ul>

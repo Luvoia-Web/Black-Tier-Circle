@@ -7,6 +7,7 @@
 import { AppError } from '@/lib/errors';
 import { idsMatching, limitToIds } from '@/lib/row-ids';
 import { formatUsdt } from '@/lib/money';
+import { NOT_DELIVERED_STATUSES } from '@/lib/order-state';
 import type { DbClient, QueryBuilder, QueryResult } from '@/lib/supabase/query';
 
 export type OrderListRow = {
@@ -20,6 +21,7 @@ export type OrderListRow = {
   readonly fulfillmentStatus: string;
   readonly deliveryStatus: string;
   readonly total: string;
+  readonly supplierCostMinor: string;
   readonly createdAt: string;
 };
 
@@ -129,15 +131,30 @@ const PAYMENT = new Set(['not_required', 'awaiting', 'pending_verification', 've
 const FULFILLMENT = new Set(['queued', 'processing', 'manual_pending', 'supplier_pending', 'outcome_unknown', 'ready', 'failed', 'canceled']);
 const DELIVERY = new Set(['not_ready', 'queued', 'sending', 'sent', 'retry_pending', 'unreachable', 'review_required']);
 
+const NOT_CANCELED_FULFILLMENT = [
+  'queued',
+  'processing',
+  'manual_pending',
+  'supplier_pending',
+  'outcome_unknown',
+  'ready',
+  'failed',
+] as const;
+
 function applyQueue(query: QueryBuilder<unknown>, filters: Filters): QueryBuilder<unknown> {
   if (filters.attention === 'fulfillment') {
-    return query.or('fulfillment_status.eq.failed,fulfillment_status.eq.manual_pending,fulfillment_status.eq.outcome_unknown,fulfillment_status.eq.queued');
+    return query
+      .or('fulfillment_status.eq.failed,fulfillment_status.eq.manual_pending,fulfillment_status.eq.outcome_unknown,fulfillment_status.eq.queued')
+      .in('delivery_status', NOT_DELIVERED_STATUSES);
   }
   if (filters.attention === 'delivery') {
     return query.or('fulfillment_status.eq.manual_pending,delivery_status.eq.review_required');
   }
   if (filters.chip === 'attention') {
-    return query.or('payment_status.eq.failed,payment_status.eq.disputed,fulfillment_status.eq.failed,fulfillment_status.eq.manual_pending,fulfillment_status.eq.outcome_unknown,delivery_status.eq.retry_pending,delivery_status.eq.unreachable,delivery_status.eq.review_required');
+    return query
+      .or('payment_status.eq.failed,payment_status.eq.disputed,fulfillment_status.eq.failed,fulfillment_status.eq.manual_pending,fulfillment_status.eq.outcome_unknown,delivery_status.eq.retry_pending,delivery_status.eq.unreachable,delivery_status.eq.review_required')
+      .in('delivery_status', NOT_DELIVERED_STATUSES)
+      .in('fulfillment_status', NOT_CANCELED_FULFILLMENT);
   }
   if (filters.chip === 'awaiting') {
     return query.in('payment_status', ['awaiting', 'pending_verification']);
@@ -149,7 +166,10 @@ function applyQueue(query: QueryBuilder<unknown>, filters: Filters): QueryBuilde
     return query.eq('delivery_status', 'sent');
   }
   if (filters.chip === 'failed') {
-    return query.or('fulfillment_status.eq.failed,payment_status.eq.failed,delivery_status.eq.unreachable');
+    return query
+      .or('fulfillment_status.eq.failed,payment_status.eq.failed,delivery_status.eq.unreachable')
+      .in('delivery_status', NOT_DELIVERED_STATUSES)
+      .in('fulfillment_status', NOT_CANCELED_FULFILLMENT);
   }
   if (filters.chip === 'expired') {
     return query.eq('payment_status', 'expired');
@@ -225,18 +245,31 @@ async function countOf(query: QueryBuilder<unknown>): Promise<number> {
   return result.count ?? 0;
 }
 
-const COLUMNS = 'id, channel, tenant_id, customer_id, product_id, quantity, quoted_retail_price, payment_status, fulfillment_status, delivery_status, created_at';
+const COLUMNS = 'id, channel, tenant_id, customer_id, product_id, quantity, quoted_retail_price, quoted_wholesale_price, payment_status, fulfillment_status, delivery_status, created_at';
+
+function minorOf(value: unknown, fallback = 0n): bigint {
+  try {
+    if (value === null || value === undefined || value === '') return fallback;
+    return BigInt(typeof value === 'string' || typeof value === 'number' ? value : 0);
+  } catch {
+    return fallback;
+  }
+}
 
 async function mapRows(db: DbClient, raw: readonly Record<string, unknown>[]): Promise<OrderListRow[]> {
   const productIds = [...new Set(raw.map((row) => text(row.product_id)).filter(Boolean))];
   const customerIds = [...new Set(raw.map((row) => text(row.customer_id)).filter(Boolean))];
-  const products = new Map<string, string>();
+  const products = new Map<string, { readonly title: string; readonly supplierPriceMinor: bigint | null }>();
   const customers = new Map<string, string>();
   const stores = new Map<string, string>();
   const tenantIds = [...new Set(raw.map((row) => text(row.tenant_id)).filter(Boolean))];
   if (productIds.length > 0) {
-    for (const row of records((await db.from('products').select('id, title').in('id', productIds)) as QueryResult<unknown>)) {
-      products.set(text(row.id), text(row.title));
+    for (const row of records((await db.from('products').select('id, title, supplier_price_minor').in('id', productIds)) as QueryResult<unknown>)) {
+      const hasSupplier = row.supplier_price_minor !== null && row.supplier_price_minor !== undefined && row.supplier_price_minor !== '';
+      products.set(text(row.id), {
+        title: text(row.title),
+        supplierPriceMinor: hasSupplier ? minorOf(row.supplier_price_minor) : null,
+      });
     }
   }
   if (customerIds.length > 0) {
@@ -250,14 +283,18 @@ async function mapRows(db: DbClient, raw: readonly Record<string, unknown>[]): P
     }
   }
   return raw.map((row) => {
-    const minor = typeof row.quoted_retail_price === 'string' || typeof row.quoted_retail_price === 'number' ? BigInt(row.quoted_retail_price) : 0n;
+    const minor = minorOf(row.quoted_retail_price);
+    const wholesaleMinor = minorOf(row.quoted_wholesale_price);
     const id = text(row.id);
     const tenant = text(row.tenant_id);
     const channel = text(row.channel);
     const quantity = typeof row.quantity === 'number' ? row.quantity : Number(row.quantity ?? 1) || 1;
+    const product = products.get(text(row.product_id));
+    const unitCost = product?.supplierPriceMinor ?? null;
+    const supplierCostMinor = unitCost !== null ? unitCost * BigInt(quantity) : wholesaleMinor;
     return {
       id,
-      productTitle: products.get(text(row.product_id)) || 'Product',
+      productTitle: product?.title || 'Product',
       quantity,
       customerLabel: customers.get(text(row.customer_id)) || 'No buyer',
       storeLabel: channel === 'api' ? 'API' : tenant ? stores.get(tenant) || 'Reseller store' : 'Owner store',
@@ -266,6 +303,7 @@ async function mapRows(db: DbClient, raw: readonly Record<string, unknown>[]): P
       fulfillmentStatus: text(row.fulfillment_status),
       deliveryStatus: text(row.delivery_status),
       total: formatUsdt(minor),
+      supplierCostMinor: supplierCostMinor.toString(),
       createdAt: text(row.created_at),
     };
   });

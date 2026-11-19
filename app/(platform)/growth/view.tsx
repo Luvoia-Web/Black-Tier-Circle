@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { GrowthPanel } from '@/components/growth/growth-panel';
 import { Button, Card, EmptyState, ErrorState, SwitchField, TextAreaField, TextField } from '@/components/platform/ui';
+import { displayDiscountValue } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
@@ -78,7 +79,7 @@ export function GrowthView({ focus = 'all' }: { readonly focus?: 'all' | 'market
           {(growth.data?.codes ?? []).map((row) => (
             <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span className="font-num text-ink">{row.code}</span>
-              <span className="text-ink-soft">{row.kind} {row.value} · used {row.usedCount}{row.maxUses ? ` / ${row.maxUses}` : ''}</span>
+              <span className="text-ink-soft">{displayDiscountValue(row.kind, row.value)} · used {row.usedCount}{row.maxUses ? ` / ${row.maxUses}` : ''}</span>
               <Button variant="secondary" onClick={() => { void runAction('/api/platform/growth', { method: 'POST', body: { action: 'active', id: row.id, active: !row.active } }).then(() => growth.refetch()); }}>{row.active ? 'Turn off' : 'Turn on'}</Button>
             </li>
           ))}

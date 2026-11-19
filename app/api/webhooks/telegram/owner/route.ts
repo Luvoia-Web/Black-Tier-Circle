@@ -17,7 +17,7 @@ import { consumeRateLimit } from '@/lib/rate-limiter';
 import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import type { BotConnection } from '@/modules/bots/types';
-import { getDecryptedOwnerBotToken, getOwnerBotWebhookSecret, getPlatformSettings } from '@/modules/platform';
+import { getDecryptedOwnerBotToken, getOwnerBotWebhookSecret, getPlatformSettings, readOwnerBotPaused } from '@/modules/platform';
 
 function ownerConnection(secret: string, username: string, telegramBotId: string | null): BotConnection {
   const now = new Date();
@@ -41,6 +41,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const header = req.headers.get('x-telegram-bot-api-secret-token');
     if (secret === null || !verifyTelegramSecret(secret, header)) {
       return NextResponse.json({ ok: false }, { status: 401 });
+    }
+    if (await readOwnerBotPaused(db)) {
+      return NextResponse.json({ ok: true });
     }
     const botLimit = await consumeRateLimit({ key: 'tg-webhook:owner', limit: 100, fail: 'closed' });
     if (!botLimit.allowed && !botLimit.needsMigration) {

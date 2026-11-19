@@ -315,7 +315,10 @@ describe('top-up copy', () => {
   });
 
   it('shows how many confirmations are still missing', () => {
-    expect(topupClaimText({ outcome: 'rejected', reason: 'TOO_FEW_CONFIRMATIONS', confirmations: 4 })).toContain('4 of 15');
+    expect(topupClaimText({ outcome: 'rejected', reason: 'TOO_FEW_CONFIRMATIONS', confirmations: 4 })).toContain('4 of 12');
+    expect(
+      topupClaimText({ outcome: 'rejected', reason: 'TOO_FEW_CONFIRMATIONS', confirmations: 4, requiredConfirmations: 20 }),
+    ).toContain('4 of 20');
     expect(topupClaimText({ outcome: 'rejected', reason: 'ALREADY_USED' })).toContain('already used');
     expect(
       topupClaimText({

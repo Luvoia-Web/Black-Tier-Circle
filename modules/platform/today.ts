@@ -6,6 +6,7 @@
 
 import { AppError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
+import { isOrderFailed, NOT_DELIVERED_STATUSES } from '@/lib/order-state';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { isManualFulfillmentOverdue } from '@/modules/fulfillment';
 import { ROUTES } from '@/lib/navigation';
@@ -65,7 +66,13 @@ export async function readToday(
   const items: TodayItem[] = [];
   const since = startOfToday();
 
-  let failed = db.from('orders').select('id, fulfillment_status, payment_status').or('fulfillment_status.eq.failed,payment_status.eq.failed').order('created_at', { ascending: false }).limit(8);
+  let failed = db
+    .from('orders')
+    .select('id, fulfillment_status, payment_status, delivery_status')
+    .or('fulfillment_status.eq.failed,payment_status.eq.failed')
+    .in('delivery_status', NOT_DELIVERED_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(16);
   let stuck = db.from('orders').select('id, fulfillment_status, created_at').in('fulfillment_status', ['manual_pending', 'queued']).order('created_at', { ascending: true }).limit(20);
   let dayOrders = db.from('orders').select('id, payment_status, quoted_retail_price, created_at').gte('created_at', since).limit(500);
   if (scope.tenantId) {
@@ -84,6 +91,15 @@ export async function readToday(
   for (const row of records(failedResult)) {
     const id = text(row.id);
     if (!id) {
+      continue;
+    }
+    if (
+      !isOrderFailed({
+        paymentStatus: text(row.payment_status),
+        fulfillmentStatus: text(row.fulfillment_status),
+        deliveryStatus: text(row.delivery_status),
+      })
+    ) {
       continue;
     }
     items.push({

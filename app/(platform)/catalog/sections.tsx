@@ -45,7 +45,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
   ];
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
         <StatTile label="Stock value at cost" value={money(data.stockValueMinor)} icon={Wallet} tone="rose" />
         <StatTile label="Units on hand" value={String(data.unitsOnHand)} icon={Boxes} tone="sky" />
         <StatTile label="Needs attention" value={String(data.attentionCount)} icon={AlertTriangle} tone="amber" />

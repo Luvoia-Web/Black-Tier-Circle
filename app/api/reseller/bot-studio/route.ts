@@ -32,7 +32,7 @@ export async function PUT(request: Request): Promise<Response> {
     const session = await requireReseller();
     await assertRateLimit(`bot-studio:${session.user.id}`, 30);
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['botCopy']);
+    await assertResellerFieldsAllowed(db, ['botCopy'], session.tenant.id);
     const saved = await writeStudio(
       db,
       'reseller',

@@ -8,6 +8,7 @@ import { ValidationError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getProduct } from '@/modules/catalog';
+import { assertCustomerAllowed } from '@/modules/platform/fraud';
 import { readCostFloor } from '@/modules/pricing/tier-store';
 
 export function priceAfterDiscount(input: {
@@ -124,6 +125,14 @@ export async function redeemOpenCheckout(db: DbClient, input: { readonly custome
   }
   if (existing.data) {
     return { applied: true, ok: true, total: formatUsdt(quoted) };
+  }
+  try {
+    await assertCustomerAllowed(db, input.customerId, 'discount');
+  } catch (error: unknown) {
+    if (error instanceof ValidationError) {
+      return { applied: true, ok: false, message: error.message };
+    }
+    throw error;
   }
   const prior = (await db.from('discount_redemptions').select('id', { count: 'exact', head: true }).eq('code_id', row.id)) as QueryResult<unknown>;
   const used = prior.count ?? row.used_count;

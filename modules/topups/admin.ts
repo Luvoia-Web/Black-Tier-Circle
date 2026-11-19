@@ -4,12 +4,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { normalizeEthAddress, verifyUsdtTransfer, bep20MinConfirmations, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
+import { normalizeEthAddress, verifyUsdtTransfer, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
 import { AppError, ValidationError } from '@/lib/errors';
 import { minorToUsdt, usdtToMinor } from '@/lib/money';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { TX_HASH_REGEX } from '@/lib/validations/payments';
 import { resolveCryptoPayee } from '@/modules/payments/resolve';
+import { loadTopupPolicy } from '@/modules/topups';
 
 const PAGE_SIZE = 20;
 const READ_CAP = 1000;
@@ -144,7 +145,7 @@ export async function topupHealth(
   tenantId: string | null,
   probe: () => Promise<'ok' | 'down'> = async () => 'down',
 ): Promise<TopupHealth> {
-  const payee = await resolveCryptoPayee(supabase, tenantId);
+  const [payee, policy] = await Promise.all([resolveCryptoPayee(supabase, tenantId), loadTopupPolicy(supabase)]);
   const provider = payee.address ? await probe() : 'down';
   return {
     address: payee.address,
@@ -152,7 +153,7 @@ export async function topupHealth(
     cryptoEnabled: payee.enabled,
     notice: payee.notice,
     provider,
-    confirmations: bep20MinConfirmations(),
+    confirmations: policy.confirmations,
   };
 }
 
@@ -291,11 +292,13 @@ export async function reviewWalletTopup(
     if (!address) {
       throw new ValidationError('PAYMENTS_UNAVAILABLE', 'Save a valid public BEP20 address before approving a chain payment.');
     }
+    const policy = await loadTopupPolicy(supabase);
     const chain: VerifyUsdtTransferResult = await verify({
       txHash: typed,
       toAddress: address,
       exactAmountMinor: amount,
       notBefore: new Date(topup.created_at),
+      minConfirmations: policy.confirmations,
     });
     if (chain.status !== 'verified') {
       throw new ValidationError(chain.reason, 'The chain check did not confirm this transfer.');

@@ -108,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
     const session = await requireReseller();
     const body = await readJsonBody(request);
     const parsed = CreateListingSchema.parse(body);
-    await assertResellerFieldsAllowed(asDbClient(session.admin), ['catalogPrice']);
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['catalogPrice'], session.tenant.id);
     const productId = parsed.productId;
     if (!productId) {
       throw new ValidationError('INVALID_INPUT', 'productId is required');

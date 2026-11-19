@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, Sparkline, StatusPill, TextField, type Column } from '@/components/platform/ui';
+import { displayDeliveryType, displaySupplierOrderStatus } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
@@ -230,7 +231,7 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
     { id: 'public', header: 'Public price', numeric: true, render: (row) => row.supplierPublicPrice ?? '—' },
     { id: 'stock', header: 'Stock', render: (row) => row.stockCount === null ? (row.inStock ? '∞' : 'Out') : String(row.stockCount) },
     { id: 'sold', header: 'Sold', numeric: true, render: (row) => String(row.soldCount) },
-    { id: 'delivery', header: 'Delivery', render: (row) => row.deliveryType },
+    { id: 'delivery', header: 'Delivery', render: (row) => displayDeliveryType(row.deliveryType) },
     { id: 'card', header: 'Card', render: (row) => [row.durationText, row.warrantyText, row.typeLabel].filter(Boolean).join(' · ') || '—' },
     { id: 'synced', header: 'Synced', render: (row) => row.lastSyncedAt ? <RelativeTime value={row.lastSyncedAt} /> : '—' },
     { id: 'state', header: 'State', render: (row) => row.productId ? <a className="underline" href={`/catalog?item=${row.productId}`}>{row.catalogueState ?? 'In products'}</a> : <span>{row.catalogueState ?? 'Not imported'}</span> },
@@ -309,7 +310,7 @@ function Orders(): JSX.Element {
         caption="Supplier orders"
         columns={[
           { id: 'order', header: 'Order', render: (row) => <a className="font-mono underline" href={`/orders?order=${row.orderId}`}>{row.orderId.slice(0, 8)}</a> },
-          { id: 'status', header: 'Status', render: (row) => row.status },
+          { id: 'status', header: 'Status', render: (row) => displaySupplierOrderStatus(row.status) },
           { id: 'error', header: 'Error', render: (row) => row.error ?? '—' },
           { id: 'when', header: 'Started', render: (row) => row.startedAt ? <RelativeTime value={row.startedAt} /> : '—' },
           { id: 'actions', header: 'Actions', render: (row) => (

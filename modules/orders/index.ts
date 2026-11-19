@@ -115,7 +115,7 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
   }
 
   if (input.customerId) {
-    await assertCustomerAllowed(supabase, input.customerId, 'order');
+    await assertCustomerAllowed(supabase, input.customerId, 'paid_order');
   }
 
   const product = await getProduct(supabase, input.productId);
@@ -163,6 +163,24 @@ export async function createOrder(supabase: DbClient, input: CreateOrderInput): 
   });
   const quotedRetailPrice = quote.quotedRetailMinor;
   const quotedWholesalePrice = quote.quotedWholesaleMinor;
+
+  if (input.customerId) {
+    const balanceRow = (await supabase
+      .from('customers')
+      .select('credit_balance')
+      .eq('id', input.customerId)
+      .maybeSingle()) as QueryResult<{ credit_balance?: string | number | null } | null>;
+    let creditBalance = 0n;
+    try {
+      creditBalance = BigInt(balanceRow.data?.credit_balance ?? 0);
+    } catch {
+      creditBalance = 0n;
+    }
+    if (creditBalance < quotedRetailPrice) {
+      await assertCustomerAllowed(supabase, input.customerId, 'order');
+    }
+  }
+
   const paymentStatus = 'awaiting';
   const fundingStatus = isReseller ? 'reserved' : 'not_applicable';
   const orderId = randomUUID();

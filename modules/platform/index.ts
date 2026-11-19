@@ -217,6 +217,7 @@ export async function disconnectOwnerBot(supabase: DbClient): Promise<void> {
   if (error) {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', error.message, 500);
   }
+  await supabase.from('platform_settings').update({ owner_bot_paused: false }).eq('id', row.id);
   invalidateCache('platform_settings');
   invalidateCache('payment_config_');
 }
@@ -358,6 +359,84 @@ export async function getDecryptedBinanceCredentials(
   }
 }
 
+function missingBotColumn(error: { message: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const message = error.message.toLowerCase();
+  return error.code === '42703' || error.code === '42P01' || message.includes('does not exist') || message.includes('schema cache');
+}
+
+export const BOT_TOKEN_DECRYPT_ERROR_MESSAGE = "Token can't be read with this server's encryption key";
+
+export type OwnerBotTokenState =
+  | { readonly status: 'ok'; readonly token: string }
+  | { readonly status: 'missing' }
+  | { readonly status: 'decrypt_failed' };
+
+/**
+ * Inspects owner bot encrypted token state without exposing secret values.
+ */
+export async function readOwnerBotTokenState(supabase: DbClient): Promise<OwnerBotTokenState> {
+  const row = await loadPlatformSettingsRow(supabase);
+  if (!row.owner_bot_token_encrypted) {
+    return { status: 'missing' };
+  }
+  try {
+    return { status: 'ok', token: decrypt(row.owner_bot_token_encrypted) };
+  } catch {
+    logger.error('owner bot token decrypt failed');
+    return { status: 'decrypt_failed' };
+  }
+}
+
+/**
+ * Returns whether the owner bot is paused (migration 0036 owner_bot_paused).
+ */
+export async function readOwnerBotPaused(supabase: DbClient): Promise<boolean> {
+  const res = await supabase
+    .from('platform_settings')
+    .select('owner_bot_paused')
+    .limit(1)
+    .maybeSingle();
+  if (res.error || !res.data || typeof res.data !== 'object') {
+    return false;
+  }
+  return (res.data as Record<string, unknown>).owner_bot_paused === true;
+}
+
+/**
+ * Pauses or resumes the owner bot without violating platform_settings_bot_status_chk
+ * (which only allows 'connected', 'disconnected', 'error').
+ */
+export async function setOwnerBotPaused(supabase: DbClient, paused: boolean): Promise<void> {
+  const row = await loadPlatformSettingsRow(supabase);
+  const now = new Date().toISOString();
+  const pausedAttempt = await supabase
+    .from('platform_settings')
+    .update({
+      owner_bot_paused: paused,
+      ...(!paused && row.owner_bot_token_encrypted ? { owner_bot_status: 'connected' } : {}),
+      updated_at: now,
+    })
+    .eq('id', row.id);
+  if (pausedAttempt.error && missingBotColumn(pausedAttempt.error)) {
+    const nextStatus: OwnerBotStatus = paused
+      ? 'disconnected'
+      : row.owner_bot_token_encrypted
+        ? 'connected'
+        : 'disconnected';
+    const fallback = await supabase
+      .from('platform_settings')
+      .update({ owner_bot_status: nextStatus, updated_at: now })
+      .eq('id', row.id);
+    if (fallback.error) {
+      throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', fallback.error.message, 500);
+    }
+  } else if (pausedAttempt.error) {
+    throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', pausedAttempt.error.message, 500);
+  }
+  invalidateCache('platform_settings');
+}
+
 /**
  * Server-only decrypted owner bot token.
  *
@@ -372,7 +451,7 @@ export async function reconnectOwnerBot(supabase: DbClient): Promise<{ readonly 
   try {
     token = decrypt(row.owner_bot_token_encrypted);
   } catch {
-    throw new ValidationError('BOT_NOT_CONNECTED', 'The stored bot token could not be read. Connect the bot again.');
+    throw new ValidationError('BOT_NOT_CONNECTED', BOT_TOKEN_DECRYPT_ERROR_MESSAGE);
   }
   const webhookUrl = ownerWebhookUrl();
   await telegramSetWebhook(token, webhookUrl, row.owner_bot_webhook_secret);
@@ -383,6 +462,7 @@ export async function reconnectOwnerBot(supabase: DbClient): Promise<{ readonly 
   if (saved.error) {
     throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', saved.error.message, 500);
   }
+  await supabase.from('platform_settings').update({ owner_bot_paused: false }).eq('id', row.id);
   invalidateCache('platform_settings');
   return { username: row.owner_bot_username ?? '', webhookUrl };
 }

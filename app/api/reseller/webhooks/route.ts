@@ -27,7 +27,7 @@ export async function GET(): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
-    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks']);
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks'], session.tenant.id);
     const parsed = DashboardCreateWebhookSchema.parse(await readJsonBody(request));
     const created = await registerWebhookEndpoint(asDbClient(session.admin), {
       tenantId: session.tenant.id,

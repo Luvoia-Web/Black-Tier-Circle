@@ -8,7 +8,7 @@ import { ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 
-export type FraudAction = 'order' | 'claim' | 'support' | 'referral';
+export type FraudAction = 'order' | 'paid_order' | 'claim' | 'support' | 'referral' | 'freebie' | 'discount';
 
 export type FraudThresholds = {
   readonly ordersPerHour: number;
@@ -16,6 +16,8 @@ export type FraudThresholds = {
   readonly failedClaimsPerHour: number;
   readonly supportMessagesPerHour: number;
   readonly referralClaimsPerDay: number;
+  readonly freebieClaimsPerDay: number;
+  readonly discountRedemptionsPerCustomer: number;
   readonly newAccountOrderCap: number;
   readonly newAccountAgeHours: number;
 };
@@ -26,6 +28,8 @@ export const FRAUD_DEFAULTS: FraudThresholds = {
   failedClaimsPerHour: 5,
   supportMessagesPerHour: 30,
   referralClaimsPerDay: 10,
+  freebieClaimsPerDay: 5,
+  discountRedemptionsPerCustomer: 5,
   newAccountOrderCap: 3,
   newAccountAgeHours: 24,
 };
@@ -59,7 +63,7 @@ async function rows(db: DbClient, table: string, filters: ReadonlyArray<readonly
 export async function loadFraudThresholds(db: DbClient): Promise<{ readonly thresholds: FraudThresholds; readonly needsMigration: boolean; readonly enforce: boolean }> {
   const result = (await db
     .from('platform_settings')
-    .select('fraud_orders_per_hour, fraud_orders_per_day, fraud_failed_claims_per_hour, fraud_support_messages_per_hour, fraud_referral_claims_per_day, fraud_new_account_order_cap, fraud_new_account_age_hours')
+    .select('fraud_orders_per_hour, fraud_orders_per_day, fraud_failed_claims_per_hour, fraud_support_messages_per_hour, fraud_referral_claims_per_day, fraud_freebie_claims_per_day, fraud_discount_redemptions_per_customer, fraud_new_account_order_cap, fraud_new_account_age_hours')
     .limit(1)
     .maybeSingle()) as QueryResult<unknown>;
   if (missingColumn(result.error) || !result.data || typeof result.data !== 'object') {
@@ -78,6 +82,8 @@ export async function loadFraudThresholds(db: DbClient): Promise<{ readonly thre
       failedClaimsPerHour: numberOr(row.fraud_failed_claims_per_hour, FRAUD_DEFAULTS.failedClaimsPerHour),
       supportMessagesPerHour: numberOr(row.fraud_support_messages_per_hour, FRAUD_DEFAULTS.supportMessagesPerHour),
       referralClaimsPerDay: numberOr(row.fraud_referral_claims_per_day, FRAUD_DEFAULTS.referralClaimsPerDay),
+      freebieClaimsPerDay: numberOr(row.fraud_freebie_claims_per_day, FRAUD_DEFAULTS.freebieClaimsPerDay),
+      discountRedemptionsPerCustomer: numberOr(row.fraud_discount_redemptions_per_customer, FRAUD_DEFAULTS.discountRedemptionsPerCustomer),
       newAccountOrderCap: numberOr(row.fraud_new_account_order_cap, FRAUD_DEFAULTS.newAccountOrderCap),
       newAccountAgeHours: numberOr(row.fraud_new_account_age_hours, FRAUD_DEFAULTS.newAccountAgeHours),
     },
@@ -120,8 +126,12 @@ async function customerRow(db: DbClient, customerId: string): Promise<Record<str
   return result.data as Record<string, unknown>;
 }
 
+const PAID_OR_SETTLED_PAYMENT_STATUSES = new Set(['verified', 'not_required', 'refunded', 'refund_pending']);
+
 /**
  * Refuses a blocked customer or one who is over the threshold for this action.
+ * Paid orders are never refused by an order-count cap — the guard only sits on
+ * unpaid order floods, referral claims, freebie claims, and discount redemptions.
  * The thrown message is the reason. The same reason is stored on audit_log.
  */
 export async function assertCustomerAllowed(db: DbClient, customerId: string, action: FraudAction, now = Date.now()): Promise<void> {
@@ -129,7 +139,10 @@ export async function assertCustomerAllowed(db: DbClient, customerId: string, ac
   if (customer && (customer.is_blocked === true || (typeof customer.blocked_at === 'string' && customer.blocked_at.length > 0))) {
     const reason = 'This account is blocked and cannot buy or message.';
     await writeRefusal(db, customerId, 'fraud.blocked', reason);
-    throw new ValidationError(action === 'support' ? 'CUSTOMER_BLOCKED' : 'CUSTOMER_BLOCKED', reason);
+    throw new ValidationError('CUSTOMER_BLOCKED', reason);
+  }
+  if (action === 'paid_order') {
+    return;
   }
   const loaded = await loadFraudThresholds(db);
   if (!loaded.enforce || !customer) return;
@@ -137,13 +150,31 @@ export async function assertCustomerAllowed(db: DbClient, customerId: string, ac
   const hour = new Date(now - HOUR_MS).toISOString();
   const day = new Date(now - DAY_MS).toISOString();
   if (action === 'order') {
-    const hourCount = (await rows(db, 'orders', [['customer_id', customerId]], hour)).length;
-    const dayCount = (await rows(db, 'orders', [['customer_id', customerId]], day)).length;
-    if (hourCount >= limits.ordersPerHour || dayCount >= limits.ordersPerDay) {
-      const reason = hourCount >= limits.ordersPerHour
-        ? `This account has reached ${limits.ordersPerHour} orders this hour.`
-        : `This account has reached ${limits.ordersPerDay} orders today.`;
+    const recentOrders = await rows(db, 'orders', [['customer_id', customerId]], hour);
+    const unpaidHourCount = recentOrders.filter(
+      (row) => !PAID_OR_SETTLED_PAYMENT_STATUSES.has(String(row.payment_status ?? '')),
+    ).length;
+    if (unpaidHourCount >= limits.ordersPerHour) {
+      const reason = `This account has reached ${limits.ordersPerHour} unpaid orders this hour.`;
       await writeRefusal(db, customerId, 'fraud.order_refused', reason);
+      throw new ValidationError('FRAUD_LIMIT', reason);
+    }
+    return;
+  }
+  if (action === 'freebie') {
+    const claims = (await rows(db, 'freebie_claims', [['customer_id', customerId]], day)).length;
+    if (claims >= loaded.thresholds.freebieClaimsPerDay) {
+      const reason = `This account has reached ${loaded.thresholds.freebieClaimsPerDay} freebie claims today.`;
+      await writeRefusal(db, customerId, 'fraud.freebie_refused', reason);
+      throw new ValidationError('FRAUD_LIMIT', reason);
+    }
+    return;
+  }
+  if (action === 'discount') {
+    const redemptions = (await rows(db, 'discount_redemptions', [['customer_id', customerId]])).length;
+    if (redemptions >= loaded.thresholds.discountRedemptionsPerCustomer) {
+      const reason = `This account has reached ${loaded.thresholds.discountRedemptionsPerCustomer} discount redemptions.`;
+      await writeRefusal(db, customerId, 'fraud.discount_refused', reason);
       throw new ValidationError('FRAUD_LIMIT', reason);
     }
     return;

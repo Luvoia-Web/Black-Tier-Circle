@@ -74,8 +74,8 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
   }, []);
 
   return (
-    <header className="glass-chrome flex min-h-bar items-center gap-2 rounded-xl px-3">
-      <button type="button" className="grid h-10 w-10 place-items-center rounded-md text-ink md:hidden" aria-label="Open navigation" onClick={onOpenRail}>
+    <header className="glass-chrome flex min-h-bar items-center gap-1 rounded-xl px-2 sm:gap-2 sm:px-3">
+      <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink md:hidden" aria-label="Open navigation" onClick={onOpenRail}>
         <Menu className="h-4 w-4" aria-hidden="true" />
       </button>
       <p className="hidden min-w-0 items-center gap-2 text-sm text-ink-soft sm:flex">
@@ -85,25 +85,26 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
       </p>
       <button
         type="button"
-        className="ml-auto flex h-10 min-w-0 flex-1 items-center gap-2 rounded-pill border border-stroke px-3 text-sm text-ink-faint sm:max-w-sm"
+        aria-label="Search orders, products, resellers"
+        className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-pill border border-stroke px-0 text-sm text-ink-faint sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-sm sm:justify-start sm:gap-2 sm:px-3"
         onClick={onOpenPalette}
       >
         <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="truncate">Search orders, products, resellers...</span>
-        <span className="ml-auto rounded-md border border-stroke px-1.5 text-[11px]">{mac ? '⌘K' : 'Ctrl K'}</span>
+        <span className="hidden truncate sm:inline">Search orders, products, resellers...</span>
+        <span className="ml-auto hidden rounded-md border border-stroke px-1.5 text-[11px] sm:inline">{mac ? '⌘K' : 'Ctrl K'}</span>
       </button>
       <p className="hidden items-center gap-2 rounded-pill border border-stroke px-3 py-2 text-xs text-ink-soft lg:flex">
         <span className="h-1.5 w-1.5 rounded-pill bg-mint" aria-hidden="true" />
         <span className="tabular-nums">{counts.live} active in bots</span>
       </p>
-      <button type="button" className="grid h-10 w-10 place-items-center rounded-md text-ink-soft" aria-label="Switch theme" onClick={toggleTheme}>
+      <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink-soft" aria-label="Switch theme" onClick={toggleTheme}>
         <ThemeIcon />
       </button>
       <NotificationBell role={role} />
-      <div ref={createRef} className="relative">
+      <div ref={createRef} className="relative shrink-0">
         <button
           type="button"
-          className="inline-flex h-10 items-center gap-1 rounded-pill bg-rose px-3 text-sm font-medium text-white"
+          className="inline-flex h-10 shrink-0 items-center gap-1 rounded-pill bg-rose px-3 text-sm font-medium text-white"
           aria-expanded={createOpen}
           aria-haspopup="menu"
           onClick={() => setCreateOpen((currentOpen) => !currentOpen)}
@@ -121,13 +122,13 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
           </div>
         ) : null}
       </div>
-      <div ref={menuRef} className="relative">
+      <div ref={menuRef} className="relative shrink-0">
         <button
           type="button"
           aria-expanded={menuOpen}
           aria-haspopup="menu"
           aria-label="Account"
-          className="grid h-10 w-10 place-items-center rounded-pill bg-rose/20 text-rose"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-pill bg-rose/20 text-rose"
           onClick={() => setMenuOpen((currentOpen) => !currentOpen)}
         >
           <UserRound className="h-4 w-4" aria-hidden="true" />
@@ -163,7 +164,7 @@ function toggleTheme(): void {
   document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem('btc-theme', next);
-    localStorage.setItem('btc-theme-v', '2');
+    localStorage.setItem('btc-theme-v', '3');
   } catch {
     // The theme still applies for this view.
   }

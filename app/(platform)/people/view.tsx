@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Button, Card, DataTable, EmptyState, ErrorState, FilterBar, Pagination, RelativeTime, SelectField, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
+import { formatPlainDatesInText } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
@@ -55,7 +56,7 @@ function ThreadPanel({ threadId, data, onDone }: { readonly threadId: string; re
       <ul className="space-y-2">
         {data.messages.map((message) => (
           <li key={message.id} className="rounded-md border border-stroke px-3 py-2 text-sm">
-            <p className="text-ink-soft">{message.sender === 'owner' ? 'Store' : 'Buyer'} · {message.at}</p>
+            <p className="text-ink-soft">{message.sender === 'owner' ? 'Store' : 'Buyer'} · {formatPlainDatesInText(message.at)}</p>
             <p className="text-ink">{message.body}</p>
             {message.failed ? <p style={{ color: 'var(--fault-ink)' }}>This reply did not reach Telegram. Retry it.</p> : null}
             {message.failed ? (
@@ -89,7 +90,7 @@ function PersonPanel({ personId, kind, person, onDone }: { readonly personId: st
         </div>
       )}
       {person.orders.length > 0 ? (
-        <ul>{person.orders.map((order) => <li key={order.id} className="font-num text-ink">{order.total} · {order.at}</li>)}</ul>
+        <ul>{person.orders.map((order) => <li key={order.id} className="font-num text-ink">{order.total} · {formatPlainDatesInText(order.at)}</li>)}</ul>
       ) : <p className="text-ink-soft">No orders yet.</p>}
       {person.referrals.length > 0 ? <p className="text-ink">Referrals: {person.referrals.join(', ')}</p> : null}
       {person.threads.length > 0 ? <p className="text-ink-soft">{person.threads.length} support threads</p> : null}

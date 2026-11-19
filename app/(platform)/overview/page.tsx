@@ -96,7 +96,7 @@ export default function OverviewPage(): JSX.Element {
               </ul>
             </article>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-3">
             {data.kpis.filter((kpi) => data.role === 'owner' || kpi.id !== 'supplier').map((kpi) => (
               <StatTile key={kpi.id} label={kpi.label} value={kpi.value} icon={ICONS[kpi.id as keyof typeof ICONS]} {...(kpi.delta ? { delta: kpi.delta, deltaTone: kpi.tone } : {})} tone={kpi.tone === 'down' ? 'amber' : 'rose'} />
             ))}

@@ -50,7 +50,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     await assertRateLimit(`bulk-tiers:${session.user.id}`, 30);
     const parsed = BulkTiersBodySchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['catalogPrice']);
+    await assertResellerFieldsAllowed(db, ['catalogPrice'], session.tenant.id);
     const listing = await getOwnedListing(db, context.params.listingId, session.tenant.id);
     await replaceBulkTiers(
       db,

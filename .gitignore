@@ -18,5 +18,6 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 
-# signed-in browser state and screenshots — never commit session cookies
+# signed-in browser state, screenshots, and design mockups — never commit
 .cursor/e2e/
+.cursor/design-reference/

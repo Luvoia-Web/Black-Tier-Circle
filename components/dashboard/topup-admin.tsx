@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table';
 import { SkeletonTable } from '@/components/ui/Skeleton';
+import { formatPlainDatesInText } from '@/lib/display-labels';
 import { PUBLIC_ADDRESS_NOTE } from '@/lib/eth-address';
 import { API_ROUTES } from '@/lib/navigation';
 
@@ -145,9 +146,8 @@ export function TopupAdmin(): JSX.Element {
           row.txHash ?? '—'
         ),
     },
-    { key: 'created', header: 'Created', render: (row) => new Date(row.createdAt).toLocaleString() },
-    {
-      key: 'review',
+    { key: 'created', header: 'Created', render: (row) => formatPlainDatesInText(row.createdAt) },
+    { key: 'review',
       header: 'Review',
       render: (row) =>
         row.status === 'pending' ? (

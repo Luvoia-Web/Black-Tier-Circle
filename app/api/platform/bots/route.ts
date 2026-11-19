@@ -8,8 +8,8 @@ import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { readBotDetail, readBots } from '@/modules/platform/bots-desk';
-import { connectBot, disconnectBot } from '@/modules/bots';
-import { connectOwnerBot } from '@/modules/platform';
+import { connectBot, disconnectBot, reconnectResellerBot } from '@/modules/bots';
+import { connectOwnerBot, disconnectOwnerBot, reconnectOwnerBot, setOwnerBotPaused } from '@/modules/platform';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ const BOT_TOKEN = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
 
 const Action = z.discriminatedUnion('action', [
   z.object({
-    action: z.enum(['pause', 'resume', 'disconnect']),
+    action: z.enum(['pause', 'resume', 'disconnect', 'reconnect']),
     botId: z.string().min(1).max(80),
   }),
   z.object({
@@ -45,9 +45,9 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const botId = url.searchParams.get('bot');
     if (botId) {
-      return jsonSuccess({ bot: await readBotDetail(current.db, current.role, current.tenantId, botId) });
+      return jsonSuccess({ role: current.role, bot: await readBotDetail(current.db, current.role, current.tenantId, botId) });
     }
-    return jsonSuccess(await readBots(current.db, current.role, current.tenantId));
+    return jsonSuccess({ role: current.role, ...(await readBots(current.db, current.role, current.tenantId)) });
   } catch (error: unknown) {
     return handleRouteError(error);
   }
@@ -82,20 +82,23 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (body.botId === 'owner') {
       if (current.role !== 'owner') throw new AuthError('FORBIDDEN', 'Only the owner can change the owner bot', 403);
-      const status = body.action === 'resume' ? 'connected' : body.action === 'pause' ? 'paused' : 'disconnected';
-      const existing = (await current.db.from('platform_settings').select('id').limit(1)) as { data: Array<{ id: string }> | null; error: { message: string } | null };
-      const settingsId = existing.data?.[0]?.id;
-      if (!settingsId) throw new AuthError('BOT_NOT_FOUND', 'Owner settings were not found', 404);
-      const saved = await current.db.from('platform_settings').update({ owner_bot_status: status, updated_at: new Date().toISOString() }).eq('id', settingsId);
-      if (saved.error) throw new AuthError('BOT_UPDATE_FAILED', saved.error.message, 500);
+      if (body.action === 'disconnect') {
+        await disconnectOwnerBot(current.db);
+      } else if (body.action === 'reconnect') {
+        await reconnectOwnerBot(current.db);
+      } else {
+        await setOwnerBotPaused(current.db, body.action === 'pause');
+      }
     } else {
       const row = (await current.db.from('bot_connections').select('tenant_id').eq('id', body.botId).maybeSingle()) as { data: { tenant_id?: string } | null; error: { message: string } | null };
-      if (row.error || !row.data) throw new AuthError('BOT_NOT_FOUND', 'That bot was not found', 404);
+      if (row.error || !row.data || !row.data.tenant_id) throw new AuthError('BOT_NOT_FOUND', 'That bot was not found', 404);
       if (current.role === 'reseller' && row.data.tenant_id !== current.tenantId) {
         throw new AuthError('FORBIDDEN', 'You can only change your own bot', 403);
       }
-      if (body.action === 'disconnect' && row.data.tenant_id) {
+      if (body.action === 'disconnect') {
         await disconnectBot(current.db, row.data.tenant_id);
+      } else if (body.action === 'reconnect') {
+        await reconnectResellerBot(current.db, row.data.tenant_id, body.botId);
       } else {
         const status = body.action === 'resume' ? 'connected' : 'paused';
         const saved = await current.db.from('bot_connections').update({ status, updated_at: new Date().toISOString() }).eq('id', body.botId);

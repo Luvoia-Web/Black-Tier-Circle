@@ -25,6 +25,7 @@ type StorePayload = {
   readonly bot: { readonly username: string | null; readonly status: string };
   readonly history: readonly HistoryRow[];
   readonly testChat: { readonly chatId: string | null; readonly needsMigration: boolean };
+  readonly menuToggles?: { readonly resellerSignup: boolean; readonly myApi: boolean };
 };
 
 type Surface = {
@@ -84,7 +85,46 @@ const CARD_COPY: Record<ProductCardField | 'image', { readonly label: string; re
   type: { label: 'Type', hint: 'How the item is delivered' },
 };
 
-const KNOWN = new Set<string>(MESSAGE_PLACEHOLDERS);
+const SURFACE_PLACEHOLDERS: Readonly<Record<string, readonly string[]>> = {
+  welcome: ['name', 'store', 'balance', 'channel', 'group', 'website'],
+  categories: ['store'],
+  list: ['emoji', 'name', 'description', 'count'],
+  footer: ['store', 'product', 'price', 'duration', 'stock'],
+  sold: ['store', 'product', 'duration', 'stock'],
+  quantity: ['product', 'price', 'stock'],
+  confirm: ['name', 'store', 'product', 'quantity', 'total', 'balance'],
+  short: ['shortfall', 'total', 'balance'],
+  placed: ['name', 'store', 'product', 'quantity', 'total', 'order'],
+  delivered: ['name', 'store', 'product', 'quantity', 'total', 'balance', 'order', 'content'],
+  referral: ['name', 'store', 'points', 'amount'],
+  freebie: ['name', 'store'],
+  support: ['name', 'store', 'order'],
+  maintenance: ['name', 'store'],
+};
+
+const KNOWN = new Set<string>([
+  ...MESSAGE_PLACEHOLDERS,
+  'emoji',
+  'description',
+  'count',
+  'shortfall',
+  'min',
+  'price',
+  'qty',
+  'unit',
+  'savings',
+  'points',
+  'amount',
+  'duration',
+  'stock',
+]);
+
+function linkPreviewLine(link: { readonly label: string; readonly url: string }): string {
+  const url = link.url.trim();
+  if (!url) return '';
+  const label = link.label.trim() || 'Link';
+  return `${label}: ${url}`;
+}
 
 function htmlToNodes(value: string): string {
   return value
@@ -197,7 +237,10 @@ function StudioView(): JSX.Element {
   const filled = useMemo(() => {
     if (!draft || !surface) return '';
     return renderTemplate(surface.read(draft), {
-      name: 'Asha',
+      name: surface.id === 'list' ? 'Streaming' : 'Asha',
+      emoji: '🎬',
+      description: 'Instant digital subscriptions.',
+      count: String(store.data?.products.length ?? 4),
       store: store.data?.bot.username ? `@${store.data.bot.username}` : 'Black Tier Circle',
       balance: '12.00 USDT',
       product: chosen?.title ?? 'Sample',
@@ -205,14 +248,17 @@ function StudioView(): JSX.Element {
       total: chosen ? money(chosen.priceMinor) : '6.00 USDT',
       order: '8C668888',
       price: chosen ? money(chosen.priceMinor) : '6.00 USDT',
+      shortfall: '2.00 USDT',
       stock: chosen?.stockUnlimited ? 'unlimited' : String(chosen?.stockCount ?? 0),
       duration: chosen?.durationText ?? '30 days',
+      points: '5',
+      amount: '1.00 USDT',
       content: 'your item',
-      channel: '',
-      group: '',
-      website: '',
+      channel: linkPreviewLine(draft.links.channel),
+      group: linkPreviewLine(draft.links.group),
+      website: linkPreviewLine(draft.links.website),
     });
-  }, [draft, surface, chosen, store.data?.bot.username]);
+  }, [draft, surface, chosen, store.data?.bot.username, store.data?.products.length]);
 
   if (store.loading && !draft) return <Skeleton className="h-40 w-full" />;
   if (store.error && !draft) return <ErrorState message={store.error.message} requestId={store.error.requestId} detail={store.error.detail} onRetry={store.refetch} />;
@@ -223,7 +269,13 @@ function StudioView(): JSX.Element {
   const active = surface;
   const dirty = JSON.stringify(config) !== JSON.stringify(hydrate(loaded.studio.config));
   const sectionSurfaces = SURFACES.filter((item) => item.section === section);
-  const rows = layoutHomeButtons(config, { resellerSignupEnabled: config.buttons.reseller_signup.enabled });
+  const surfacePlaceholders = SURFACE_PLACEHOLDERS[active.id] ?? ['name', 'store'];
+  const ownerResellerSignup = loaded.menuToggles?.resellerSignup ?? false;
+  const ownerMyApi = loaded.menuToggles?.myApi ?? false;
+  const rows = layoutHomeButtons(config, {
+    resellerSignupEnabled: loaded.role === 'owner' ? ownerResellerSignup : ownerResellerSignup && config.buttons.reseller_signup.enabled,
+    myApiEnabled: ownerMyApi,
+  });
 
   function writeSurface(next: string): void {
     setDraft(active.write(config, next));
@@ -261,7 +313,6 @@ function StudioView(): JSX.Element {
         </div>
       </header>
       {notice ? <p className="text-sm text-ink">{notice}</p> : null}
-      {loaded.testChat.needsMigration ? <p className="text-sm text-ink">Needs migration 0035 before a test can be sent to your Telegram.</p> : null}
       <div className="inline-flex flex-wrap rounded-xl border border-white/10 bg-black/25 p-1" role="tablist" aria-label="Bot Studio">
         {SECTIONS.map((item) => (
           <button key={item.id} type="button" role="tab" aria-selected={section === item.id} className={`h-8 rounded-lg px-3 text-[12.5px] ${section === item.id ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => openSection(item.id, DEFAULT_SURFACE[item.id])}>{item.label}</button>
@@ -276,7 +327,7 @@ function StudioView(): JSX.Element {
               ))}
             </div>
           ) : null}
-          {section === 'buttons' ? <ButtonEditor draft={draft} setDraft={setDraft} emojiFor={emojiFor} setEmojiFor={setEmojiFor} dragKey={dragKey} setDragKey={setDragKey} /> : null}
+          {section === 'buttons' ? <ButtonEditor draft={draft} setDraft={setDraft} role={loaded.role} menuToggles={{ resellerSignup: ownerResellerSignup, myApi: ownerMyApi }} emojiFor={emojiFor} setEmojiFor={setEmojiFor} dragKey={dragKey} setDragKey={setDragKey} /> : null}
           {section === 'links' ? <LinksEditor draft={draft} setDraft={setDraft} /> : null}
           {section === 'card' ? <CardEditor draft={draft} setDraft={setDraft} dragKey={dragKey} setDragKey={setDragKey} /> : null}
           {section !== 'buttons' && section !== 'links' && surface.section === section ? (
@@ -303,7 +354,7 @@ function StudioView(): JSX.Element {
                 onBlur={(event) => setDraft(surface.write(draft, nodesToHtml(event.currentTarget)))}
               />
               <div className="flex flex-wrap items-center gap-1">
-                {MESSAGE_PLACEHOLDERS.map((name) => (
+                {surfacePlaceholders.map((name) => (
                   <button key={name} type="button" className="rounded-pill border border-white/10 px-2 py-0.5 font-mono text-[11px] text-ink-soft" onClick={() => writeSurface(`${value}{${name}}`)}>{`{${name}}`}</button>
                 ))}
                 <span className="text-[11px] text-ink-faint">tap to insert</span>
@@ -355,10 +406,10 @@ function StudioView(): JSX.Element {
               Your Telegram chat id
               <input className="mt-1 h-9 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" aria-label="Your Telegram chat id" value={chatId} onChange={(event) => setChatId(event.target.value)} />
             </label>
-            <Button type="submit" disabled={!/^-?\d{5,20}$/.test(chatId.trim()) || loaded.testChat.needsMigration}>Send test to my Telegram</Button>
+            <Button type="submit" disabled={!/^-?\d{5,20}$/.test(chatId.trim())}>Send test to my Telegram</Button>
           </form>
         </div>
-        <Preview light={light} setLight={setLight} draft={draft} filled={filled} chosen={chosen} productId={productId} products={loaded.products} rows={rows} section={section} image={image || chosen?.imageUrl || ''} onProduct={setProductId} />
+        <Preview light={light} setLight={setLight} draft={draft} filled={filled} chosen={chosen} productId={productId} products={loaded.products} rows={rows} section={section} image={image || (section === 'card' ? chosen?.imageUrl ?? '' : '')} onProduct={setProductId} />
       </div>
       {dirty ? (
         <div className="sticky bottom-3 flex flex-wrap items-center gap-3 rounded-2xl border border-white/14 bg-[rgb(30_16_24/0.92)] px-4 py-2.5">
@@ -382,15 +433,21 @@ function EmojiGrid({ onPick }: { readonly onPick: (emoji: string) => void }): JS
   );
 }
 
-function ButtonEditor({ draft, setDraft, emojiFor, setEmojiFor, dragKey, setDragKey }: {
+function ButtonEditor({ draft, setDraft, role, menuToggles, emojiFor, setEmojiFor, dragKey, setDragKey }: {
   readonly draft: StoreConfig;
   readonly setDraft: (next: StoreConfig) => void;
+  readonly role: 'owner' | 'reseller';
+  readonly menuToggles: { readonly resellerSignup: boolean; readonly myApi: boolean };
   readonly emojiFor: string | null;
   readonly setEmojiFor: (next: string | null) => void;
   readonly dragKey: string;
   readonly setDragKey: (next: string) => void;
 }): JSX.Element {
-  const keys = BUTTON_KEYS.filter((key): key is Exclude<ButtonKey, 'replace'> => key !== 'replace').slice().sort((left, right) => draft.buttons[left].order - draft.buttons[right].order);
+  const keys = BUTTON_KEYS
+    .filter((key): key is Exclude<ButtonKey, 'replace'> => key !== 'replace')
+    .filter((key) => role === 'owner' || (key !== 'reseller_signup' && key !== 'api'))
+    .slice()
+    .sort((left, right) => draft.buttons[left].order - draft.buttons[right].order);
   function patch(key: Exclude<ButtonKey, 'replace'>, partial: Partial<StoreConfig['buttons'][ButtonKey]>): void {
     setDraft({ ...draft, buttons: { ...draft.buttons, [key]: { ...draft.buttons[key], ...partial } } });
   }
@@ -415,6 +472,9 @@ function ButtonEditor({ draft, setDraft, emojiFor, setEmojiFor, dragKey, setDrag
       </div>
       {keys.map((key) => {
         const button = draft.buttons[key];
+        const ownerControlled = key === 'reseller_signup' || key === 'api';
+        const ownerOn = key === 'reseller_signup' ? menuToggles.resellerSignup : menuToggles.myApi;
+        const checked = ownerControlled ? ownerOn : button.enabled;
         return (
           <div key={key} className="space-y-2 rounded-xl border border-white/10 bg-white/[0.04] p-3" draggable onDragStart={() => setDragKey(key)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropOn(key)}>
             <div className="flex flex-wrap items-center gap-2">
@@ -422,8 +482,8 @@ function ButtonEditor({ draft, setDraft, emojiFor, setEmojiFor, dragKey, setDrag
               <button type="button" className="h-8 min-w-8 rounded-md border border-white/10 px-2 text-sm" onClick={() => setEmojiFor(emojiFor === key ? null : key)}>{button.emoji || 'Emoji'}</button>
               <input className="h-8 min-w-0 flex-1 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" aria-label={`${key} label`} value={button.label} onChange={(event) => patch(key, { label: event.target.value })} />
               <label className="flex items-center gap-2 text-xs text-ink-soft">
-                <input type="checkbox" checked={button.enabled} onChange={(event) => patch(key, { enabled: event.target.checked })} />
-                Shown
+                <input type="checkbox" disabled={ownerControlled} checked={checked} onChange={(event) => patch(key, { enabled: event.target.checked })} />
+                {ownerControlled ? `Owner toggle (${ownerOn ? 'On' : 'Off'} in Settings)` : 'Shown'}
               </label>
             </div>
             {emojiFor === key ? <EmojiGrid onPick={(emoji) => { patch(key, { emoji }); setEmojiFor(null); }} /> : null}
@@ -542,7 +602,11 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
 }): JSX.Element {
   const ink = light ? 'text-[#17212b]' : 'text-white';
   const bubble = light ? 'bg-white text-[#17212b]' : 'bg-[#182533] text-[#e9eef4]';
-  const showCard = section === 'card' || section === 'catalogue';
+  const showCard = section === 'card';
+  const showHomeButtons = section === 'home' || section === 'buttons' || section === 'links';
+  const bubbleHtml = showCard && chosen
+    ? productCardText(toShop(chosen, image), draft.catalog.templates, undefined, draft.productCard)
+    : filled;
   return (
     <aside className="glass-card space-y-3 rounded-lg p-4 xl:sticky xl:top-4">
       <div className="flex items-center justify-between gap-2">
@@ -561,8 +625,12 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
         </div>
         <div className="min-h-[420px] px-2 py-3">
           <div className={`max-w-[300px] overflow-hidden rounded-2xl rounded-bl-md text-[13.5px] leading-relaxed ${bubble}`}>
-            {image ? <img src={image} alt="" className="h-[132px] w-full object-cover" /> : <div className="grid h-[132px] place-items-center bg-[#5a2038] text-[34px] font-medium text-[#f3d5e0]">{(chosen?.title ?? 'Sample').slice(0, 2).toUpperCase()}</div>}
-            <div className="px-3 py-2" dangerouslySetInnerHTML={{ __html: htmlToNodes(showCard && chosen ? productCardText(toShop(chosen, image), draft.catalog.templates, undefined, draft.productCard) : filled) }} />
+            {image ? (
+              <img src={image} alt="" className="h-[132px] w-full object-cover" />
+            ) : showCard ? (
+              <div className="grid h-[132px] place-items-center bg-[#5a2038] text-[34px] font-medium text-[#f3d5e0]">{(chosen?.title ?? 'Sample').slice(0, 2).toUpperCase()}</div>
+            ) : null}
+            <div className="px-3 py-2" dangerouslySetInnerHTML={{ __html: htmlToNodes(bubbleHtml) }} />
             <p className="px-3 pb-2 text-right text-[11px] text-[#6d8296]">18:42</p>
           </div>
           {showCard ? (
@@ -570,13 +638,15 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
               {['1', '2', '5', '10'].map((qty) => <span key={qty} className="rounded-lg bg-[#2b5278]/70 py-2 text-center text-[13px] text-white">×{qty}</span>)}
             </div>
           ) : null}
-          <div className="mt-1 grid max-w-[300px] gap-1">
-            {rows.map((row, index) => (
-              <div key={index} className={`grid gap-1 ${row.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                {row.map((button) => <span key={button.text} className="rounded-lg bg-[#2b5278]/70 px-2 py-1.5 text-center text-[13px] text-white">{button.text}</span>)}
-              </div>
-            ))}
-          </div>
+          {showHomeButtons ? (
+            <div className="mt-1 grid max-w-[300px] gap-1">
+              {rows.map((row, index) => (
+                <div key={index} className={`grid gap-1 ${row.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {row.map((button) => <span key={button.text} className="rounded-lg bg-[#2b5278]/70 px-2 py-1.5 text-center text-[13px] text-white">{button.text}</span>)}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       <p className="text-center text-xs text-ink-faint">Rendered with the same builder the bot uses</p>

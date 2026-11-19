@@ -20,7 +20,7 @@ export const BSC_USDT_MINOR_DIVISOR = 1_000_000_000_000n;
 
 const TX_HASH = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const DEFAULT_CONFIRMATIONS = 15;
+export const DEFAULT_CONFIRMATIONS = 12;
 const DEFAULT_TIMEOUT_MS = 4_000;
 
 const DEFAULT_RPC_URLS = [
@@ -111,16 +111,24 @@ export function normalizeEthAddress(value: string): string | null {
 
 export type ChainEnv = Readonly<Record<string, string | undefined>>;
 
-export function bep20MinConfirmations(env: ChainEnv = process.env): number {
+/**
+ * Emergency env override (BEP20_MIN_CONFIRMATIONS).
+ * Normally null so callers use platform_settings.bep20_confirmations.
+ */
+export function bep20ConfirmationsOverride(env: ChainEnv = process.env): number | null {
   const raw = env.BEP20_MIN_CONFIRMATIONS;
   if (raw === undefined || !/^\d+$/.test(raw)) {
-    return DEFAULT_CONFIRMATIONS;
+    return null;
   }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10_000) {
-    return DEFAULT_CONFIRMATIONS;
+    return null;
   }
   return parsed;
+}
+
+export function bep20MinConfirmations(env: ChainEnv = process.env): number {
+  return bep20ConfirmationsOverride(env) ?? DEFAULT_CONFIRMATIONS;
 }
 
 function realKey(value: string | undefined): string | null {
@@ -299,7 +307,11 @@ export async function verifyUsdtTransfer(
     return { status: 'unavailable', reason: 'PROVIDER_ERROR' };
   }
   const confirmations = view.current - blockNumber + 1n;
-  const required = options?.minConfirmations ?? input.minConfirmations ?? bep20MinConfirmations();
+  const required =
+    options?.minConfirmations ??
+    bep20ConfirmationsOverride() ??
+    input.minConfirmations ??
+    DEFAULT_CONFIRMATIONS;
   if (confirmations < BigInt(required)) {
     return {
       status: 'rejected',

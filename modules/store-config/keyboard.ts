@@ -26,7 +26,7 @@ const CALLBACKS: Partial<Record<ButtonKey, string>> = {
 
 export function layoutHomeButtons(
   config: StoreConfig,
-  options: { readonly resellerSignupEnabled: boolean },
+  options: { readonly resellerSignupEnabled: boolean; readonly myApiEnabled?: boolean },
 ): HomeButton[][] {
   const ordered = (Object.keys(config.buttons) as ButtonKey[])
     .filter((key) => !COMING_SOON_BUTTONS.has(key))
@@ -35,6 +35,7 @@ export function layoutHomeButtons(
     .filter((key) => key !== 'freebies' || config.referrals.freebiesEnabled)
     .filter((key) => config.buttons[key].enabled)
     .filter((key) => key !== 'reseller_signup' || options.resellerSignupEnabled)
+    .filter((key) => key !== 'api' || options.myApiEnabled !== false)
     .filter((key) => CALLBACKS[key] !== undefined)
     .sort((left, right) => config.buttons[left].order - config.buttons[right].order);
   const buttons: HomeButton[] = ordered.map((key) => {

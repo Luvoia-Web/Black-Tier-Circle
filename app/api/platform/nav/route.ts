@@ -6,6 +6,7 @@
 import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { NOT_DELIVERED_STATUSES } from '@/lib/order-state';
 import type { QueryResult } from '@/lib/supabase/query';
 import { getBotConnection } from '@/modules/bots';
 import { getTenantByUserId } from '@/modules/tenants';
@@ -36,7 +37,11 @@ export async function GET(): Promise<Response> {
     const dayStart = new Date();
     dayStart.setUTCHours(0, 0, 0, 0);
 
-    let orders = db.from('orders').select('id', { count: 'exact', head: true }).or('fulfillment_status.eq.failed,payment_status.eq.failed');
+    let orders = db
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .or('fulfillment_status.eq.failed,payment_status.eq.failed')
+      .in('delivery_status', NOT_DELIVERED_STATUSES);
     let live = db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', liveSince);
     let day = db.from('orders').select('quoted_retail_price, payment_status').eq('payment_status', 'verified').gte('created_at', dayStart.toISOString()).limit(500);
     if (tenant) {

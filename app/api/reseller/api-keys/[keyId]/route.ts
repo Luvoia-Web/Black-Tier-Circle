@@ -22,7 +22,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
   try {
     const session = await requireReseller();
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['apiKeys']);
+    await assertResellerFieldsAllowed(db, ['apiKeys'], session.tenant.id);
     const keys = await listApiKeys(db, session.tenant.id);
     if (!keys.some((key) => key.id === context.params.keyId)) {
       throw new AuthError('FORBIDDEN', 'API key does not belong to this tenant', 403);

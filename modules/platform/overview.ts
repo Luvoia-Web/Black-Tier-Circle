@@ -50,15 +50,24 @@ function minor(value: unknown): bigint {
 
 function startFor(range: OverviewRange, now: Date): Date {
   const start = new Date(now);
-  if (range === 'today') start.setUTCHours(0, 0, 0, 0);
-  else if (range === '7d') start.setUTCDate(start.getUTCDate() - 6);
-  else if (range === '30d') start.setUTCDate(start.getUTCDate() - 29);
-  else start.setUTCMonth(start.getUTCMonth() - 11);
+  if (range === 'today') {
+    start.setUTCHours(0, 0, 0, 0);
+  } else if (range === '7d') {
+    start.setUTCDate(start.getUTCDate() - 6);
+    start.setUTCHours(0, 0, 0, 0);
+  } else if (range === '30d') {
+    start.setUTCDate(start.getUTCDate() - 29);
+    start.setUTCHours(0, 0, 0, 0);
+  } else {
+    start.setUTCMonth(start.getUTCMonth() - 11);
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+  }
   return start;
 }
 
-function previousStart(range: OverviewRange, start: Date): Date {
-  const span = Date.now() - start.getTime();
+function previousStart(range: OverviewRange, start: Date, now: Date): Date {
+  const span = Math.max(86_400_000, now.getTime() - start.getTime());
   return new Date(start.getTime() - span);
 }
 
@@ -77,10 +86,10 @@ export async function readOverview(
   db: DbClient,
   scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null; readonly botId: string | null; readonly firstName: string },
   range: OverviewRange,
+  now: Date = new Date(),
 ): Promise<OverviewPayload> {
-  const now = new Date();
   const start = startFor(range, now);
-  const prior = previousStart(range, start);
+  const prior = previousStart(range, start, now);
   let query = db.from('orders').select('id, tenant_id, channel, payment_status, fulfillment_status, quoted_retail_price, quantity, created_at, customer_id, product_id').gte('created_at', prior.toISOString()).order('created_at', { ascending: false }).limit(1000);
   if (scope.tenantId) query = query.eq('tenant_id', scope.tenantId);
   const rows = records((await query) as QueryResult<unknown>);

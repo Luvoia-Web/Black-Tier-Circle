@@ -56,6 +56,7 @@ export async function PATCH(request: Request): Promise<Response> {
       Object.entries(parsed)
         .filter(([, value]) => value !== undefined)
         .map(([key]) => key),
+      session.tenant.id,
     );
     const address = parsed.usdtWalletBep20 === undefined ? null : prepareBep20Address(parsed.usdtWalletBep20);
     if (parsed.storeName) {

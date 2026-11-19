@@ -1,5 +1,6 @@
 import { AppError } from '@/lib/errors';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
+import { assertCustomerAllowed } from '@/modules/platform/fraud';
 import { referralSummary } from '@/modules/referrals/store';
 
 export type FreebieRecord = {
@@ -80,6 +81,7 @@ export async function claimFreebie(
   if (freebie.claimed) {
     return { status: 'ready', freebie };
   }
+  await assertCustomerAllowed(supabase, input.customerId, 'freebie');
   const inserted = await supabase.from('freebie_claims').insert({
     freebie_id: freebie.id,
     customer_id: input.customerId,

@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { TopupAdmin } from '@/components/dashboard/topup-admin';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Card, DataTable, ErrorState, FilterBar, RelativeTime, SelectField, StatTile, StatusPill, type Column } from '@/components/platform/ui';
+import { displayLedgerEntryType } from '@/lib/display-labels';
 import { useData } from '@/lib/hooks/use-data';
 
 type MoneyPayload = {
@@ -64,7 +65,7 @@ export function MoneyView({ focus = 'all' }: { readonly focus?: 'all' | 'wallets
     { id: 'reserved', header: 'Reserved', numeric: true, render: (row) => row.reserved },
   ];
   const ledgerColumns: Column<MoneyPayload['ledger'][number]>[] = [
-    { id: 'kind', header: 'Entry', render: (row) => row.kind },
+    { id: 'kind', header: 'Entry', render: (row) => displayLedgerEntryType(row.kind) },
     { id: 'amount', header: 'Amount', numeric: true, render: (row) => row.amount },
     { id: 'at', header: 'When', render: (row) => <RelativeTime value={row.at} /> },
   ];
@@ -82,7 +83,7 @@ export function MoneyView({ focus = 'all' }: { readonly focus?: 'all' | 'wallets
       {money.error ? <ErrorState message={money.error.message} requestId={money.error.requestId} detail={money.error.detail} onRetry={money.refetch} /> : null}
       {money.data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
             <StatTile label={money.data.role === 'owner' ? 'Owner store' : 'Available'} value={money.data.ownerBalance} />
             <StatTile label="Customer wallets" value={money.data.customerWallets} />
             <StatTile label="Reseller debt" value={money.data.resellerDebt} />

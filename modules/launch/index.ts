@@ -221,7 +221,7 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
     },
     {
       id: 'prod_sku',
-      label: 'All supplier_api products have supplier_sku set',
+      label: 'All supplier-delivered products have a supplier SKU set',
       group: 'product',
       passing: supplierSkuReady,
       detail: supplierSkuReady ? 'OK' : 'A supplier product is missing SKU',

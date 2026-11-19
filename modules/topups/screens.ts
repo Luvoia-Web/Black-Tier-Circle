@@ -68,6 +68,7 @@ export function parseTopupAmount(
 export function topupInstructions(topup: WalletTopup, address: string, now = new Date(), reused = false): string {
   const when = topup.expiresAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
   const shown = topup.payToAddress && topup.payToAddress.length > 0 ? topup.payToAddress : address;
+  const expiryMinutes = Math.max(1, Math.round((topup.expiresAt.getTime() - topup.createdAt.getTime()) / 60_000));
   const lines = [
     `<b>Send USDT (BEP20)</b>`,
     '',
@@ -81,7 +82,7 @@ export function topupInstructions(topup: WalletTopup, address: string, now = new
     '',
     `Time left: <b>${escapeHtml(remainingTimeLabel(topup.expiresAt, now))}</b>`,
     `Expires at ${escapeHtml(when)}.`,
-    `This top-up expires 30 minutes after it was created.`,
+    `This top-up expires ${expiryMinutes} minutes after it was created.`,
     '',
     `After it is sent, tap <b>I have paid</b> and paste the transaction hash.`,
   ];
@@ -98,6 +99,7 @@ export function topupClaimText(input: {
   readonly expectedMinor?: bigint;
   readonly newBalance?: bigint;
   readonly confirmations?: number;
+  readonly requiredConfirmations?: number;
   readonly repeated?: boolean;
 }): string {
   if (input.outcome === 'rate_limited') {
@@ -124,7 +126,8 @@ export function topupClaimText(input: {
   }
   if (reason === 'TOO_FEW_CONFIRMATIONS') {
     const have = input.confirmations ?? 0;
-    return `The transfer needs more confirmations. It has ${have} of ${bep20MinConfirmations()} so far. Send the same hash again in a minute.`;
+    const required = input.requiredConfirmations ?? bep20MinConfirmations();
+    return `The transfer needs more confirmations. It has ${have} of ${required} so far. Send the same hash again in a minute.`;
   }
   if (reason === 'WRONG_TOKEN' || reason === 'WRONG_RECIPIENT' || reason === 'NO_TRANSFER') {
     return 'That transaction is not a USDT transfer to this store on BNB Smart Chain (BEP20). Nothing was credited.';

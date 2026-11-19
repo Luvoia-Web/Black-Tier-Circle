@@ -13,6 +13,7 @@ import { asDbClient, requireRole, type AuthenticatedSession } from '@/lib/auth/s
 import { AppError, AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { formatUsdt } from '@/lib/money';
+import { displayOrderEventLabel, displayOrderEventNote } from '@/lib/display-labels';
 import { isGenericDeliveryResult, type OrderDetailEvent, type OrderDetailPayload } from '@/lib/order-detail';
 import type { QueryResult } from '@/lib/supabase/query';
 import type { DbClient } from '@/lib/supabase/query';
@@ -210,7 +211,7 @@ async function loadEvents(db: DbClient, orderId: string, supplierReason: string 
     .map((row) => {
       const to = typeof row.to_status === 'string' ? row.to_status : '';
       const track = typeof row.track === 'string' ? row.track : '';
-      const note = typeof row.note === 'string' ? row.note : null;
+      const note = displayOrderEventNote(typeof row.note === 'string' ? row.note : null);
       const at = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
       const failed = to === 'failed' || to === 'unreachable' || to === 'expired';
       const done = to === 'verified' || to === 'sent' || to === 'ready';
@@ -221,22 +222,18 @@ async function loadEvents(db: DbClient, orderId: string, supplierReason: string 
         note,
       };
     });
-  if (supplierReason && !events.some((event) => event.note === supplierReason)) {
-    const last = events.length > 0 ? events[events.length - 1] : undefined;
-    events.push({ label: 'Supplier rejected the order', at: last?.at ?? new Date().toISOString(), tone: 'fault', note: supplierReason });
+  if (supplierReason) {
+    const cleanReason = displayOrderEventNote(supplierReason) ?? supplierReason;
+    if (!events.some((event) => event.note === cleanReason)) {
+      const last = events.length > 0 ? events[events.length - 1] : undefined;
+      events.push({ label: 'Supplier rejected the order', at: last?.at ?? new Date().toISOString(), tone: 'fault', note: cleanReason });
+    }
   }
   return events;
 }
 
 function eventLabel(track: string, to: string): string {
-  if (track === 'payment' && to === 'verified') return 'Paid';
-  if (track === 'payment' && to === 'awaiting') return 'Awaiting payment';
-  if (track === 'fulfillment' && (to === 'supplier_pending' || to === 'processing')) return 'Sent to the supplier';
-  if (track === 'fulfillment' && to === 'failed') return 'Supplier rejected the order';
-  if (track === 'fulfillment' && to === 'ready') return 'Ready to deliver';
-  if (track === 'delivery' && to === 'sent') return 'Delivered';
-  if (to === 'not_ready' || to === 'queued') return 'Not delivered yet';
-  return `${track} ${to}`.trim();
+  return displayOrderEventLabel(track, to);
 }
 
 async function openReplacement(db: DbClient, orderId: string): Promise<boolean> {

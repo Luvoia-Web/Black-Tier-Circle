@@ -9,9 +9,15 @@ import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { loadFraudThresholds } from '@/modules/platform/fraud';
-import { getPlatformSettings, updatePaymentSettings, updatePlatformInfo } from '@/modules/platform';
+import { getPlatformSettings, updatePlatformInfo } from '@/modules/platform';
 import { readResellerPolicy, RESELLER_POLICY_FIELDS, saveResellerPolicy } from '@/modules/platform/policy';
 import { readRevenueGoal, writeRevenueGoal, parseGoalUsdt } from '@/modules/platform/goal';
+import {
+  listStoresWithOverrides,
+  readPlatformExtraSettings,
+  saveBotMenuToggles,
+  savePaymentsSection,
+} from '@/modules/platform/settings-extra';
 import { saveOwnerStoreStatus } from '@/modules/platform/store';
 import { getTenantByUserId } from '@/modules/tenants';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
@@ -51,13 +57,15 @@ const FraudBody = z.object({
   newAccountAgeHours: z.number().int().positive().max(8760),
 });
 
+const QUIET_TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
 const PaymentsBody = z.object({
   section: z.literal('payments'),
   bep20Enabled: z.boolean(),
   address: z.string().trim().max(80).optional().default(''),
   confirmations: z.number().int().positive().max(100),
-  minUsdt: z.number().positive().max(1000000),
-  maxUsdt: z.number().positive().max(1000000),
+  minUsdt: z.union([z.number(), z.string()]).transform((value) => String(value).trim()),
+  maxUsdt: z.union([z.number(), z.string()]).transform((value) => String(value).trim()),
   expiryMinutes: z.number().int().positive().max(10080),
 });
 
@@ -65,7 +73,9 @@ const StoreBody = z.object({
   section: z.literal('store'),
   storeStatus: z.enum(['open', 'maintenance']),
   maintenanceMessage: z.string().max(500),
-  goalUsdt: z.string().trim().max(20),
+  goalUsdt: z.string().trim().max(20).optional(),
+  botShowResellerSignup: z.boolean().optional(),
+  botShowMyApi: z.boolean().optional(),
 });
 
 const NotifyBody = z.object({
@@ -74,23 +84,17 @@ const NotifyBody = z.object({
   lowBalance: z.boolean(),
   newReseller: z.boolean(),
   largeTopup: z.boolean(),
-  quietStart: z.string().regex(/^\d{2}:\d{2}$/).or(z.literal('')),
-  quietEnd: z.string().regex(/^\d{2}:\d{2}$/).or(z.literal('')),
+  quietStart: z.string().regex(QUIET_TIME, 'Use HH:MM in 24-hour time.').or(z.literal('')),
+  quietEnd: z.string().regex(QUIET_TIME, 'Use HH:MM in 24-hour time.').or(z.literal('')),
 });
 
 const OverrideBody = z.object({
   section: z.literal('override'),
   tenantId: z.string().uuid(),
-  policy: z.record(z.boolean()),
+  policy: z.record(z.boolean()).nullable(),
 });
 
 const Body = z.discriminatedUnion('section', [PolicyBody, BusinessBody, LegalBody, FraudBody, PaymentsBody, StoreBody, NotifyBody, OverrideBody]);
-
-function missing(error: { message: string; code?: string } | null): boolean {
-  if (!error) return false;
-  const message = error.message.toLowerCase();
-  return error.code === '42703' || error.code === '42P01' || message.includes('does not exist') || message.includes('schema cache');
-}
 
 function maskAddress(value: string | null): string {
   if (!value) return '';
@@ -136,15 +140,15 @@ export async function GET(): Promise<Response> {
     const fraud = await loadFraudThresholds(current.db);
     const platform = current.role === 'owner' ? await getPlatformSettings(current.db) : null;
     const goal = await readRevenueGoal(current.db, { role: current.role, tenantId: current.tenantId });
-    const extra = current.role === 'owner' ? await extraSettings(current.db) : null;
-    const stores = current.role === 'owner' ? await storeNames(current.db) : [];
+    const extra = current.role === 'owner' ? await readPlatformExtraSettings(current.db) : null;
+    const stores = current.role === 'owner' ? await listStoresWithOverrides(current.db) : [];
     return jsonSuccess({
       role: current.role,
       displayName: current.displayName,
       email: current.email,
       timezone: current.timezone,
       tenantName: current.tenantName,
-      needsMigration: policy.needsMigration || fraud.needsMigration || Boolean(extra?.needsMigration),
+      needsMigration: false,
       fields: RESELLER_POLICY_FIELDS.map((field) => ({
         key: field.key,
         label: field.label,
@@ -156,14 +160,18 @@ export async function GET(): Promise<Response> {
         ? { platformName: platform.platformName, supportContact: platform.supportContact ?? '', logoUrl: extra?.logoUrl ?? '' }
         : null,
       legal: extra?.legal ?? null,
-      payments: platform
+      payments: platform && extra
         ? {
             bep20Enabled: platform.bep20Enabled,
             addressMasked: maskAddress(platform.platformUsdtWalletBep20),
-            confirmations: extra?.confirmations ?? 12,
-            expiryMinutes: extra?.expiryMinutes ?? 60,
+            confirmations: extra.confirmations,
+            expiryMinutes: extra.expiryMinutes,
+            minUsdt: extra.minUsdt,
+            maxUsdt: extra.maxUsdt,
           }
         : null,
+      notifications: extra?.notifications ?? null,
+      store: extra?.store ?? null,
       goal,
       stores,
       integrations: current.role === 'owner' ? integrationStatus() : null,
@@ -178,28 +186,7 @@ function integrationStatus(): { readonly suppliers: string; readonly groq: strin
   return {
     suppliers: 'Read from the supplier desk. Keys stay on the server.',
     groq: process.env.GROQ_API_KEY ? 'Configured' : 'Not configured',
-    hindsight: process.env.HINDSIGHT_API_KEY || process.env.HINDSIGHT_BASE_URL ? 'Configured' : 'Not configured',
-  };
-}
-
-async function extraSettings(db: DbClient) {
-  const result = (await db.from('platform_settings').select('terms_of_service, refund_policy, privacy_policy, legal_version, legal_updated_at, logo_url, bep20_confirmations, topup_expiry_minutes, fraud_freebie_claims_per_day, fraud_discount_redemptions_per_customer').limit(1).maybeSingle()) as QueryResult<unknown>;
-  if (missing(result.error) || !result.data || typeof result.data !== 'object') {
-    return { needsMigration: true, logoUrl: '', confirmations: 12, expiryMinutes: 60, legal: null };
-  }
-  const row = result.data as Record<string, unknown>;
-  return {
-    needsMigration: false,
-    logoUrl: typeof row.logo_url === 'string' ? row.logo_url : '',
-    confirmations: typeof row.bep20_confirmations === 'number' ? row.bep20_confirmations : 12,
-    expiryMinutes: typeof row.topup_expiry_minutes === 'number' ? row.topup_expiry_minutes : 60,
-    legal: {
-      terms: typeof row.terms_of_service === 'string' ? row.terms_of_service : '',
-      refund: typeof row.refund_policy === 'string' ? row.refund_policy : '',
-      privacy: typeof row.privacy_policy === 'string' ? row.privacy_policy : '',
-      version: typeof row.legal_version === 'number' ? row.legal_version : 1,
-      updatedAt: typeof row.legal_updated_at === 'string' ? row.legal_updated_at : null,
-    },
+    hindsight: process.env.HINDSIGHT_API_KEY && process.env.HINDSIGHT_API_URL ? 'Configured' : 'Not configured',
   };
 }
 
@@ -211,17 +198,6 @@ async function recentAudit(db: DbClient): Promise<readonly { readonly id: string
     const record = row as Record<string, unknown>;
     if (typeof record.id !== 'string' || typeof record.action !== 'string' || typeof record.created_at !== 'string') return [];
     return [{ id: record.id, action: record.action, at: record.created_at }];
-  });
-}
-
-async function storeNames(db: DbClient): Promise<readonly { readonly id: string; readonly name: string }[]> {
-  const result = (await db.from('tenants').select('id, display_name').order('display_name').limit(100)) as QueryResult<unknown>;
-  if (result.error || !Array.isArray(result.data)) return [];
-  return result.data.flatMap((row) => {
-    if (!row || typeof row !== 'object') return [];
-    const record = row as Record<string, unknown>;
-    if (typeof record.id !== 'string') return [];
-    return [{ id: record.id, name: typeof record.display_name === 'string' ? record.display_name : 'Store' }];
   });
 }
 
@@ -266,23 +242,18 @@ export async function PATCH(request: Request): Promise<Response> {
     if (body.section === 'business') {
       await updatePlatformInfo(current.db, { platformName: body.platformName, supportContact: body.supportContact });
       await current.db.from('profiles').update({ timezone: body.timezone }).eq('id', current.userId);
-      if (body.logoUrl) {
-        const row = (await current.db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;
-        if (row.data?.id) {
-          const saved = await current.db.from('platform_settings').update({ logo_url: body.logoUrl }).eq('id', row.data.id);
-          if (missing(saved.error)) return jsonSuccess({ needsMigration: true });
-          if (saved.error) throw new ValidationError('LOGO_FAILED', saved.error.message);
-        }
+      const row = (await current.db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;
+      if (row.data?.id) {
+        const saved = await current.db.from('platform_settings').update({ logo_url: body.logoUrl || null }).eq('id', row.data.id);
+        if (saved.error) throw new ValidationError('LOGO_FAILED', saved.error.message);
       }
       await audit(current.db, current.userId, 'settings.business', null);
       return jsonSuccess({ ok: true });
     }
     if (body.section === 'legal') {
       const currentRow = (await current.db.from('platform_settings').select('id, legal_version').limit(1).maybeSingle()) as QueryResult<Record<string, unknown> | null>;
-      if (missing(currentRow.error)) {
-        throw new ValidationError('LEGAL_MIGRATION', 'Needs migration 0035 before legal text can be saved.');
-      }
       const id = typeof currentRow.data?.id === 'string' ? currentRow.data.id : '';
+      if (!id) throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing.');
       const version = typeof currentRow.data?.legal_version === 'number' ? currentRow.data.legal_version + 1 : 1;
       const saved = await current.db.from('platform_settings').update({
         terms_of_service: body.terms,
@@ -291,7 +262,6 @@ export async function PATCH(request: Request): Promise<Response> {
         legal_version: version,
         legal_updated_at: new Date().toISOString(),
       }).eq('id', id);
-      if (missing(saved.error)) throw new ValidationError('LEGAL_MIGRATION', 'Needs migration 0035 before legal text can be saved.');
       if (saved.error) throw new ValidationError('LEGAL_FAILED', saved.error.message);
       await audit(current.db, current.userId, 'settings.legal', null);
       return jsonSuccess({ version });
@@ -316,25 +286,14 @@ export async function PATCH(request: Request): Promise<Response> {
       return jsonSuccess({ ok: true });
     }
     if (body.section === 'payments') {
-      if (body.maxUsdt < body.minUsdt) throw new ValidationError('PAYMENTS_RANGE', 'The maximum top-up must be at least the minimum.');
-      await updatePaymentSettings(current.db, {
+      await savePaymentsSection(current.db, {
         bep20Enabled: body.bep20Enabled,
-        ...(body.address ? { platformUsdtWalletBep20: body.address } : {}),
+        address: body.address,
+        confirmations: body.confirmations,
+        expiryMinutes: body.expiryMinutes,
+        minUsdt: body.minUsdt,
+        maxUsdt: body.maxUsdt,
       });
-      const row = (await current.db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;
-      if (row.data?.id) {
-        const saved = await current.db.from('platform_settings').update({
-          bep20_confirmations: body.confirmations,
-          topup_expiry_minutes: body.expiryMinutes,
-          min_topup_minor: Math.round(body.minUsdt * 1_000_000),
-          max_topup_minor: Math.round(body.maxUsdt * 1_000_000),
-        }).eq('id', row.data.id);
-        if (missing(saved.error)) {
-          await audit(current.db, current.userId, 'settings.payments', null);
-          return jsonSuccess({ needsMigration: true });
-        }
-        if (saved.error) throw new ValidationError('PAYMENTS_FAILED', saved.error.message);
-      }
       await audit(current.db, current.userId, 'settings.payments', null);
       return jsonSuccess({ ok: true });
     }
@@ -349,22 +308,26 @@ export async function PATCH(request: Request): Promise<Response> {
         quiet_start: body.quietStart || null,
         quiet_end: body.quietEnd || null,
       }).eq('id', row.data.id);
-      if (missing(saved.error)) throw new ValidationError('NOTIFY_MIGRATION', 'Needs migration 0035 before notification settings can be saved.');
       if (saved.error) throw new ValidationError('NOTIFY_FAILED', saved.error.message);
       await audit(current.db, current.userId, 'settings.notifications', null);
       return jsonSuccess({ ok: true });
     }
     if (body.section === 'override') {
       const saved = await current.db.from('tenants').update({ reseller_policy_override: body.policy }).eq('id', body.tenantId);
-      if (missing(saved.error)) throw new ValidationError('OVERRIDE_MIGRATION', 'Needs migration 0034 before a store override can be saved.');
       if (saved.error) throw new ValidationError('OVERRIDE_FAILED', saved.error.message);
       await audit(current.db, current.userId, 'settings.override', body.tenantId);
       return jsonSuccess({ ok: true });
     }
-    const minor = parseGoalUsdt(body.goalUsdt);
-    await writeRevenueGoal(current.db, { role: current.role, tenantId: current.tenantId }, minor);
+    if (body.goalUsdt !== undefined && body.goalUsdt !== '') {
+      const minor = parseGoalUsdt(body.goalUsdt);
+      await writeRevenueGoal(current.db, { role: current.role, tenantId: current.tenantId }, minor);
+    }
     if (current.role === 'owner') {
       await saveOwnerStoreStatus(current.db, body.storeStatus, body.maintenanceMessage);
+      await saveBotMenuToggles(current.db, {
+        ...(body.botShowResellerSignup !== undefined ? { resellerSignup: body.botShowResellerSignup } : {}),
+        ...(body.botShowMyApi !== undefined ? { myApi: body.botShowMyApi } : {}),
+      });
     }
     await audit(current.db, current.userId, 'settings.store', current.tenantId);
     return jsonSuccess({ ok: true });

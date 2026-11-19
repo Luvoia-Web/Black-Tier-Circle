@@ -264,8 +264,13 @@ export async function getBotConnection(supabase: DbClient, tenantId: string): Pr
   return mapBotConnectionRow(asConnectionRow(data));
 }
 
-export async function reconnectResellerBot(supabase: DbClient, tenantId: string): Promise<{ readonly username: string; readonly webhookUrl: string }> {
-  const found = await supabase.from('bot_connections').select('id, username, encrypted_token, webhook_secret').eq('tenant_id', tenantId).maybeSingle();
+export async function reconnectResellerBot(
+  supabase: DbClient,
+  tenantId: string,
+  botId?: string,
+): Promise<{ readonly username: string; readonly webhookUrl: string }> {
+  const baseQuery = supabase.from('bot_connections').select('id, tenant_id, username, encrypted_token, webhook_secret');
+  const found = await (botId ? baseQuery.eq('id', botId).eq('tenant_id', tenantId) : baseQuery.eq('tenant_id', tenantId)).maybeSingle();
   const row = found.data && typeof found.data === 'object' ? (found.data as Record<string, unknown>) : null;
   const encrypted = typeof row?.encrypted_token === 'string' ? row.encrypted_token : '';
   const secret = typeof row?.webhook_secret === 'string' ? row.webhook_secret : '';
@@ -277,7 +282,7 @@ export async function reconnectResellerBot(supabase: DbClient, tenantId: string)
   try {
     token = decrypt(encrypted);
   } catch {
-    throw new ValidationError('BOT_NOT_CONNECTED', 'The stored bot token could not be read. Connect the bot again.');
+    throw new ValidationError('BOT_NOT_CONNECTED', "Token can't be read with this server's encryption key");
   }
   const webhookUrl = webhookUrlFor(id);
   await telegramSetWebhook(token, webhookUrl, secret);

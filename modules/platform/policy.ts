@@ -58,13 +58,48 @@ export async function readResellerPolicy(db: DbClient): Promise<{ readonly polic
   return { policy, needsMigration: false };
 }
 
+export async function readEffectiveResellerPolicy(
+  db: DbClient,
+  tenantId?: string | null,
+): Promise<{ readonly policy: Record<string, boolean>; readonly needsMigration: boolean }> {
+  const loaded = await readResellerPolicy(db);
+  if (loaded.needsMigration || !tenantId) {
+    return loaded;
+  }
+  const overrideResult = (await db
+    .from('tenants')
+    .select('reseller_policy_override')
+    .eq('id', tenantId)
+    .maybeSingle()) as QueryResult<unknown>;
+  if (missingColumn(overrideResult.error) || overrideResult.error || !overrideResult.data || typeof overrideResult.data !== 'object') {
+    return loaded;
+  }
+  const raw = (overrideResult.data as Record<string, unknown>).reseller_policy_override;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return loaded;
+  }
+  const override = raw as Record<string, unknown>;
+  const effective: Record<string, boolean> = { ...loaded.policy };
+  for (const field of RESELLER_POLICY_FIELDS) {
+    if (typeof override[field.key] === 'boolean') {
+      effective[field.key] = override[field.key] as boolean;
+    }
+  }
+  return { policy: effective, needsMigration: false };
+}
+
 /**
  * Rejects a reseller write that touches a locked field. Nothing is saved.
+ * Reads tenants.reseller_policy_override for the tenant first, falling back key-by-key to platform_settings.reseller_policy.
  */
-export async function assertResellerFieldsAllowed(db: DbClient, fields: readonly string[]): Promise<void> {
+export async function assertResellerFieldsAllowed(
+  db: DbClient,
+  fields: readonly string[],
+  tenantId?: string | null,
+): Promise<void> {
   const touched = fields.filter((field) => KEYS.has(field));
   if (touched.length === 0) return;
-  const loaded = await readResellerPolicy(db);
+  const loaded = await readEffectiveResellerPolicy(db, tenantId);
   if (loaded.needsMigration) return;
   const blocked = touched.filter((field) => loaded.policy[field] === false);
   if (blocked.length === 0) return;

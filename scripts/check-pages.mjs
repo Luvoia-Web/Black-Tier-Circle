@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
 
 function loadEnv(text) {
   const env = {};
@@ -53,10 +53,54 @@ function problemsIn(body, errors, failedNetwork) {
   if (/arrives in a later step|later step|full layout|coming soon|full charts arrive/i.test(body)) problems.push('placeholder text');
   if (/<\/?[a-z][^>\n]{0,40}>/i.test(body)) problems.push('raw HTML tag');
   if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(body)) problems.push('raw ISO timestamp');
+  const cleaned = body
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\S+@\S+/g, ' ')
+    .replace(/@[a-zA-Z0-9_]+/g, ' ')
+    .replace(/\{[a-zA-Z0-9_]+\}/g, ' ');
+  const snakeMatches = cleaned.match(/\b[a-z]{2,}_[a-z0-9_]{2,}\b/g);
+  if (snakeMatches && snakeMatches.length > 0) {
+    const sample = [...new Set(snakeMatches)].slice(0, 4).join(', ');
+    problems.push(`raw snake_case (${sample})`);
+  }
   if (/Loading…|Loading balances|Loading codes/.test(body)) problems.push('stuck loading');
   if (errors.length > 0) problems.push(`console: ${errors.slice(0, 3).join(' | ')}`);
   if (failedNetwork.length > 0) problems.push(`network: ${failedNetwork.slice(0, 3).join(', ')}`);
   return problems;
+}
+
+async function layoutProblem(page) {
+  const result = await page.evaluate(() => {
+    const docWidth = document.documentElement.clientWidth;
+    const scrollWidth = document.documentElement.scrollWidth;
+    const overflow = scrollWidth > docWidth + 1 ? `${scrollWidth} > ${docWidth}` : null;
+    const header = document.querySelector('header');
+    let overlap = null;
+    if (header && docWidth <= 420) {
+      const items = [...header.querySelectorAll('button, a')].filter((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      for (let i = 0; i < items.length; i += 1) {
+        const a = items[i].getBoundingClientRect();
+        for (let j = i + 1; j < items.length; j += 1) {
+          const b = items[j].getBoundingClientRect();
+          if (a.right > b.left + 1 && a.left < b.right - 1 && a.bottom > b.top + 1 && a.top < b.bottom - 1) {
+            const labelA = items[i].getAttribute('aria-label') || items[i].textContent?.trim() || 'control';
+            const labelB = items[j].getAttribute('aria-label') || items[j].textContent?.trim() || 'control';
+            overlap = `${labelA} overlaps ${labelB}`;
+            break;
+          }
+        }
+        if (overlap) break;
+      }
+    }
+    return { overflow, overlap };
+  });
+  const issues = [];
+  if (result.overflow) issues.push(`horizontal overflow (${result.overflow})`);
+  if (result.overlap) issues.push(`top bar ${result.overlap}`);
+  return issues;
 }
 
 function attach(page) {
@@ -201,6 +245,7 @@ async function openRoute(context, role, route, width, serverLog) {
   const problems = [
     ...problemsIn(body, attached.logs, attached.failedNetwork),
     ...(await themeProblem(page)),
+    ...(await layoutProblem(page)),
     ...(await exercise(page)),
   ];
   const fresh = serverLog.text.slice(logMark);

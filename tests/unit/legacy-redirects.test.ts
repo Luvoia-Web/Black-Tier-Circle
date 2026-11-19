@@ -44,7 +44,7 @@ const MOVED: ReadonlyArray<readonly [string, string]> = [
   ['/owner/settings', '/settings'],
   ['/reseller/settings', '/settings'],
   ['/reseller/account', '/settings?section=account'],
-  ['/reseller/settings/api-keys', '/settings?section=api-keys'],
+  ['/reseller/settings/api-keys', '/settings?section=keys'],
   ['/reseller/settings/webhooks', '/settings?section=webhooks'],
   ['/owner/intelligence', '/today'],
   ['/reseller/intelligence', '/today'],

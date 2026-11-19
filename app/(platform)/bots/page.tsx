@@ -8,13 +8,29 @@ import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Sparkline } from '@/components/platform/ui/charts';
 import { Button, ErrorState, RelativeTime, Skeleton, StatusPill, TextField } from '@/components/platform/ui';
+import { displayPaymentStatus } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES } from '@/lib/navigation';
 import type { BotCard, BotDetail } from '@/modules/platform/bots-desk';
 
-type ListPayload = { readonly bots: readonly BotCard[] };
-type DetailPayload = { readonly bot: BotDetail | null };
+type ListPayload = { readonly role: 'owner' | 'reseller'; readonly bots: readonly BotCard[] };
+type DetailPayload = { readonly role: 'owner' | 'reseller'; readonly bot: BotDetail | null };
+
+function pluralOrders(count: number): string {
+  return `${count} ${count === 1 ? 'order' : 'orders'}`;
+}
+
+function pluralBuyers(count: number): string {
+  return `${count} ${count === 1 ? 'buyer' : 'buyers'}`;
+}
+
+function stateTone(state: BotCard['connectionState']): 'ok' | 'warn' | 'fault' | 'neutral' {
+  if (state === 'Connected') return 'ok';
+  if (state === 'Paused') return 'warn';
+  if (state === 'Disconnected') return 'neutral';
+  return 'fault';
+}
 
 function BotsView(): JSX.Element {
   const params = useSearchParams();
@@ -26,7 +42,7 @@ function BotsView(): JSX.Element {
   const [rotateFor, setRotateFor] = useState('');
   const [rotateToken, setRotateToken] = useState('');
   const [notice, setNotice] = useState('');
-  const role = list.data?.bots.some((bot) => bot.id === 'owner') ? 'owner' : 'reseller';
+  const role = list.data?.role ?? detail.data?.role ?? 'reseller';
 
   function open(id: string): void {
     const next = new URLSearchParams(params.toString());
@@ -34,9 +50,9 @@ function BotsView(): JSX.Element {
     router.replace(`/bots?${next.toString()}`);
   }
 
-  async function act(action: 'pause' | 'resume' | 'disconnect', id: string): Promise<void> {
+  async function act(action: 'pause' | 'resume' | 'disconnect' | 'reconnect', id: string): Promise<void> {
     const result = await runAction('/api/platform/bots', { body: { action, botId: id } });
-    setNotice(result.ok ? 'Saved.' : result.error.message);
+    setNotice(result.ok ? (action === 'reconnect' ? 'Webhook registered again.' : 'Saved.') : result.error.message);
     if (result.ok) {
       list.refetch();
       detail.refetch();
@@ -67,16 +83,25 @@ function BotsView(): JSX.Element {
                 <p className="text-sm text-ink">@{bot.username || 'unnamed'}</p>
                 <p className="text-xs text-ink-faint">{bot.store} · {bot.owner}</p>
               </button>
-              <StatusPill tone={bot.status === 'connected' ? 'ok' : bot.status === 'paused' ? 'warn' : 'fault'}>{bot.status}</StatusPill>
+              <StatusPill tone={stateTone(bot.connectionState)}>{bot.connectionState}</StatusPill>
             </div>
-            <p className="text-xs text-ink-soft">Token {bot.tokenValid === null ? 'not checked on this card' : bot.tokenValid ? 'valid via getMe' : 'not valid'} · Webhook {bot.webhookSet === null ? 'stored from the last check' : bot.webhookSet ? 'set' : 'not set'} · Pending {bot.pendingUpdates ?? '—'}</p>
-            <p className="text-xs text-ink-faint">Last update {bot.lastUpdate ? <RelativeTime value={bot.lastUpdate} /> : 'never'}</p>
-            <p className="font-num text-sm text-ink">{bot.orders} orders · {bot.revenue} USDT · {bot.buyers} buyers · {bot.conversion}</p>
+            {bot.connectionDetail ? (
+              <p className="text-xs text-ink-soft">{bot.connectionDetail}</p>
+            ) : null}
+            <p className="text-xs text-ink-faint">
+              Pending updates {bot.pendingUpdates ?? '—'} · Last update {bot.lastUpdate ? <RelativeTime value={bot.lastUpdate} /> : 'never'}
+            </p>
+            <p className="font-num text-sm text-ink">
+              All time: {pluralOrders(bot.orders)} ({bot.paidOrders} paid) · {bot.revenue} USDT · {pluralBuyers(bot.buyers)} · {bot.conversion} paid
+            </p>
+            <p className="font-num text-xs text-ink-soft">
+              Last 7 days: {pluralOrders(bot.orders7d)} · {bot.revenue7d} USDT
+            </p>
             <Sparkline data={bot.sparkline.some((value) => value > 0) ? bot.sparkline : [0, 0]} />
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => open(bot.id)}>Open</Button>
               <Button variant="secondary" onClick={() => void act(bot.status === 'paused' ? 'resume' : 'pause', bot.id)}>{bot.status === 'paused' ? 'Resume bot' : 'Pause bot'}</Button>
-              <Button variant="secondary" onClick={() => { void runAction('/api/platform/store', { method: 'POST' }).then((result) => setNotice(result.ok ? 'Webhook registered again.' : result.error.message)); }}>Re-set webhook</Button>
+              <Button variant="secondary" onClick={() => void act('reconnect', bot.id)}>Re-set webhook</Button>
               <Button variant="destructive" onClick={() => void act('disconnect', bot.id)}>Disconnect</Button>
               <Button variant="secondary" onClick={() => { setRotateFor(bot.id); setRotateToken(''); }}>Rotate token</Button>
             </div>
@@ -97,19 +122,23 @@ function BotsView(): JSX.Element {
           {detail.data && !detail.data.bot ? <p className="text-sm text-ink-soft">This bot is not in your account.</p> : null}
           {detail.data?.bot ? (
             <>
-              <p className="text-sm text-ink">Token {detail.data.bot.tokenValid ? 'valid via getMe' : 'not valid'} · Webhook {detail.data.bot.webhookSet ? 'set' : 'not set'} · Pending updates {detail.data.bot.pendingUpdates ?? 0}</p>
-              <h3 className="text-xs text-ink-faint">Orders</h3>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
+                <StatusPill tone={stateTone(detail.data.bot.connectionState)}>{detail.data.bot.connectionState}</StatusPill>
+                <span>Pending updates {detail.data.bot.pendingUpdates ?? 0}</span>
+              </div>
+              {detail.data.bot.connectionDetail ? <p className="text-sm text-ink-soft">{detail.data.bot.connectionDetail}</p> : null}
+              <h3 className="text-xs text-ink-faint">Recent orders</h3>
               {detail.data.bot.ordersList.length === 0 ? <p className="text-sm text-ink-soft">No recent orders.</p> : null}
               <ul className="space-y-1">
                 {detail.data.bot.ordersList.map((order) => (
-                  <li key={order.id} className="flex justify-between gap-2 text-sm"><span className="font-mono text-ink">{order.id.slice(0, 8)}</span><span className="text-ink-soft">{order.status} · {order.total} · <RelativeTime value={order.at} /></span></li>
+                  <li key={order.id} className="flex justify-between gap-2 text-sm"><span className="font-mono text-ink">{order.id.slice(0, 8)}</span><span className="text-ink-soft">{displayPaymentStatus(order.status)} · {order.total} USDT · <RelativeTime value={order.at} /></span></li>
                 ))}
               </ul>
               <h3 className="text-xs text-ink-faint">Buyers</h3>
               {detail.data.bot.buyersList.length === 0 ? <p className="text-sm text-ink-soft">No buyers yet.</p> : null}
               <ul>{detail.data.bot.buyersList.map((buyer) => <li key={buyer.id} className="text-sm text-ink">{buyer.name}</li>)}</ul>
               <h3 className="text-xs text-ink-faint">Errors and webhook log</h3>
-              {detail.data.bot.errors.length === 0 ? <p className="text-sm text-ink-soft">No webhook error on the last getMe and getWebhookInfo check.</p> : null}
+              {detail.data.bot.errors.length === 0 ? <p className="text-sm text-ink-soft">No errors on the last check.</p> : null}
               <ul>{detail.data.bot.errors.map((error) => <li key={error} className="text-sm text-ink">{error}</li>)}</ul>
             </>
           ) : null}

@@ -8,7 +8,14 @@
  * @module Topups
  */
 
-import { normalizeEthAddress, verifyUsdtTransfer, type VerifyUsdtTransferResult } from '@/integrations/bsc/verify';
+import {
+  bep20ConfirmationsOverride,
+  DEFAULT_CONFIRMATIONS,
+  normalizeEthAddress,
+  verifyUsdtTransfer,
+  type ChainEnv,
+  type VerifyUsdtTransferResult,
+} from '@/integrations/bsc/verify';
 import { AppError, ValidationError } from '@/lib/errors';
 import { usdtToMinor } from '@/lib/money';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
@@ -16,7 +23,8 @@ import type { DbClient, QueryError, QueryResult } from '@/lib/supabase/query';
 
 export const TOPUP_FLOOR_MINOR = 1_000_000n;
 export const TOPUP_DEFAULT_MAX_MINOR = 10_000_000_000n;
-export const TOPUP_WINDOW_MS = 30 * 60 * 1000;
+export const DEFAULT_TOPUP_EXPIRY_MINUTES = 60;
+export const DEFAULT_BEP20_CONFIRMATIONS = DEFAULT_CONFIRMATIONS;
 /** 0.0001 USDT. Combined with the requested amount so two open top-ups cannot share a figure. */
 export const TOPUP_TAG_MIN = 100n;
 /** 0.0099 USDT. */
@@ -60,6 +68,7 @@ export type ClaimTopupResult =
       readonly status: 'rejected';
       readonly reason: string;
       readonly confirmations?: number;
+      readonly requiredConfirmations?: number;
       readonly amountMinor?: bigint;
       readonly expectedMinor?: bigint;
     }
@@ -149,6 +158,35 @@ function dollarsToMinor(raw: unknown): bigint | null {
   } catch {
     return null;
   }
+}
+
+function positiveInt(raw: unknown, fallback: number): number {
+  const num = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN;
+  return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+/**
+ * Single source of truth for BEP20 confirmation count and top-up expiry.
+ * Reads platform_settings.bep20_confirmations and topup_expiry_minutes;
+ * BEP20_MIN_CONFIRMATIONS env var acts strictly as an emergency override.
+ */
+export async function loadTopupPolicy(
+  supabase: DbClient,
+  env: ChainEnv = process.env,
+): Promise<{ readonly confirmations: number; readonly expiryMinutes: number; readonly overrideActive: boolean }> {
+  const result = (await supabase
+    .from('platform_settings')
+    .select('bep20_confirmations, topup_expiry_minutes')
+    .limit(1)
+    .maybeSingle()) as QueryResult<Record<string, unknown> | null>;
+  const row = result.data;
+  const dbConfirmations = positiveInt(row?.bep20_confirmations, DEFAULT_BEP20_CONFIRMATIONS);
+  const override = bep20ConfirmationsOverride(env);
+  return {
+    confirmations: override ?? dbConfirmations,
+    expiryMinutes: positiveInt(row?.topup_expiry_minutes, DEFAULT_TOPUP_EXPIRY_MINUTES),
+    overrideActive: override !== null,
+  };
 }
 
 /**
@@ -299,7 +337,10 @@ export async function openWalletTopup(
   },
   options?: { readonly pickTag?: () => bigint },
 ): Promise<{ readonly topup: WalletTopup; readonly reused: boolean }> {
-  const limits = await loadTopupLimits(supabase, input.tenantId);
+  const [limits, policy] = await Promise.all([
+    loadTopupLimits(supabase, input.tenantId),
+    loadTopupPolicy(supabase),
+  ]);
   assertTopupAmount(input.amountMinor, limits);
   const address = normalizeEthAddress(input.payToAddress);
   if (!address) {
@@ -336,7 +377,7 @@ export async function openWalletTopup(
         amount_expected_minor: expected.toString(),
         status: 'pending',
         network: 'bep20',
-        expires_at: new Date(now.getTime() + TOPUP_WINDOW_MS).toISOString(),
+        expires_at: new Date(now.getTime() + policy.expiryMinutes * 60_000).toISOString(),
       })
       .select('*')
       .single()) as QueryResult<TopupRow | null>;
@@ -410,11 +451,13 @@ export async function claimWalletTopup(
     return { status: 'rejected', reason: 'INVALID_ADDRESS', expectedMinor: topup.amountExpectedMinor };
   }
 
+  const policy = await loadTopupPolicy(supabase);
   const chain: VerifyUsdtTransferResult = await verify({
     txHash: input.txHash.trim(),
     toAddress: topup.payToAddress,
     exactAmountMinor: topup.amountExpectedMinor,
     notBefore: topup.createdAt,
+    minConfirmations: policy.confirmations,
   });
   if (chain.status === 'unavailable') {
     return { status: 'unavailable' };
@@ -424,6 +467,7 @@ export async function claimWalletTopup(
       status: 'rejected',
       reason: chain.reason,
       expectedMinor: topup.amountExpectedMinor,
+      ...(chain.reason === 'TOO_FEW_CONFIRMATIONS' ? { requiredConfirmations: policy.confirmations } : {}),
       ...(chain.confirmations !== undefined ? { confirmations: chain.confirmations } : {}),
       ...(chain.amountMinor !== undefined ? { amountMinor: chain.amountMinor } : {}),
     };

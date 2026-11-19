@@ -9,6 +9,7 @@ import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { listProducts } from '@/modules/catalog';
 import { getBotConnection } from '@/modules/bots';
 import { getPlatformSettings } from '@/modules/platform/index';
+import { readBotMenuToggles } from '@/modules/platform/settings-extra';
 import { readStudio } from '@/modules/store-config/access';
 import { getTenantSettings, updateTenantSettings } from '@/modules/tenant-settings';
 
@@ -53,13 +54,16 @@ const SAMPLE: PreviewProduct = {
 };
 
 export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, userId: string) {
-  const studio = await readStudio(db, role, tenantId);
-  const products = await previewProducts(db, role, tenantId);
-  const status = role === 'owner' ? await ownerStatus(db) : await resellerStatus(db, tenantId);
-  const bot = role === 'owner' ? await ownerBot(db) : await resellerBot(db, tenantId);
-  const history = await versions(db, role === 'owner' ? null : tenantId);
-  const testChat = await readTestChat(db, userId);
-  return { role, studio, products, ...status, bot, history, testChat };
+  const [studio, products, status, bot, history, testChat, menuToggles] = await Promise.all([
+    readStudio(db, role, tenantId),
+    previewProducts(db, role, tenantId),
+    role === 'owner' ? ownerStatus(db) : resellerStatus(db, tenantId),
+    role === 'owner' ? ownerBot(db) : resellerBot(db, tenantId),
+    versions(db, role === 'owner' ? null : tenantId),
+    readTestChat(db, userId),
+    readBotMenuToggles(db),
+  ]);
+  return { role, studio, products, ...status, bot, history, testChat, menuToggles };
 }
 
 export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, version: number) {
@@ -80,7 +84,6 @@ export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller',
 
 async function readTestChat(db: DbClient, userId: string): Promise<{ readonly chatId: string | null; readonly needsMigration: boolean }> {
   const result = (await db.from('profiles').select('telegram_chat_id').eq('id', userId).maybeSingle()) as QueryResult<unknown>;
-  if (missing(result.error)) return { chatId: null, needsMigration: true };
   if (result.error) throw new ValidationError('TEST_CHAT_FAILED', result.error.message);
   const row = result.data && typeof result.data === 'object' ? (result.data as Record<string, unknown>) : null;
   const chatId = typeof row?.telegram_chat_id === 'string' ? row.telegram_chat_id : null;
@@ -127,15 +130,22 @@ async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantI
   if (picked.length === 0) return [SAMPLE];
   const ids = picked.map((product) => product.id);
   const assets = (await db.from('product_assets').select('product_id, storage_path, is_preview').in('product_id', ids).limit(40)) as QueryResult<unknown>;
-  if (assets.error || !Array.isArray(assets.data)) return picked;
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, '') ?? '';
+  if (assets.error || !Array.isArray(assets.data) || !db.storage) return picked;
   const images = new Map<string, string>();
+  const bucket = db.storage.from('product-previews');
   for (const raw of assets.data) {
     if (!raw || typeof raw !== 'object') continue;
     const row = raw as Record<string, unknown>;
-    if (row.is_preview !== true || typeof row.product_id !== 'string' || typeof row.storage_path !== 'string' || !base) continue;
-    const path = row.storage_path.split('/').map((part) => encodeURIComponent(part)).join('/');
-    images.set(row.product_id, `${base}/storage/v1/object/public/product-previews/${path}`);
+    if (row.is_preview !== true || typeof row.product_id !== 'string' || typeof row.storage_path !== 'string') continue;
+    if (images.has(row.product_id)) continue;
+    try {
+      const signed = await bucket.createSignedUrl(row.storage_path, 900);
+      if (!signed.error && signed.data?.signedUrl) {
+        images.set(row.product_id, signed.data.signedUrl);
+      }
+    } catch {
+      // Leave image null if storage signing fails for one item.
+    }
   }
   return picked.map((product) => ({ ...product, imageUrl: images.get(product.id) ?? null }));
 }

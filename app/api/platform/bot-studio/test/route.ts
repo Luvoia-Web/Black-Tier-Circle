@@ -51,9 +51,6 @@ export async function POST(request: Request): Promise<Response> {
     }
     const db = asDbClient(session.admin);
     const saved = await db.from('profiles').update({ telegram_chat_id: body.chatId }).eq('id', session.user.id);
-    if (saved.error && /does not exist|schema cache|42703/i.test(saved.error.message)) {
-      throw new ValidationError('TEST_CHAT_MIGRATION', 'Needs migration 0035 before a test can be sent to your Telegram.');
-    }
     if (saved.error) throw new AppError('TEST_CHAT_FAILED', saved.error.message, 500);
     const token = await tokenFor(db, role, session.user.id);
     const text = body.imageUrl ? body.text.slice(0, 1024) : body.text;

@@ -44,7 +44,7 @@ export function PlatformShell({ displayName, role, children }: ShellProps): JSX.
 
   return (
     <DrawerBodyContext.Provider value={setDrawerBody}>
-      <div className="min-h-screen text-ink">
+      <div className="min-h-screen overflow-x-clip text-ink">
         <PlatformMesh />
         <div className={`relative z-10 min-h-screen ${collapsed ? 'md:pl-[100px]' : 'md:pl-[296px]'}`}>
           {mobileOpen ? (

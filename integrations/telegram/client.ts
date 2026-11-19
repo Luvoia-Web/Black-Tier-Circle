@@ -282,7 +282,10 @@ function homeKeyboard(store: BotContext): InlineKeyboard {
     return legacyHomeKeyboard(store);
   }
   const keyboard = new InlineKeyboard();
-  for (const row of layoutHomeButtons(store.studio.config, { resellerSignupEnabled: store.resellerSignupEnabled })) {
+  for (const row of layoutHomeButtons(store.studio.config, {
+    resellerSignupEnabled: store.resellerSignupEnabled,
+    myApiEnabled: store.myApiEnabled,
+  })) {
     for (const button of row) {
       const label = clip(button.text, 64);
       if (button.kind === 'url') {
@@ -657,18 +660,19 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       await show(bot, screen, 'Please wait a moment and try again.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
       return;
     }
+    let result: Awaited<ReturnType<typeof claimFreebie>>;
     try {
       await assertCustomerAllowed(context.supabase, customer.id, 'referral');
+      result = await claimFreebie(context.supabase, {
+        tenantId: current.tenantId,
+        customerId: customer.id,
+        freebieId,
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'That referral claim was refused.';
       await show(bot, screen, message, new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
       return;
     }
-    const result = await claimFreebie(context.supabase, {
-      tenantId: current.tenantId,
-      customerId: customer.id,
-      freebieId,
-    });
     if (result.status !== 'ready' || !result.freebie) {
       await show(bot, screen, 'That freebie is still locked.', new InlineKeyboard().text('Back', 'freebies:'), 'HTML');
       return;
@@ -1842,6 +1846,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
           outcome: 'rejected',
           reason: result.reason,
           ...(result.confirmations !== undefined ? { confirmations: result.confirmations } : {}),
+          ...(result.requiredConfirmations !== undefined ? { requiredConfirmations: result.requiredConfirmations } : {}),
           ...(result.amountMinor !== undefined ? { amountMinor: result.amountMinor } : {}),
           ...(result.expectedMinor !== undefined ? { expectedMinor: result.expectedMinor } : {}),
         }),
@@ -2186,6 +2191,11 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
   }
 
   async function showApi(screen: Screen): Promise<void> {
+    const current = await storeContext();
+    if (!current.myApiEnabled) {
+      await show(bot, screen, 'Developer API access is turned off by the store.', homeKeyboard(current), 'HTML');
+      return;
+    }
     const origin = getAppUrl();
     await show(
       bot,
@@ -2193,13 +2203,17 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       `🔑 <b>Developer API</b>\n\n` +
         `Integrate this store with the REST API.\n\n` +
         `📚 Docs:\n${escHtml(`${origin}/api-docs`)}\n\n` +
-        `API keys:\n${escHtml(`${origin}/settings?section=api-keys`)}`,
+        `API keys:\n${escHtml(`${origin}/settings?section=keys`)}`,
       navRow(new InlineKeyboard()),
     );
   }
 
   async function showResellerSignup(screen: Screen): Promise<void> {
     const current = await storeContext();
+    if (!current.resellerSignupEnabled) {
+      await show(bot, screen, 'Reseller sign-up is turned off by the store.', homeKeyboard(current), 'HTML');
+      return;
+    }
     const pitch = current.resellerSignupMessage ?? 'Join our reseller program and start earning today!';
     const contact = current.supportContact ?? 'Contact support for an invite link';
     await show(

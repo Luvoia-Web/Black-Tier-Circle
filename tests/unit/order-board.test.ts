@@ -236,7 +236,8 @@ describe('supplier health', () => {
     expect(alpha?.averageMinutes).toBe(2);
     expect(beta?.errorRate).toBe(100);
     expect(beta?.averageMinutes).toBe(10);
-    expect(desk.note).toMatch(/supplier_balance_snapshots/);
+    expect(desk.note).toMatch(/Balance history updates/i);
+    expect(desk.note).not.toMatch(/supplier_balance_snapshots/);
   });
 });
 

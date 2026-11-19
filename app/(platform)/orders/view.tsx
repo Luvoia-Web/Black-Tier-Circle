@@ -9,6 +9,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Calendar, Coins, Download, RefreshCw, ShoppingBag, Store, Zap } from 'lucide-react';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
 import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, StatTile, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
+import { displayOrderEventNote } from '@/lib/display-labels';
+import { orderCanRetry, orderDisplayStatus } from '@/lib/order-state';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import { API_ROUTES, ROUTES } from '@/lib/navigation';
@@ -84,17 +86,19 @@ function tile(title: string): string {
   return TILES[hash] ?? 'linear-gradient(145deg,#ffe3ec,#ffc2d4)';
 }
 
-function statusOf(row: { readonly paymentStatus: string; readonly fulfillmentStatus: string; readonly deliveryStatus: string }): { readonly label: string; readonly tone: 'ok' | 'fault' | 'warn' | 'neutral' | 'info' } {
-  if (row.deliveryStatus === 'sent') return { label: 'Delivered', tone: 'ok' };
-  if (row.paymentStatus === 'expired') return { label: 'Expired', tone: 'warn' };
-  if (row.fulfillmentStatus === 'failed' || row.paymentStatus === 'failed' || row.deliveryStatus === 'unreachable') {
-    return { label: row.fulfillmentStatus === 'failed' ? 'Failed at supplier' : 'Failed', tone: 'fault' };
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+function minorBigInt(raw: string): bigint {
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
   }
-  if (row.fulfillmentStatus === 'supplier_pending' || row.fulfillmentStatus === 'processing' || row.fulfillmentStatus === 'queued') {
-    return { label: 'Activating', tone: 'info' };
-  }
-  if (row.paymentStatus === 'awaiting' || row.paymentStatus === 'pending_verification') return { label: 'Awaiting payment', tone: 'warn' };
-  return { label: 'In progress', tone: 'neutral' };
+}
+
+function isWithinLast7Days(createdAt: string): boolean {
+  const ts = Date.parse(createdAt);
+  return Number.isFinite(ts) && Date.now() - ts <= SEVEN_DAYS_MS;
 }
 
 function TrackDot({ on, fault, active = false }: { readonly on: boolean; readonly fault: boolean; readonly active?: boolean }): JSX.Element {
@@ -121,6 +125,8 @@ export function OrdersView(): JSX.Element {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [retryConfirmOpen, setRetryConfirmOpen] = useState(false);
+  const [includeOlderRetry, setIncludeOlderRetry] = useState(false);
   const viewer = list.data?.viewer ?? 'owner';
   const attention = params.get('attention');
 
@@ -157,14 +163,47 @@ export function OrdersView(): JSX.Element {
     router.replace(valueText ? `${ROUTES.platform.orders}?${valueText}` : ROUTES.platform.orders, { scroll: false });
   }
 
+  const allRetryableRows = (list.data?.rows ?? []).filter((row) =>
+    orderCanRetry({
+      paymentStatus: row.paymentStatus,
+      fulfillmentStatus: row.fulfillmentStatus,
+      deliveryStatus: row.deliveryStatus,
+    }),
+  );
+  const baseRetryCandidates = selected.size > 0
+    ? allRetryableRows.filter((row) => selected.has(row.id))
+    : allRetryableRows;
+  const recentRetryCandidates = baseRetryCandidates.filter((row) => isWithinLast7Days(row.createdAt));
+  const olderRetryCandidates = baseRetryCandidates.filter((row) => !isWithinLast7Days(row.createdAt));
+  const activeRetryCandidates = includeOlderRetry ? baseRetryCandidates : recentRetryCandidates;
+  const retryTotalCostMinor = activeRetryCandidates.reduce((sum, row) => sum + minorBigInt(row.supplierCostMinor), 0n);
+
+  function openRetryConfirm(): void {
+    setIncludeOlderRetry(false);
+    setRetryConfirmOpen(true);
+  }
+
   async function runBulk(kind: 'retry' | 'cancel'): Promise<void> {
-    const ids = [...selected].slice(0, 25);
-    if (ids.length === 0) return;
+    const ids = kind === 'retry'
+      ? activeRetryCandidates.map((row) => row.id).slice(0, 25)
+      : [...selected].slice(0, 25);
+    if (ids.length === 0) {
+      setRetryConfirmOpen(false);
+      return;
+    }
     setBusy(true);
     const results: string[] = [];
     for (const id of ids) {
       const row = list.data?.rows.find((item) => item.id === id);
-      if (kind === 'retry' && row && row.fulfillmentStatus !== 'failed' && row.deliveryStatus !== 'retry_pending' && row.deliveryStatus !== 'unreachable') {
+      if (
+        kind === 'retry' &&
+        row &&
+        !orderCanRetry({
+          paymentStatus: row.paymentStatus,
+          fulfillmentStatus: row.fulfillmentStatus,
+          deliveryStatus: row.deliveryStatus,
+        })
+      ) {
         results.push(`${id.slice(0, 8)} skipped`);
         continue;
       }
@@ -174,6 +213,7 @@ export function OrdersView(): JSX.Element {
       results.push(result.ok ? `${id.slice(0, 8)} ${kind === 'retry' ? 'retried' : 'cancelled'}` : `${id.slice(0, 8)} failed: ${result.error.message}`);
     }
     setBusy(false);
+    setRetryConfirmOpen(false);
     setNotice(results.join(' · '));
     setSelected(new Set());
     list.refetch();
@@ -221,7 +261,7 @@ export function OrdersView(): JSX.Element {
         const supplier = row.fulfillmentStatus === 'ready' || row.deliveryStatus === 'sent';
         const delivered = row.deliveryStatus === 'sent';
         const supplierFault = row.fulfillmentStatus === 'failed';
-        const status = statusOf(row);
+        const status = orderDisplayStatus(row);
         const activating = row.fulfillmentStatus === 'supplier_pending' || row.fulfillmentStatus === 'processing';
         return (
           <span className="flex items-center gap-2">
@@ -243,6 +283,7 @@ export function OrdersView(): JSX.Element {
   const summary = list.data?.summary;
   const exportHref = `/api/platform/orders?${new URLSearchParams({ ...Object.fromEntries(params.entries()), format: 'csv' }).toString()}`;
   const activeChip = attention ? 'attention' : (params.get('chip') as OrderChip | null) ?? 'all';
+  const showHeaderRetry = viewer === 'owner' && activeChip === 'attention';
   const failedCount = summary?.chips.failed ?? 0;
 
   return (
@@ -260,23 +301,65 @@ export function OrdersView(): JSX.Element {
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             Export CSV
           </a>
-          {viewer === 'owner' ? (
-            <Button loading={busy} onClick={() => void runBulk('retry')}>
+          {showHeaderRetry ? (
+            <Button loading={busy} onClick={openRetryConfirm}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
               Retry failed ({failedCount})
             </Button>
           ) : null}
         </div>
       </header>
+      {retryConfirmOpen ? (
+        <div className="glass-card space-y-3 rounded-lg border border-amber/30 p-4" role="dialog" aria-label="Confirm retry failed orders">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-medium text-ink">Review retry ({activeRetryCandidates.length} {activeRetryCandidates.length === 1 ? 'order' : 'orders'})</h2>
+              <p className="mt-0.5 text-xs text-ink-soft">
+                Total estimated supplier cost: <strong className="font-num text-ink">{money(retryTotalCostMinor.toString())}</strong>
+              </p>
+            </div>
+            {olderRetryCandidates.length > 0 ? (
+              <label className="flex items-center gap-2 text-xs text-ink-soft">
+                <input type="checkbox" checked={includeOlderRetry} onChange={(event) => setIncludeOlderRetry(event.target.checked)} />
+                Include orders older than 7 days ({olderRetryCandidates.length} excluded by default)
+              </label>
+            ) : null}
+          </div>
+          {activeRetryCandidates.length === 0 ? (
+            <p className="text-sm text-ink-soft">
+              {olderRetryCandidates.length > 0
+                ? 'All retryable failed orders on this page are older than 7 days. Enable the option above if you still want to retry them.'
+                : 'No retryable failed orders match right now.'}
+            </p>
+          ) : (
+            <ul className="max-h-48 space-y-1.5 overflow-y-auto text-xs">
+              {activeRetryCandidates.map((row) => (
+                <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-black/25 px-3 py-1.5">
+                  <span className="font-mono text-ink">{row.id.slice(0, 8).toUpperCase()}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink-soft">{row.productTitle} · {row.customerLabel}</span>
+                  <span className="text-ink-faint"><RelativeTime value={row.createdAt} /></span>
+                  <span className="font-num text-ink">{money(row.supplierCostMinor)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setRetryConfirmOpen(false)}>Cancel</Button>
+            <Button loading={busy} disabled={activeRetryCandidates.length === 0} onClick={() => void runBulk('retry')}>
+              Confirm retry ({activeRetryCandidates.length})
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {summary ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
           <StatTile label="Orders today" value={String(summary.ordersToday)} icon={ShoppingBag} tone="rose" />
           <StatTile label="Revenue today" value={money(summary.revenueTodayMinor)} icon={Coins} tone="sky" />
           <StatTile label="Needs attention" value={String(summary.needsAttention)} icon={AlertTriangle} tone="danger" />
           <StatTile label="Median delivery" value={summary.medianDeliverySeconds === null ? '—' : `${summary.medianDeliverySeconds} sec`} icon={Zap} tone="mint" />
         </div>
       ) : list.loading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
@@ -348,7 +431,7 @@ export function OrdersView(): JSX.Element {
         onOpen={(row) => setFilter('order', row.id)}
         bulk={
           <>
-            {viewer === 'owner' ? <Button variant="secondary" loading={busy} onClick={() => void runBulk('retry')}>Retry failed</Button> : null}
+            {viewer === 'owner' ? <Button variant="secondary" loading={busy} onClick={openRetryConfirm}>Retry failed</Button> : null}
             {viewer === 'owner' ? <Button variant="destructive" loading={busy} onClick={() => void runBulk('cancel')}>Cancel</Button> : null}
             <a className="inline-flex min-h-11 items-center rounded-md border border-stroke px-3 text-sm text-ink" href={exportHref}>Export</a>
           </>
@@ -379,7 +462,7 @@ function OrderDrawer({
   const [reason, setReason] = useState('');
   const [content, setContent] = useState('');
   const [manualItem, setManualItem] = useState('');
-  const status = statusOf(order);
+  const status = orderDisplayStatus(order);
   const buyer = detail.customer?.username ? `@${detail.customer.username}` : detail.customer?.firstName || 'Buyer';
 
   async function act(name: string, url: string, body?: unknown): Promise<void> {
@@ -433,7 +516,7 @@ function OrderDrawer({
           {detail.paymentClaim.binanceOrderId ? <p className="font-num text-xs text-ink-soft">Binance {detail.paymentClaim.binanceOrderId}</p> : null}
           {detail.paymentClaim.txHash ? <p className="break-all font-num text-xs text-ink-soft">Tx {detail.paymentClaim.txHash}</p> : null}
           <p className="text-xs text-ink-faint">Submitted <RelativeTime value={detail.paymentClaim.submittedAt} /></p>
-          {detail.paymentClaim.rejectReason ? <p className="text-xs text-ink">{detail.paymentClaim.rejectReason}</p> : null}
+          {detail.paymentClaim.rejectReason ? <p className="text-xs text-ink">{displayOrderEventNote(detail.paymentClaim.rejectReason) ?? detail.paymentClaim.rejectReason}</p> : null}
         </div>
       ) : null}
       {error ? <p className="text-sm text-ink">{error}</p> : null}

@@ -28,7 +28,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     const session = await requireReseller();
     const parsed = UpdateListingSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['catalogPrice']);
+    await assertResellerFieldsAllowed(db, ['catalogPrice'], session.tenant.id);
     const listingId = context.params.listingId;
     const tenantId = session.tenant.id;
     const priceStr = parsed.retailPriceStr ?? parsed.retailPriceMinor;

@@ -22,7 +22,7 @@ export async function POST(request: Request): Promise<Response> {
     const session = await requireReseller();
     const parsed = ApplyMarkupSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['markupPercent']);
+    await assertResellerFieldsAllowed(db, ['markupPercent'], session.tenant.id);
     await updateTenantSettings(db, session.tenant.id, { markupPercent: parsed.markupPercent });
     const listings = await applyBulkMarkup(db, session.tenant.id, parsed.markupPercent);
     return jsonSuccess({ listings, markupPercent: parsed.markupPercent });

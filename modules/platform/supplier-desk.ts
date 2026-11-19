@@ -121,7 +121,7 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
     pendingOrders: pending.length,
     needsMigration,
     note: needsMigration
-      ? 'Needs migration 0034. Only the latest balance is stored until supplier_balance_snapshots exists.'
-      : 'Balance history is each check and sync stored in supplier_balance_snapshots.',
+      ? 'Only the latest supplier balance is available right now.'
+      : 'Balance history updates automatically with each check and sync.',
   };
 }

@@ -25,7 +25,7 @@ const PatchSchema = z.object({
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireReseller();
-    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks']);
+    await assertResellerFieldsAllowed(asDbClient(session.admin), ['webhooks'], session.tenant.id);
     const parsed = PatchSchema.parse(await readJsonBody(request));
     const webhook = await setWebhookActive(
       asDbClient(session.admin),
@@ -43,7 +43,7 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
   try {
     const session = await requireReseller();
     const db = asDbClient(session.admin);
-    await assertResellerFieldsAllowed(db, ['webhooks']);
+    await assertResellerFieldsAllowed(db, ['webhooks'], session.tenant.id);
     await deleteWebhookEndpoint(db, context.params.webhookId, session.tenant.id);
     return jsonSuccess({ deleted: true });
   } catch (error: unknown) {

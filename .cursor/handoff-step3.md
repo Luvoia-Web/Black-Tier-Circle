@@ -33,7 +33,8 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | C Products and supplier lifecycle | DONE | a1c802fe08aa4713874cd3cec6086b81b3bfdd07 | Delete archives. Permanent delete refuses while an order exists. |
 | D Bots and Bot Studio | DONE | 3d1478a | `/bots` and `/bot-studio` are separate. `/store` redirects to Bot Studio. |
 | D2 Bot Studio gaps | DONE | 7b4725f4add5b24de45fd7d6412fa530833f7d81 | Rotate token, studio tabs, and the missing editor pieces. check:pages is 168 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
-| E Settings | DONE | this commit | Tabbed settings. Legal is platform-wide. check:pages is 196 passed, 0 failed. |
+| E Settings | DONE | `200fb53` | Tabbed settings. Legal is platform-wide. `0035_platform_gaps.sql` is applied. check:pages was 196 passed, 0 failed. |
+| P0 Correctness & polish | DONE | pending commit | Fraud paid/unpaid/freebie/discount split; BEP20 `bep20_confirmations` & `topup_expiry_minutes` as single source; split Settings hydration & per-tenant policy overrides; bot pause/disconnect/targeted reconnect & decrypt message; signed Bot Studio previews & clean templates; buyer bot menu toggles off by default; 7d UTC overview; single order state & retry confirmation; plain-English labels; mobile bar & cards; `check:pages` snake_case + 390px overflow/overlap guards (`196` passed, `0` failed); `49` unit test files (`385` tests) pass. Migration `0036_platform_polish.sql` created (unapplied). |
 | F Customers and support | | | `/customers` shows buyers. The fuller detail and inbox are not done. |
 | G Resellers | | | `/resellers` shows the reseller list. The BTC-4 layout is not done. |
 | H Wallets and Payments | | | `/wallets` and `/payments` split the money screen. |
@@ -47,7 +48,7 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 
 ## Resume
 
-Do not restart 0, 1, A, B, C, D, D2, or E. Continue at Phase F. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every route from `components/platform/nav-manifest.mjs` (href, child, and panel) at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL. Do not apply `supabase/migrations/0035_platform_gaps.sql`.
+Do not restart 0, 1, A, B, C, D, D2, E, or P0. Continue at Phase F. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every route from `components/platform/nav-manifest.mjs` (href, child, and panel) at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL. `supabase/migrations/0035_platform_gaps.sql` is applied in production. Do not apply `supabase/migrations/0036_platform_polish.sql` from the app (owner runs SQL manually).
 
 ## Phase A
 
@@ -121,11 +122,18 @@ Notifications are failed order, low supplier balance, new reseller, and large to
 
 Reseller sections, and the ones the checker clicks: Account (profile and change password), API keys (list, create once, revoke), Webhooks (list, create, delete), all through the existing `/api/reseller/` routes.
 
-`npm run check:pages` is 196 passed, 0 failed.
+`npm run check:pages` is 196 passed, 0 failed (`49` test files, `385` unit tests passed).
 
 Phase F is next: customers and support.
 
-0035, not applied:
+0035 (`supabase/migrations/0035_platform_gaps.sql`), APPLIED in production:
+- `profiles`: `telegram_chat_id`
+- `platform_settings`: `terms_of_service`, `refund_policy`, `privacy_policy`, `legal_version`, `legal_updated_at`, `logo_url`, `bep20_confirmations`, `topup_expiry_minutes`, `alert_failed_order`, `alert_low_balance`, `alert_new_reseller`, `alert_large_topup`, `quiet_start`, `quiet_end`, plus constraint `platform_settings_bep20_confirmations_chk`
+
+0036 (`supabase/migrations/0036_platform_polish.sql`), NOT APPLIED (owner runs manually):
+- `platform_settings`: `owner_bot_paused`, `bot_show_reseller_signup`, `bot_show_my_api` (all `boolean not null default false`)
+
+Previously noted 0035 snippet:
 
 ```sql
 alter table profiles

@@ -9,6 +9,7 @@
 
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { getPlatformSettings } from '@/modules/platform';
+import { readBotMenuToggles } from '@/modules/platform/settings-extra';
 import { resolveCryptoPayee, resolveOrderPayments } from '@/modules/payments/resolve';
 import { getTenantSettings } from '@/modules/tenant-settings';
 import { getStoreConfig } from '@/modules/store-config';
@@ -35,6 +36,7 @@ export type BotContext = {
   readonly supportTelegramUrl: string | null;
   readonly resellerSignupEnabled: boolean;
   readonly resellerSignupMessage: string | null;
+  readonly myApiEnabled: boolean;
   readonly termsOfService: string | null;
   readonly botConnectionId: string | null;
   readonly binanceMerchantId: string | null;
@@ -90,15 +92,22 @@ export async function resolveBotContext(
   botConnectionId: string | null,
   tenantId: string | null,
 ): Promise<BotContext> {
-  const platform = await getPlatformSettings(supabase);
-  const tenant = tenantId ? await getTenantSettings(supabase, tenantId) : null;
-  const payments = await resolveOrderPayments(supabase, tenantId);
-  const crypto = await resolveCryptoPayee(supabase, tenantId);
-  const studio = await getStoreConfig(supabase, tenantId);
-  const gate = tenant ? null : await platformStoreGate(supabase);
+  const [platform, tenant, payments, crypto, studio, gate, menuToggles, limits, termsOfService] = await Promise.all([
+    getPlatformSettings(supabase),
+    tenantId ? getTenantSettings(supabase, tenantId) : Promise.resolve(null),
+    resolveOrderPayments(supabase, tenantId),
+    resolveCryptoPayee(supabase, tenantId),
+    getStoreConfig(supabase, tenantId),
+    tenantId ? Promise.resolve(null) : platformStoreGate(supabase),
+    readBotMenuToggles(supabase),
+    loadTopupLimits(supabase, tenantId),
+    platformLegalText(supabase),
+  ]);
 
   const storeName = tenant?.storeName?.trim() || platform.platformName || 'Black Tier Circle';
-  const limits = await loadTopupLimits(supabase, tenantId);
+  const resellerSignupEnabled = tenantId
+    ? menuToggles.resellerSignup && tenant?.resellerSignupEnabled === true
+    : menuToggles.resellerSignup;
 
   return {
     isOwnerBot: tenantId === null,
@@ -117,9 +126,10 @@ export async function resolveBotContext(
     maintenanceMessage: tenant?.maintenanceMsg?.trim() || gate?.message || 'We will be back soon!',
     supportContact: tenant?.supportContact?.trim() || platform.supportContact,
     supportTelegramUrl: tenant?.supportChatUrl?.trim() || platform.supportTelegram,
-    resellerSignupEnabled: tenant?.resellerSignupEnabled === true,
+    resellerSignupEnabled,
     resellerSignupMessage: tenant?.resellerSignupMessage ?? null,
-    termsOfService: await platformLegalText(supabase),
+    myApiEnabled: menuToggles.myApi,
+    termsOfService,
     botConnectionId,
     binanceMerchantId: payments.binance?.merchantId.trim() || null,
     minimumDepositMinor: limits.min,
