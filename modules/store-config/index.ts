@@ -6,6 +6,7 @@ import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { ZodError } from 'zod';
 import { DEFAULT_STORE_CONFIG } from '@/modules/store-config/defaults';
+import { isAllowedBotUrl } from '@/modules/store-config/urls';
 import {
   StoreConfigSchema,
   buttonSchema,
@@ -82,15 +83,15 @@ function mergeLink(stored: unknown, fallback: StoreConfig['links']['channel']): 
 }
 
 const TEMPLATE_LIMITS: Record<keyof CatalogTemplates, number> = {
-  categoriesHeader: 1000,
-  productListHeader: 1000,
-  productFooterInstant: 300,
-  productFooterManual: 300,
-  checkoutShortfall: 300,
-  bulkDiscountHeading: 300,
-  bulkQuantityHeading: 300,
-  bulkTierLine: 300,
-  bulkSavingsLine: 300,
+  categoriesHeader: 4096,
+  productListHeader: 4096,
+  productFooterInstant: 4096,
+  productFooterManual: 4096,
+  checkoutShortfall: 4096,
+  bulkDiscountHeading: 4096,
+  bulkQuantityHeading: 4096,
+  bulkTierLine: 4096,
+  bulkSavingsLine: 4096,
 };
 
 function mergeTemplates(stored: unknown): CatalogTemplates {
@@ -213,7 +214,7 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
     return typeof value === 'string' && value.trim().length > 0 ? value : DEFAULT_STORE_CONFIG.messages[key];
   };
   return {
-    welcome: welcome.length > 0 && welcome.length <= 2000 ? welcome : DEFAULT_STORE_CONFIG.welcome,
+    welcome: welcome.length > 0 && welcome.length <= 4096 ? welcome : DEFAULT_STORE_CONFIG.welcome,
     buttons: mergeButtons(source.buttons),
     customLinks: parsedLinks.success ? parsedLinks.data : [],
     links: {
@@ -234,7 +235,21 @@ export function mergeStoreConfig(stored: unknown): StoreConfig {
     productCard: mergeProductCard(source.productCard),
     referrals: mergeReferrals(source.referrals),
     events: mergeEvents(source.events),
+    images: mergeImages(source.images),
   };
+}
+
+function mergeImages(stored: unknown): StoreConfig['images'] {
+  const row = asObject(stored);
+  if (!row) return {};
+  const images: Record<string, string> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!/^[a-z0-9_-]{1,40}$/.test(key) || typeof value !== 'string') continue;
+    const url = value.trim();
+    if (url.length === 0 || url.length > 500 || !isAllowedBotUrl(url)) continue;
+    images[key] = url;
+  }
+  return images;
 }
 
 export function parseStoreConfig(input: unknown): StoreConfig {

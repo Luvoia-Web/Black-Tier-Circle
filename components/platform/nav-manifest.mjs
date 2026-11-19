@@ -3,6 +3,31 @@
  * automatically. Two top-level items must not share a pathname.
  */
 
+/** Every Bot Studio tab and message surface. The page checker visits each one. */
+export const studioPanels = [
+  '/bot-studio?section=home',
+  '/bot-studio?section=home&surface=welcome',
+  '/bot-studio?section=buttons',
+  '/bot-studio?section=catalogue',
+  '/bot-studio?section=catalogue&surface=categories',
+  '/bot-studio?section=catalogue&surface=list',
+  '/bot-studio?section=card',
+  '/bot-studio?section=card&surface=footer',
+  '/bot-studio?section=messages',
+  '/bot-studio?section=messages&surface=sold',
+  '/bot-studio?section=messages&surface=quantity',
+  '/bot-studio?section=messages&surface=delivered',
+  '/bot-studio?section=messages&surface=referral',
+  '/bot-studio?section=messages&surface=freebie',
+  '/bot-studio?section=messages&surface=support',
+  '/bot-studio?section=messages&surface=maintenance',
+  '/bot-studio?section=links',
+  '/bot-studio?section=checkout',
+  '/bot-studio?section=checkout&surface=confirm',
+  '/bot-studio?section=checkout&surface=short',
+  '/bot-studio?section=checkout&surface=placed',
+];
+
 export const ownerNav = [
   { id: 'overview', href: '/overview' },
   { id: 'analytics', href: '/analytics' },
@@ -36,7 +61,7 @@ export const ownerNav = [
   { id: 'marketing', href: '/marketing' },
   { id: 'discounts', href: '/discounts' },
   { id: 'broadcasts', href: '/broadcasts' },
-  { id: 'studio', href: '/bot-studio' },
+  { id: 'studio', href: '/bot-studio', panels: studioPanels },
   { id: 'settings', href: '/settings' },
   { id: 'system', href: '/system-health' },
 ];
@@ -60,7 +85,7 @@ export const resellerNav = [
   { id: 'discounts', href: '/discounts' },
   { id: 'wallet', href: '/wallets' },
   { id: 'bots', href: '/bots' },
-  { id: 'studio', href: '/bot-studio' },
+  { id: 'studio', href: '/bot-studio', panels: studioPanels },
   { id: 'settings', href: '/settings' },
 ];
 

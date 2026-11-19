@@ -1,6 +1,6 @@
 import type { ButtonKey, StoreConfig } from '@/modules/store-config/types';
 import { COMING_SOON_BUTTONS } from '@/modules/store-config/types';
-import { normalizeBotUrl } from '@/modules/store-config/urls';
+import { isAllowedBotUrl, normalizeBotUrl } from '@/modules/store-config/urls';
 
 export type HomeButton = {
   readonly text: string;
@@ -40,12 +40,11 @@ export function layoutHomeButtons(
   const buttons: HomeButton[] = ordered.map((key) => {
     const button = config.buttons[key];
     const text = `${button.emoji} ${button.label}`.trim();
-    return {
-      kind: 'callback',
-      text,
-      width: button.width,
-      data: CALLBACKS[key] ?? 'home:',
-    };
+    if (button.action === 'url' && button.target && isAllowedBotUrl(button.target)) {
+      return { kind: 'url', text, width: button.width, url: normalizeBotUrl(button.target) };
+    }
+    const data = button.action === 'support' ? 'support:' : (CALLBACKS[key] ?? 'home:');
+    return { kind: 'callback', text, width: button.width, data };
   });
   for (const link of config.customLinks) {
     buttons.push({

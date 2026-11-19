@@ -143,3 +143,15 @@ export async function telegramSendHtml(token: string, chatId: string, html: stri
     parse_mode: 'HTML',
   });
 }
+
+/**
+ * Sends a photo with an HTML caption. The caption limit is 1024 characters.
+ */
+export async function telegramSendPhoto(token: string, chatId: string, photoUrl: string, caption: string): Promise<void> {
+  await callTelegramApi<unknown>(token, 'sendPhoto', {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: 'HTML',
+  });
+}

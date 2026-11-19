@@ -52,12 +52,16 @@ export const MESSAGE_PLACEHOLDERS = [
 
 export type ButtonWidth = 'full' | 'half';
 
+export type ButtonAction = 'section' | 'url' | 'support';
+
 export type StoreButton = {
   readonly enabled: boolean;
   readonly label: string;
   readonly emoji: string;
   readonly width: ButtonWidth;
   readonly order: number;
+  readonly action: ButtonAction;
+  readonly target: string;
 };
 
 export type StoreLink = {
@@ -134,6 +138,8 @@ export type StoreConfig = {
   readonly productCard: ProductCardConfig;
   readonly referrals: ReferralConfig;
   readonly events: StoreEvents;
+  /** HTTPS image for a studio surface. A set image makes that message a 1024-character caption. */
+  readonly images: Readonly<Record<string, string>>;
 };
 
 export type StoredStoreConfig = {

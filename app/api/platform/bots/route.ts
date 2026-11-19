@@ -8,15 +8,25 @@ import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { readBotDetail, readBots } from '@/modules/platform/bots-desk';
-import { disconnectBot } from '@/modules/bots';
+import { connectBot, disconnectBot } from '@/modules/bots';
+import { connectOwnerBot } from '@/modules/platform';
 import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
 
-const Action = z.object({
-  action: z.enum(['pause', 'resume', 'disconnect']),
-  botId: z.string().min(1).max(80),
-});
+const BOT_TOKEN = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
+
+const Action = z.discriminatedUnion('action', [
+  z.object({
+    action: z.enum(['pause', 'resume', 'disconnect']),
+    botId: z.string().min(1).max(80),
+  }),
+  z.object({
+    action: z.literal('rotate'),
+    botId: z.string().min(1).max(80),
+    botToken: z.string().trim().regex(BOT_TOKEN, 'Paste the token from BotFather. It looks like 123456:ABC.'),
+  }),
+]);
 
 async function scope() {
   const session = await requireUser();
@@ -48,6 +58,28 @@ export async function POST(request: Request): Promise<Response> {
     const current = await scope();
     await assertRateLimit(`bots:${current.userId}`, 20);
     const body = Action.parse(await readJsonBody(request));
+    if (body.action === 'rotate') {
+      if (body.botId === 'owner') {
+        if (current.role !== 'owner') throw new AuthError('FORBIDDEN', 'Only the owner can change the owner bot', 403);
+        await connectOwnerBot(current.db, body.botToken);
+      } else {
+        const row = (await current.db.from('bot_connections').select('tenant_id').eq('id', body.botId).maybeSingle()) as { data: { tenant_id?: string } | null; error: { message: string } | null };
+        if (row.error || !row.data?.tenant_id) throw new AuthError('BOT_NOT_FOUND', 'That bot was not found', 404);
+        if (current.role === 'reseller' && row.data.tenant_id !== current.tenantId) {
+          throw new AuthError('FORBIDDEN', 'You can only change your own bot', 403);
+        }
+        await connectBot(current.db, { tenantId: row.data.tenant_id, botToken: body.botToken });
+      }
+      await current.db.from('audit_log').insert({
+        actor_id: current.userId,
+        tenant_id: current.tenantId,
+        action: 'bot.rotate',
+        target_type: 'bot',
+        target_id: body.botId,
+        reason: 'token rotated',
+      });
+      return jsonSuccess({ ok: true });
+    }
     if (body.botId === 'owner') {
       if (current.role !== 'owner') throw new AuthError('FORBIDDEN', 'Only the owner can change the owner bot', 403);
       const status = body.action === 'resume' ? 'connected' : body.action === 'pause' ? 'paused' : 'disconnected';

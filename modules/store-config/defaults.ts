@@ -18,8 +18,9 @@ function button(
   width: StoreButton['width'],
   order: number,
   enabled: boolean,
+  action: StoreButton['action'] = 'section',
 ): StoreButton {
-  return { enabled, label, emoji, width, order };
+  return { enabled, label, emoji, width, order, action, target: '' };
 }
 
 const BUTTONS: Record<ButtonKey, StoreButton> = {
@@ -27,7 +28,7 @@ const BUTTONS: Record<ButtonKey, StoreButton> = {
   freebies: button('Freebies', '🎁', 'full', 1, true),
   deposit: button('Deposit', '💳', 'half', 2, true),
   profile: button('Profile', '👤', 'half', 3, true),
-  support: button('Support', '❓', 'full', 4, true),
+  support: button('Support', '❓', 'full', 4, true, 'support'),
   referrals: button('Refer & Earn', '🎁', 'full', 5, true),
   history: button('History', '📦', 'half', 6, false),
   redeem: button('Redeem', '🔑', 'half', 7, false),
@@ -103,6 +104,7 @@ export const DEFAULT_STORE_CONFIG: StoreConfig = {
     body: '',
     link: '',
   },
+  images: {},
 };
 
 export const BUTTON_KEY_LIST: readonly ButtonKey[] = BUTTON_KEYS;

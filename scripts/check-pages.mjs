@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase/i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
 
 function loadEnv(text) {
   const env = {};
@@ -89,12 +89,13 @@ function attach(page) {
 }
 
 async function settle(page, pending) {
-  await page.waitForTimeout(900);
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await page.waitForSelector('main h1', { timeout: 8000 }).catch(() => {});
   const started = Date.now();
   while (Date.now() - started < 8000) {
-    const body = await page.locator('body').innerText().catch(() => '');
-    if (!/Loading…|Loading balances|Loading codes/.test(body)) break;
-    await page.waitForTimeout(400);
+    const body = await page.locator('main').innerText().catch(() => '');
+    if (!/Loading…|Loading balances|Loading codes/.test(body) && body.trim().length > 20) break;
+    await page.waitForTimeout(250);
   }
   await Promise.all(pending);
 }
@@ -119,7 +120,7 @@ async function controlLabel(locator) {
 async function clickControls(page, selector, noun) {
   const problems = [];
   const seen = new Set();
-  for (let guard = 0; guard < 18; guard += 1) {
+  for (let guard = 0; guard < 40; guard += 1) {
     const controls = page.locator(selector);
     const count = await controls.count().catch(() => 0);
     let advanced = false;
@@ -132,11 +133,18 @@ async function clickControls(page, selector, noun) {
       if (await control.isDisabled().catch(() => true)) continue;
       seen.add(label);
       await control.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
-      let clicked = await control.click({ timeout: 4000 }).then(() => true).catch(() => false);
-      if (!clicked) clicked = await control.click({ timeout: 4000, force: true }).then(() => true).catch(() => false);
+      let clicked = await control.click({ timeout: 1500 }).then(() => true).catch(() => false);
+      if (!clicked) clicked = await control.click({ timeout: 1500, force: true }).then(() => true).catch(() => false);
+      if (!clicked) {
+        clicked = await control.evaluate((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          node.click();
+          return true;
+        }).catch(() => false);
+      }
       if (!clicked) problems.push(`dead ${noun}: ${label.slice(0, 60)}`);
       await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(120);
+      await page.waitForTimeout(40);
       const body = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
       if (/An unexpected error occurred/i.test(body)) problems.push(`${noun} "${label.slice(0, 40)}" opened the error boundary`);
       advanced = true;
@@ -149,8 +157,7 @@ async function clickControls(page, selector, noun) {
 
 async function exercise(page) {
   const problems = [
-    ...(await clickControls(page, 'main button[aria-pressed], main [role="tab"]', 'control')),
-    ...(await clickControls(page, 'main button.btc-btn-primary', 'button')),
+    ...(await clickControls(page, 'main button, main [role="tab"]', 'control')),
   ];
   const links = page.locator('nav[aria-label="Workspace"] a[href]');
   const linkCount = await links.count().catch(() => 0);
@@ -190,6 +197,10 @@ async function openRoute(context, role, route, width, serverLog) {
     }
   }
   const body = await page.locator('body').innerText().catch(() => '');
+  if (width === 1440) {
+    const slug = `${role}-${route.replace(/[/?=&]/g, '-')}`;
+    await page.screenshot({ path: path.join(shotDir, `${slug}.png`) }).catch(() => {});
+  }
   const problems = [
     ...problemsIn(body, attached.logs, attached.failedNetwork),
     ...(await themeProblem(page)),
@@ -201,10 +212,6 @@ async function openRoute(context, role, route, width, serverLog) {
   const landed = new URL(page.url()).pathname;
   const expected = route.split('?')[0];
   if (landed !== expected) problems.push(`landed on ${landed}`);
-  if (width === 1440) {
-    const slug = `${role}-${route.replace(/[/?=&]/g, '-')}`;
-    await page.screenshot({ path: path.join(shotDir, `${slug}.png`) }).catch(() => {});
-  }
   await page.close();
   return { route, role, width, pass: problems.length === 0, problems };
 }

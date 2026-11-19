@@ -12,7 +12,7 @@ import { assertRateLimit } from '@/lib/request-rate-limit';
 import { reconnectResellerBot } from '@/modules/bots';
 import { reconnectOwnerBot } from '@/modules/platform/index';
 import { assertResellerFieldsAllowed } from '@/modules/platform/policy';
-import { readStore, saveOwnerStoreStatus, saveResellerStoreStatus } from '@/modules/platform/store';
+import { readStore, readStoreVersion, saveOwnerStoreStatus, saveResellerStoreStatus } from '@/modules/platform/store';
 import { writeStudio } from '@/modules/store-config/access';
 import { getTenantByUserId } from '@/modules/tenants';
 
@@ -29,10 +29,15 @@ async function scope() {
   return { db, role, tenantId: tenant?.id ?? null, userId: session.user.id };
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    return jsonSuccess(await readStore(current.db, current.role, current.tenantId));
+    const version = new URL(request.url).searchParams.get('version');
+    if (version) {
+      const parsed = z.coerce.number().int().positive().max(100000).parse(version);
+      return jsonSuccess(await readStoreVersion(current.db, current.role, current.tenantId, parsed));
+    }
+    return jsonSuccess(await readStore(current.db, current.role, current.tenantId, current.userId));
   } catch (error: unknown) {
     return handleRouteError(error);
   }

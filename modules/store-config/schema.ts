@@ -24,6 +24,8 @@ export const buttonSchema = z.object({
   emoji: z.string().trim().max(8),
   width: z.enum(['full', 'half']),
   order: z.number().int().min(0).max(50),
+  action: z.enum(['section', 'url', 'support']).default('section'),
+  target: z.string().trim().max(300).default(''),
 });
 
 const buttonsSchema = z.object(
@@ -42,15 +44,15 @@ export const categorySettingSchema = z.object({
 });
 
 export const catalogTemplatesSchema = z.object({
-  categoriesHeader: z.string().trim().min(1).max(1000),
-  productListHeader: z.string().trim().min(1).max(1000),
-  productFooterInstant: z.string().trim().min(1).max(300),
-  productFooterManual: z.string().trim().min(1).max(300),
-  checkoutShortfall: z.string().trim().min(1).max(300),
-  bulkDiscountHeading: z.string().trim().min(1).max(300),
-  bulkQuantityHeading: z.string().trim().min(1).max(300),
-  bulkTierLine: z.string().trim().min(1).max(300),
-  bulkSavingsLine: z.string().trim().min(1).max(300),
+  categoriesHeader: z.string().trim().min(1).max(4096),
+  productListHeader: z.string().trim().min(1).max(4096),
+  productFooterInstant: z.string().trim().min(1).max(4096),
+  productFooterManual: z.string().trim().min(1).max(4096),
+  checkoutShortfall: z.string().trim().min(1).max(4096),
+  bulkDiscountHeading: z.string().trim().min(1).max(4096),
+  bulkQuantityHeading: z.string().trim().min(1).max(4096),
+  bulkTierLine: z.string().trim().min(1).max(4096),
+  bulkSavingsLine: z.string().trim().min(1).max(4096),
 });
 
 export const customLinksSchema = z
@@ -78,11 +80,11 @@ export const referralConfigSchema = z.object({
   freebiesEnabled: z.boolean(),
   redeemEnabled: z.boolean(),
   templates: z.object({
-    home: z.string().trim().min(1).max(1000),
-    freebies: z.string().trim().min(1).max(1000),
-    friendJoined: z.string().trim().min(1).max(300),
-    qualified: z.string().trim().min(1).max(300),
-    redeemed: z.string().trim().min(1).max(300),
+    home: z.string().trim().min(1).max(4096),
+    freebies: z.string().trim().min(1).max(4096),
+    friendJoined: z.string().trim().min(1).max(4096),
+    qualified: z.string().trim().min(1).max(4096),
+    redeemed: z.string().trim().min(1).max(4096),
   }),
 });
 
@@ -100,7 +102,7 @@ export const eventsSchema = z
   .object({
     enabled: z.boolean(),
     title: z.string().trim().max(120),
-    body: z.string().trim().max(2000),
+    body: z.string().trim().max(4096),
     link: z.string().trim().max(300),
   })
   .superRefine((value, ctx) => {
@@ -111,7 +113,7 @@ export const eventsSchema = z
 
 export const StoreConfigSchema = z
   .object({
-    welcome: z.string().trim().min(1).max(2000),
+    welcome: z.string().trim().min(1).max(4096),
     buttons: buttonsSchema,
     customLinks: customLinksSchema,
     links: z.object({
@@ -120,10 +122,10 @@ export const StoreConfigSchema = z
       website: linkSchema,
     }),
     messages: z.object({
-      supportIntro: z.string().trim().min(1).max(2000),
-      checkoutHeader: z.string().trim().min(1).max(2000),
-      orderProcessing: z.string().trim().min(1).max(2000),
-      orderDelivered: z.string().trim().min(1).max(2000),
+      supportIntro: z.string().trim().min(1).max(4096),
+      checkoutHeader: z.string().trim().min(1).max(4096),
+      orderProcessing: z.string().trim().min(1).max(4096),
+      orderDelivered: z.string().trim().min(1).max(4096),
     }),
     catalog: z.object({
       categories: z.record(z.string().trim().min(1).max(50), categorySettingSchema),
@@ -132,6 +134,12 @@ export const StoreConfigSchema = z
     productCard: productCardSchema,
     referrals: referralConfigSchema,
     events: eventsSchema,
+    images: z
+      .record(
+        z.string().regex(/^[a-z0-9_-]{1,40}$/),
+        z.string().trim().max(500).refine((value) => value.length === 0 || isAllowedBotUrl(value), 'Use an https:// image link'),
+      )
+      .default({}),
   })
   .strict()
   .refine((value) => JSON.stringify(value).length < 60_000, 'Config is too large');

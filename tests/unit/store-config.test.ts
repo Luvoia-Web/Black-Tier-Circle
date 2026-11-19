@@ -42,6 +42,23 @@ describe('home keyboard', () => {
     expect(flat.at(-1)).toMatchObject({ kind: 'url', url: 'https://t.me/rentals' });
   });
 
+  it('turns a URL action into a link and never offers replace', () => {
+    const rows = layoutHomeButtons(
+      {
+        ...DEFAULT_STORE_CONFIG,
+        buttons: {
+          ...DEFAULT_STORE_CONFIG.buttons,
+          shop: { ...DEFAULT_STORE_CONFIG.buttons.shop, action: 'url', target: 'https://shop.example/rent' },
+          replace: { ...DEFAULT_STORE_CONFIG.buttons.replace, enabled: true },
+        },
+      },
+      { resellerSignupEnabled: false },
+    );
+    const flat = rows.flat();
+    expect(flat[0]).toMatchObject({ kind: 'url', url: 'https://shop.example/rent' });
+    expect(flat.some((button) => button.text.includes('Replace'))).toBe(false);
+  });
+
   it('shows Refer and Freebies only when that store turned them on', () => {
     const rows = layoutHomeButtons(
       {
@@ -108,6 +125,7 @@ describe('store config', () => {
   it('merges stored fields over defaults', () => {
     const merged = mergeStoreConfig({ welcome: 'Hello {name}', buttons: { shop: { label: 'Catalog' } } });
     expect(merged.welcome).toBe('Hello {name}');
+    expect(mergeStoreConfig({ welcome: 'Hello {name}', images: { welcome: 'https://cdn.example/a.png', bad: 'javascript:alert(1)' } }).images).toEqual({ welcome: 'https://cdn.example/a.png' });
     expect(merged.buttons.shop.label).toBe('Catalog');
     expect(merged.buttons.deposit.label).toBe(DEFAULT_STORE_CONFIG.buttons.deposit.label);
     expect(merged.messages.supportIntro).toBe(DEFAULT_STORE_CONFIG.messages.supportIntro);

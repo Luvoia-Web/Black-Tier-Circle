@@ -31,7 +31,8 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 | A Audit and crashes | DONE | c208ed1bd89cf3aaae39ca6a4e72a088bd9ac08f | `npm run check:pages` is 100 passed, 0 failed. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | B Fresh-start SQL | DONE | c25861ede681ce1d4c7be8a951cdf6d2b3d8c70d | `scripts/sql/fresh-start.sql` and `scripts/sql/fresh-start-undo.sql`. Not run. The environment appended a Co-authored-by trailer. Strip it before any push. |
 | C Products and supplier lifecycle | DONE | a1c802fe08aa4713874cd3cec6086b81b3bfdd07 | Delete archives. Permanent delete refuses while an order exists. |
-| D Bots and Bot Studio | DONE | this commit | `/bots` and `/bot-studio` are separate. `/store` redirects to Bot Studio. check:pages is 84 passed, 0 failed. |
+| D Bots and Bot Studio | DONE | 3d1478a | `/bots` and `/bot-studio` are separate. `/store` redirects to Bot Studio. |
+| D2 Bot Studio gaps | DONE | this commit | Rotate token, studio tabs, and the missing editor pieces. check:pages is 168 passed, 0 failed. |
 | E Settings | | | Not started. `/settings` is still the previous screen. |
 | F Customers and support | | | `/customers` shows buyers. The fuller detail and inbox are not done. |
 | G Resellers | | | `/resellers` shows the reseller list. The BTC-4 layout is not done. |
@@ -46,7 +47,7 @@ The follow-up prompt replaced phases 2–12 with phases A–N. Phases 0 and 1 st
 
 ## Resume
 
-Do not restart 0, 1, A, B, C, or D. Continue at Phase E. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every current route at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL.
+Do not restart 0, 1, A, B, C, D, or D2. Continue at Phase E. Dark is the default (`data-theme="dark"`, theme version 3). Light is the toggle. `npm run check:pages` signs in as the owner and a reseller, opens every route from `components/platform/nav-manifest.mjs` (href, child, and panel) at 1440 and 390, and writes `.cursor/page-audit.md`. A FAIL blocks the phase. The harness does not submit forms. Do not run the fresh-start SQL. Do not apply `supabase/migrations/0035_platform_gaps.sql`.
 
 ## Phase A
 
@@ -84,7 +85,35 @@ Bot Studio is three columns: surfaces, a formatted editor that stores the Telegr
 
 The other sidebar items now have their own URLs so they no longer share `/people`, `/money`, `/growth`, or `/store`. Those screens still use the previous views. Phases E through K replace them. Do not edit 0022, 0033, or 0034. Do not apply SQL. Do not push.
 
+## Phase D2
+
+The drop from 100 rows to 84 was the checker, not missing pages. Phase A walked a fixed list that still included the old combined screens and redirects (`/today`, `/health`, `/suppliers/health`, `/people`, `/money`, `/growth`, `/store`) at both widths for both roles. Phase D made the checker read `nav-manifest.mjs` only. Those old URLs are redirects now, so they left the list. The manifest at that commit had 28 owner URLs and 14 reseller URLs, 42 unique URLs, 84 rows. Nothing that was still a real page was dropped. The tabs and panels were not in the manifest yet, so they were not opened.
+
+D2 puts every Bot Studio tab and message surface on `studioPanels`, and both sidebars use that list. The checker now waits until the page request settles and `main h1` is present, then screenshots, then clicks every tab and every non-destructive button. `npm run check:pages` is 168 passed, 0 failed.
+
+Owner URLs: `/overview`, `/analytics`, `/intelligence`, `/remy`, `/orders` plus `chip=attention|awaiting|delivered|failed`, `/catalog` plus `section=inventory|pricing`, `/catalog?section=suppliers` plus `panel=connected|import|orders|health`, `/customers`, `/resellers`, `/wallets`, `/payments`, `/bots`, `/marketing`, `/discounts`, `/broadcasts`, `/bot-studio` plus the studio panels below, `/settings`, `/system-health`.
+
+Reseller URLs: `/overview`, `/analytics`, `/remy`, `/orders`, `/catalog` plus `section=inventory|pricing`, `/customers`, `/marketing`, `/discounts`, `/wallets`, `/bots`, `/bot-studio` plus the same studio panels, `/settings`.
+
+Studio panels, both roles: `section=home`, `home&surface=welcome`, `buttons`, `catalogue`, `catalogue&surface=categories`, `catalogue&surface=list`, `card`, `card&surface=footer`, `messages`, `messages&surface=sold|quantity|delivered|referral|freebie|support|maintenance`, `links`, `checkout`, `checkout&surface=confirm|short|placed`.
+
+Rotate token is on each bot card. The token is checked against BotFather's shape, `getMe` accepts it inside `connectOwnerBot` or `connectBot`, and it is stored with `encrypt`. The plaintext is not written to the audit log. The button is `Rotate token`.
+
+Bot Studio is the mockup's tabs: Home, Buttons, Catalogue, Product card, Messages, Links, Checkout. Each message has variable chips, an unknown-variable warning, an image URL (1024 when set, 4096 when not), an emoji picker, a counter, and Reset to default. Buttons drag to reorder, and each has a label, emoji, section / URL / support action, and a row width. A row is one full button or two half buttons, and the note states Telegram's 8-button row limit. Replace is not in the editor or the keyboard. Versions lists publishes and Load this version puts that config back in the editor. Send test to my Telegram posts through the store bot to the signed-in user's chat id. That column is `profiles.telegram_chat_id` in `0035_platform_gaps.sql`, which is not applied, so the page says "Needs migration 0035" until the owner runs it. The preview has the dark/light toggle, an avatar, 18:42, the inline keyboard from `layoutHomeButtons`, and a photo block filled from a real product (initials when that product has no preview file) and sample buyer Asha.
+
+Compared with `BTC-5-bot-studio@2x.png`: the tab row, card-layout toggles, footer, and phone chrome match. Differences that remain: the saved card includes a Type row the mockup does not draw; Stock is on because the saved config includes it; the phone shows the real product `[KEY] HMA VPN 30D FW` and buyer Asha instead of the mockup's Gemini sample; that product has no preview file so the photo is initials; field rows use a grip instead of a separate field icon; the unsaved bar is hidden until the draft changes; the 0035 note is on screen until the SQL is applied.
+
 Phase E is next: tabbed Settings.
+
+0035, not applied:
+
+```sql
+alter table profiles
+  add column if not exists telegram_chat_id text;
+
+comment on column profiles.telegram_chat_id is
+  'Numeric Telegram chat id for a test send. Never a bot token.';
+```
 
 ## Phase 0 — safety
 

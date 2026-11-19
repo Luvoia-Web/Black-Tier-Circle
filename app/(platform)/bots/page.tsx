@@ -23,6 +23,8 @@ function BotsView(): JSX.Element {
   const list = useData<ListPayload>('/api/platform/bots');
   const detail = useData<DetailPayload>(botId ? `/api/platform/bots?bot=${encodeURIComponent(botId)}` : null);
   const [token, setToken] = useState('');
+  const [rotateFor, setRotateFor] = useState('');
+  const [rotateToken, setRotateToken] = useState('');
   const [notice, setNotice] = useState('');
   const role = list.data?.bots.some((bot) => bot.id === 'owner') ? 'owner' : 'reseller';
 
@@ -76,7 +78,14 @@ function BotsView(): JSX.Element {
               <Button variant="secondary" onClick={() => void act(bot.status === 'paused' ? 'resume' : 'pause', bot.id)}>{bot.status === 'paused' ? 'Resume bot' : 'Pause bot'}</Button>
               <Button variant="secondary" onClick={() => { void runAction('/api/platform/store', { method: 'POST' }).then((result) => setNotice(result.ok ? 'Webhook registered again.' : result.error.message)); }}>Re-set webhook</Button>
               <Button variant="destructive" onClick={() => void act('disconnect', bot.id)}>Disconnect</Button>
+              <Button variant="secondary" onClick={() => { setRotateFor(bot.id); setRotateToken(''); }}>Rotate token</Button>
             </div>
+            {rotateFor === bot.id ? (
+              <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/bots', { body: { action: 'rotate', botId: bot.id, botToken: rotateToken } }).then((result) => { setNotice(result.ok ? 'Token rotated and stored encrypted.' : result.error.message); if (result.ok) { setRotateToken(''); setRotateFor(''); list.refetch(); } }); }}>
+                <TextField id={`rotate-${bot.id}`} label="New token" type="password" value={rotateToken} onChange={(event) => setRotateToken(event.target.value)} />
+                <Button type="submit" disabled={!/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(rotateToken.trim())}>Save rotated token</Button>
+              </form>
+            ) : null}
           </article>
         ))}
       </div>

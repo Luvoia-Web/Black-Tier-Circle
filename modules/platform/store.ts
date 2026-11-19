@@ -26,6 +26,7 @@ export type PreviewProduct = {
   readonly deliveryType: 'file_reusable' | 'inventory_unit' | 'manual' | 'supplier_api';
   readonly requiresEmailActivation: boolean;
   readonly sample: boolean;
+  readonly imageUrl: string | null;
 };
 
 function missing(error: { message: string; code?: string } | null): boolean {
@@ -48,20 +49,48 @@ const SAMPLE: PreviewProduct = {
   deliveryType: 'manual',
   requiresEmailActivation: false,
   sample: true,
+  imageUrl: null,
 };
 
-export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null) {
+export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, userId: string) {
   const studio = await readStudio(db, role, tenantId);
   const products = await previewProducts(db, role, tenantId);
   const status = role === 'owner' ? await ownerStatus(db) : await resellerStatus(db, tenantId);
   const bot = role === 'owner' ? await ownerBot(db) : await resellerBot(db, tenantId);
   const history = await versions(db, role === 'owner' ? null : tenantId);
-  return { role, studio, products, ...status, bot, history };
+  const testChat = await readTestChat(db, userId);
+  return { role, studio, products, ...status, bot, history, testChat };
+}
+
+export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, version: number) {
+  const scope = role === 'owner' ? null : tenantId;
+  const query = db.from('store_config_versions').select('version, config, saved_at').eq('version', version).limit(1);
+  const result = (await (scope === null ? query.is('tenant_id', null) : query.eq('tenant_id', scope))) as QueryResult<unknown>;
+  if (missing(result.error)) {
+    throw new ValidationError('STORE_HISTORY_FAILED', 'Needs migration 0034 before a version can be restored.');
+  }
+  if (result.error) throw new ValidationError('STORE_HISTORY_FAILED', result.error.message);
+  const row = Array.isArray(result.data) ? result.data[0] : null;
+  if (!row || typeof row !== 'object') {
+    throw new ValidationError('STORE_VERSION_MISSING', 'That version was not found.');
+  }
+  const record = row as Record<string, unknown>;
+  return { version, config: record.config, savedAt: typeof record.saved_at === 'string' ? record.saved_at : '' };
+}
+
+async function readTestChat(db: DbClient, userId: string): Promise<{ readonly chatId: string | null; readonly needsMigration: boolean }> {
+  const result = (await db.from('profiles').select('telegram_chat_id').eq('id', userId).maybeSingle()) as QueryResult<unknown>;
+  if (missing(result.error)) return { chatId: null, needsMigration: true };
+  if (result.error) throw new ValidationError('TEST_CHAT_FAILED', result.error.message);
+  const row = result.data && typeof result.data === 'object' ? (result.data as Record<string, unknown>) : null;
+  const chatId = typeof row?.telegram_chat_id === 'string' ? row.telegram_chat_id : null;
+  return { chatId, needsMigration: false };
 }
 
 async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null): Promise<readonly PreviewProduct[]> {
   const catalog = await listProducts(db);
-  let allowed = catalog.filter((product) => product.status === 'published');
+  const published = catalog.filter((product) => product.status === 'published');
+  let allowed = published.length > 0 ? published : catalog.filter((product) => product.status !== 'archived').concat(catalog.filter((product) => product.status === 'archived'));
   const prices = new Map<string, bigint>();
   if (role === 'reseller' && tenantId) {
     const listings = (await db.from('reseller_listings').select('product_id, retail_price').eq('tenant_id', tenantId).eq('is_visible', true).limit(8)) as QueryResult<unknown>;
@@ -93,8 +122,22 @@ async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantI
     deliveryType: product.deliveryType,
     requiresEmailActivation: product.requiresEmailActivation,
     sample: false,
+    imageUrl: null,
   }));
-  return picked.length > 0 ? picked : [SAMPLE];
+  if (picked.length === 0) return [SAMPLE];
+  const ids = picked.map((product) => product.id);
+  const assets = (await db.from('product_assets').select('product_id, storage_path, is_preview').in('product_id', ids).limit(40)) as QueryResult<unknown>;
+  if (assets.error || !Array.isArray(assets.data)) return picked;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, '') ?? '';
+  const images = new Map<string, string>();
+  for (const raw of assets.data) {
+    if (!raw || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    if (row.is_preview !== true || typeof row.product_id !== 'string' || typeof row.storage_path !== 'string' || !base) continue;
+    const path = row.storage_path.split('/').map((part) => encodeURIComponent(part)).join('/');
+    images.set(row.product_id, `${base}/storage/v1/object/public/product-previews/${path}`);
+  }
+  return picked.map((product) => ({ ...product, imageUrl: images.get(product.id) ?? null }));
 }
 
 async function ownerStatus(db: DbClient): Promise<{ readonly storeStatus: 'open' | 'maintenance'; readonly maintenanceMessage: string; readonly statusNeedsMigration: boolean }> {
