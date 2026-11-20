@@ -7,6 +7,7 @@
  */
 
 import { AppError, ValidationError } from '@/lib/errors';
+import { usdtToMinor } from '@/lib/money';
 import { consumeRateLimit } from '@/lib/rate-limiter';
 import { sanitizeInput } from '@/lib/sanitize';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
@@ -252,7 +253,7 @@ async function placeNewSupplierItem(db: DbClient, input: ReplacementPlaceInput):
     }
     throw new ValidationError('REPLACEMENT_EMPTY', 'The supplier did not return a new item. Nothing else was bought.');
   }
-  const reported = placed.amountUsdt > 0 ? BigInt(Math.round(placed.amountUsdt * 1_000_000)) : covered.costMinor;
+  const reported = placed.amountUsdt > 0 ? usdtToMinor(String(placed.amountUsdt)) : covered.costMinor;
   return {
     content: placed.deliveryContent,
     supplierOrderId: placed.supplierOrderId,

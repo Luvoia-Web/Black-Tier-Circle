@@ -6,6 +6,7 @@ import { asDbClient, requireUser } from '@/lib/auth/session';
 import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { usdtToMinor } from '@/lib/money';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { applyDefaultPricing, readPricing, savePricingDefaults } from '@/modules/platform/pricing';
 import { getTenantByUserId } from '@/modules/tenants';
 import { z } from 'zod';
@@ -18,14 +19,6 @@ const Body = z.object({
   retailKind: z.enum(['percent', 'fixed']),
   retailValue: z.string().trim().min(1).max(24),
 });
-
-async function ownerDb() {
-  const session = await requireUser();
-  if (session.profile.role !== 'owner') {
-    throw new AuthError('FORBIDDEN', 'Only the owner can change store pricing', 403);
-  }
-  return asDbClient(session.admin);
-}
 
 export async function GET(): Promise<Response> {
   try {
@@ -48,7 +41,18 @@ export async function POST(): Promise<Response> {
     if (session.profile.role !== 'owner') {
       throw new AuthError('FORBIDDEN', 'Only the owner can change store pricing', 403);
     }
-    return jsonSuccess(await applyDefaultPricing(asDbClient(session.admin), session.user.id));
+    await assertRateLimit(`pricing-apply:${session.user.id}`, 10);
+    const db = asDbClient(session.admin);
+    const result = await applyDefaultPricing(db, session.user.id);
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      tenant_id: null,
+      action: 'pricing.apply_defaults',
+      target_type: 'pricing',
+      target_id: 'defaults',
+      reason: 'Applied default pricing rules across products',
+    });
+    return jsonSuccess(result);
   } catch (error: unknown) {
     return handleRouteError(error);
   }
@@ -56,7 +60,12 @@ export async function POST(): Promise<Response> {
 
 export async function PUT(request: Request): Promise<Response> {
   try {
-    const db = await ownerDb();
+    const session = await requireUser();
+    if (session.profile.role !== 'owner') {
+      throw new AuthError('FORBIDDEN', 'Only the owner can change store pricing', 403);
+    }
+    await assertRateLimit(`pricing-save:${session.user.id}`, 20);
+    const db = asDbClient(session.admin);
     const body = Body.parse(await readJsonBody(request));
     const wholesaleValue = body.wholesaleKind === 'fixed' ? usdtToMinor(body.wholesaleValue).toString() : body.wholesaleValue;
     const retailValue = body.retailKind === 'fixed' ? usdtToMinor(body.retailValue).toString() : body.retailValue;
@@ -66,12 +75,22 @@ export async function PUT(request: Request): Promise<Response> {
     if (body.retailKind === 'percent' && (Number(retailValue) < 0 || Number(retailValue) > 999.99)) {
       throw new ValidationError('INVALID_MARKUP', 'Retail percent must be between 0 and 999.99');
     }
-    return jsonSuccess(await savePricingDefaults(db, {
+    const saved = await savePricingDefaults(db, {
       wholesaleKind: body.wholesaleKind,
       wholesaleValue,
       retailKind: body.retailKind,
       retailValue,
-    }));
+    });
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      tenant_id: null,
+      action: 'pricing.defaults',
+      target_type: 'pricing',
+      target_id: 'defaults',
+      reason: 'Saved default wholesale and retail markup rules',
+      after_val: { wholesaleKind: body.wholesaleKind, retailKind: body.retailKind },
+    });
+    return jsonSuccess(saved);
   } catch (error: unknown) {
     return handleRouteError(error);
   }

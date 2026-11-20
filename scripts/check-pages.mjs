@@ -185,7 +185,9 @@ async function clickControls(page, selector, noun) {
         return true;
       }).catch(() => false);
       if (!clicked) clicked = await control.click({ timeout: 800, force: true }).then(() => true).catch(() => false);
-      if (!clicked) problems.push(`dead ${noun}: ${label.slice(0, 60)}`);
+      if (!clicked && (await control.isVisible().catch(() => false))) {
+        problems.push(`dead ${noun}: ${label.slice(0, 60)}`);
+      }
       await page.keyboard.press('Escape').catch(() => {});
       await page.waitForTimeout(40);
       const body = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');

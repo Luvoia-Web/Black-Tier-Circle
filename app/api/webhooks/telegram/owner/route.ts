@@ -12,7 +12,7 @@ import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
 import { OWNER_STORE_BOT_ID } from '@/lib/owner-bot';
-import { limitTelegramCustomer, telegramUserId } from '@/lib/api-rate-limit';
+import { limitTelegramUpdate } from '@/lib/api-rate-limit';
 import { consumeRateLimit } from '@/lib/rate-limiter';
 import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch {
       return NextResponse.json({ ok: true });
     }
-    const customerLimit = await limitTelegramCustomer('owner', telegramUserId(update));
+    const customerLimit = await limitTelegramUpdate('owner', update);
     if (customerLimit) {
       return customerLimit;
     }

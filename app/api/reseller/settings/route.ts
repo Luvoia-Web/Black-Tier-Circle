@@ -12,6 +12,7 @@ import { prepareBep20Address } from '@/lib/eth-address';
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { sanitizeInput } from '@/lib/sanitize';
 import { UpdateTenantSettingsSchema } from '@/lib/validations/tenant-settings';
 import { updateTenantDisplayName } from '@/modules/tenants';
@@ -46,6 +47,7 @@ export async function GET(): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
+    await assertRateLimit(`reseller-settings:${session.user.id}`, 30);
     const parsed = UpdateTenantSettingsSchema.parse(await readJsonBody(request));
     const db = asDbClient(session.admin);
     if (parsed.termsOfService !== undefined || parsed.refundPolicy !== undefined || parsed.privacyPolicy !== undefined) {
@@ -97,6 +99,18 @@ export async function PATCH(request: Request): Promise<Response> {
       ...(parsed.notifyBalanceLow !== undefined ? { notifyBalanceLow: parsed.notifyBalanceLow } : {}),
       ...(parsed.notifyBalanceThreshold !== undefined ? { notifyBalanceThreshold: parsed.notifyBalanceThreshold } : {}),
       ...(parsed.notifyProductAdded !== undefined ? { notifyProductAdded: parsed.notifyProductAdded } : {}),
+    });
+    const changedFields = Object.entries(parsed)
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key);
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      tenant_id: session.tenant.id,
+      action: 'reseller.settings.update',
+      target_type: 'tenant_settings',
+      target_id: session.tenant.id,
+      reason: `Updated settings (${changedFields.join(', ').slice(0, 160)})`,
+      after_val: { fields: changedFields },
     });
     return jsonSuccess({ settings, addressWarning: address?.warning ?? null });
   } catch (error: unknown) {

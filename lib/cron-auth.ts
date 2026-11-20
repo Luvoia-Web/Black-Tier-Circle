@@ -12,11 +12,23 @@
  * Used by: /api/fulfillment/process, /api/supplier/reconcile, /api/bots/health
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOwner } from '@/lib/auth/session';
 
 /**
- * Verifies the cron secret from the incoming request.
+ * Constant-time string comparison using crypto.timingSafeEqual.
+ */
+export function constantTimeSecretMatch(expected: string, provided: string | null | undefined): boolean {
+  if (!provided || expected.length === 0) return false;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(provided, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Verifies the cron secret from the incoming request using constant-time comparison.
  * Returns null if authorized, or a 401 NextResponse if not.
  *
  * @param req - The incoming request
@@ -33,13 +45,16 @@ export function verifyCronAuth(req: NextRequest): NextResponse | null {
   }
 
   const authHeader = req.headers.get('authorization');
-  if (authHeader === `Bearer ${cronSecret}`) {
-    return null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice('Bearer '.length);
+    if (constantTimeSecretMatch(cronSecret, token)) {
+      return null;
+    }
   }
 
   const url = new URL(req.url);
   const querySecret = url.searchParams.get('secret');
-  if (querySecret === cronSecret) {
+  if (constantTimeSecretMatch(cronSecret, querySecret)) {
     return null;
   }
 

@@ -21,7 +21,7 @@ import { decryptBotToken, processTelegramUpdate, verifyTelegramSecret } from '@/
 import type { Update } from '@/integrations/telegram/types';
 import { asDbClient } from '@/lib/auth/session';
 import { logger } from '@/lib/logger';
-import { limitTelegramCustomer, telegramUserId } from '@/lib/api-rate-limit';
+import { limitTelegramUpdate } from '@/lib/api-rate-limit';
 import { consumeRateLimit } from '@/lib/rate-limiter';
 import { scheduleAfterResponse } from '@/lib/schedule-after';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: RouteContext): Promise<
     } catch {
       return NextResponse.json({ ok: true });
     }
-    const customerLimit = await limitTelegramCustomer(params.botId, telegramUserId(update));
+    const customerLimit = await limitTelegramUpdate(params.botId, update);
     if (customerLimit) {
       return customerLimit;
     }

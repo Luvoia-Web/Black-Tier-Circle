@@ -45,7 +45,7 @@ const BANK_LABEL: Readonly<
     hint: 'Hindsight keys are missing',
     tone: 'amber',
     title: 'Memory is not set up',
-    message: 'Set HINDSIGHT_ENABLED, HINDSIGHT_API_KEY and HINDSIGHT_API_URL on the server to turn memory on.',
+    message: 'Configure Hindsight memory credentials on the server to turn memory on.',
   },
 };
 

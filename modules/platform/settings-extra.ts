@@ -282,7 +282,8 @@ export async function listStoresWithOverrides(
     .select('id, display_name, reseller_policy_override')
     .order('display_name')
     .limit(100)) as QueryResult<unknown>;
-  if (result.error || !Array.isArray(result.data)) return [];
+  if (result.error) throw new AppError('STORES_READ_FAILED', result.error.message, 500);
+  if (!Array.isArray(result.data)) return [];
   return result.data.flatMap((row) => {
     if (!row || typeof row !== 'object') return [];
     const record = row as Record<string, unknown>;

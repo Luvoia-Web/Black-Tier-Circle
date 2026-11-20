@@ -43,6 +43,13 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+const StoreStatusSchema = z.object({
+  storeStatus: z.enum(['open', 'maintenance']),
+  maintenanceMessage: z.string().max(500).optional().default(''),
+});
+
+const ReconnectSchema = z.object({}).strict().optional();
+
 export async function PUT(request: Request): Promise<Response> {
   try {
     const current = await scope();
@@ -63,10 +70,18 @@ export async function PUT(request: Request): Promise<Response> {
         config: saved.config,
         saved_by: current.userId,
       });
-      if (inserted.error && !/does not exist|schema cache/i.test(inserted.error.message)) {
+      if (inserted.error) {
         throw new ValidationError('STORE_VERSION_FAILED', inserted.error.message);
       }
     }
+    await current.db.from('audit_log').insert({
+      actor_id: current.userId,
+      tenant_id: current.tenantId,
+      action: body.publish ? 'store.publish' : 'store.save',
+      target_type: 'store_config',
+      target_id: current.tenantId ?? 'owner',
+      reason: body.publish ? `Published store config v${saved.version}` : `Saved store config draft v${saved.version}`,
+    });
     return jsonSuccess(saved);
   } catch (error: unknown) {
     return handleRouteError(error);
@@ -76,36 +91,74 @@ export async function PUT(request: Request): Promise<Response> {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const current = await scope();
-    const body = (await readJsonBody(request)) as { storeStatus?: unknown; maintenanceMessage?: unknown };
-    const storeStatus = body.storeStatus === 'maintenance' ? 'maintenance' : body.storeStatus === 'open' ? 'open' : null;
-    if (!storeStatus) {
-      throw new ValidationError('STORE_STATUS_INVALID', 'Choose open or maintenance.');
-    }
-    const message = typeof body.maintenanceMessage === 'string' ? body.maintenanceMessage : '';
+    await assertRateLimit(`store-status:${current.userId}`, 20);
+    const parsed = StoreStatusSchema.parse(await readJsonBody(request));
     if (current.role === 'owner') {
-      return jsonSuccess(await saveOwnerStoreStatus(current.db, storeStatus, message));
+      const res = await saveOwnerStoreStatus(current.db, parsed.storeStatus, parsed.maintenanceMessage);
+      await current.db.from('audit_log').insert({
+        actor_id: current.userId,
+        tenant_id: null,
+        action: 'store.status',
+        target_type: 'store',
+        target_id: 'owner',
+        reason: `Store status set to ${parsed.storeStatus}`,
+        after_val: { storeStatus: parsed.storeStatus },
+      });
+      return jsonSuccess(res);
     }
     if (!current.tenantId) {
       throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
     }
     await assertResellerFieldsAllowed(current.db, ['storeStatus', 'maintenanceMsg'], current.tenantId);
-    await saveResellerStoreStatus(current.db, current.tenantId, storeStatus, message);
+    await saveResellerStoreStatus(current.db, current.tenantId, parsed.storeStatus, parsed.maintenanceMessage);
+    await current.db.from('audit_log').insert({
+      actor_id: current.userId,
+      tenant_id: current.tenantId,
+      action: 'store.status',
+      target_type: 'store',
+      target_id: current.tenantId,
+      reason: `Store status set to ${parsed.storeStatus}`,
+      after_val: { storeStatus: parsed.storeStatus },
+    });
     return jsonSuccess({ needsMigration: false });
   } catch (error: unknown) {
     return handleRouteError(error);
   }
 }
 
-export async function POST(): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   try {
     const current = await scope();
+    await assertRateLimit(`store-reconnect:${current.userId}`, 10);
+    const raw = await request.text();
+    if (raw.trim().length > 0) {
+      ReconnectSchema.parse(JSON.parse(raw));
+    }
     if (current.role === 'owner') {
-      return jsonSuccess(await reconnectOwnerBot(current.db));
+      const reconnected = await reconnectOwnerBot(current.db);
+      await current.db.from('audit_log').insert({
+        actor_id: current.userId,
+        tenant_id: null,
+        action: 'bot.reconnect',
+        target_type: 'bot',
+        target_id: 'owner',
+        reason: 'Reconnected owner bot webhook',
+      });
+      return jsonSuccess(reconnected);
     }
     if (!current.tenantId) {
       throw new AuthError('TENANT_REQUIRED', 'Reseller store was not found', 403);
     }
-    return jsonSuccess(await reconnectResellerBot(current.db, current.tenantId));
+    const reconnected = await reconnectResellerBot(current.db, current.tenantId);
+    await current.db.from('audit_log').insert({
+      actor_id: current.userId,
+      tenant_id: current.tenantId,
+      action: 'bot.reconnect',
+      target_type: 'bot',
+      target_id: current.tenantId,
+      reason: 'Reconnected reseller bot webhook',
+    });
+    return jsonSuccess(reconnected);
   } catch (error: unknown) {
     return handleRouteError(error);
   }

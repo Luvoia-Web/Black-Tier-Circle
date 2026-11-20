@@ -4,9 +4,11 @@
  * Paged catalog. One row per supplier item, plus products with no supplier row.
  */
 
+import { z } from 'zod';
 import { asDbClient, requireUser } from '@/lib/auth/session';
-import { AuthError, ValidationError } from '@/lib/errors';
+import { AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { parseCatalogFilters, readCatalog } from '@/modules/platform/catalog';
 import { readInventory, saveReorderPoint } from '@/modules/platform/inventory';
 import { readSupplierDesk } from '@/modules/platform/supplier-desk';
@@ -38,17 +40,30 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+const ReorderPointSchema = z.object({
+  productId: z.string().uuid('Choose a valid product.'),
+  reorderPoint: z.coerce.number().int().min(0).max(1_000_000),
+});
+
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const session = await requireUser();
     if (session.profile.role !== 'owner') {
       throw new AuthError('FORBIDDEN', 'Only the owner can set a reorder point', 403);
     }
-    const body = await readJsonBody(request);
-    const productId = typeof body.productId === 'string' ? body.productId : '';
-    const point = typeof body.reorderPoint === 'number' ? body.reorderPoint : Number(body.reorderPoint);
-    if (!productId) throw new ValidationError('INVALID_PRODUCT', 'Choose a product.');
-    const saved = await saveReorderPoint(asDbClient(session.admin), productId, point);
+    await assertRateLimit(`catalog-reorder:${session.user.id}`, 30);
+    const body = ReorderPointSchema.parse(await readJsonBody(request));
+    const db = asDbClient(session.admin);
+    const saved = await saveReorderPoint(db, body.productId, body.reorderPoint);
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      tenant_id: null,
+      action: 'product.reorder_point',
+      target_type: 'product',
+      target_id: body.productId,
+      reason: `Set reorder point to ${body.reorderPoint}`,
+      after_val: { reorderPoint: body.reorderPoint },
+    });
     return jsonSuccess(saved);
   } catch (error: unknown) {
     return handleRouteError(error);

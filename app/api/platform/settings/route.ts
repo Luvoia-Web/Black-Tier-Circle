@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { asDbClient, requireUser } from '@/lib/auth/session';
-import { AuthError, ValidationError } from '@/lib/errors';
+import { AppError, AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { loadFraudThresholds } from '@/modules/platform/fraud';
@@ -206,7 +206,8 @@ function integrationStatus(): { readonly suppliers: string; readonly groq: strin
 
 async function recentAudit(db: DbClient): Promise<readonly { readonly id: string; readonly action: string; readonly at: string }[]> {
   const result = (await db.from('audit_log').select('id, action, created_at').order('created_at', { ascending: false }).limit(12)) as QueryResult<unknown>;
-  if (result.error || !Array.isArray(result.data)) return [];
+  if (result.error) throw new AppError('AUDIT_READ_FAILED', result.error.message, 500);
+  if (!Array.isArray(result.data)) return [];
   return result.data.flatMap((row) => {
     if (!row || typeof row !== 'object') return [];
     const record = row as Record<string, unknown>;

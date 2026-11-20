@@ -36,14 +36,12 @@ function copyCookies(from: NextResponse, to: NextResponse): NextResponse {
   return to;
 }
 
-function readRoleFromJwt(session: {
-  user: {
-    app_metadata?: Record<string, unknown>;
-  };
+function readRoleFromUser(user: {
+  app_metadata?: Record<string, unknown>;
 }): UserRole | null {
   // SECURITY: only app_metadata is trusted. user_metadata can be edited by the
   // signed-in user from the browser, so it must never decide a role.
-  const appRole = session.user.app_metadata?.role;
+  const appRole = user.app_metadata?.role;
   if (appRole === 'owner' || appRole === 'reseller' || appRole === 'staff') {
     return appRole;
   }
@@ -51,12 +49,16 @@ function readRoleFromJwt(session: {
 }
 
 type ProfileGate = {
-  readonly role: UserRole | null;
-  readonly status: string | null;
+  readonly role: UserRole;
+  readonly status: string;
   readonly onboardingCompleted: boolean;
 };
 
-async function readProfileGate(
+/**
+ * Reads the database profile gate. Fails CLOSED (redirects to /login) whenever
+ * the profile cannot be read or when role or status is missing.
+ */
+export async function readProfileGate(
   supabase: ReturnType<typeof createServerClient>,
   userId: string,
   request: NextRequest,
@@ -66,25 +68,20 @@ async function readProfileGate(
     .select('role, status, onboarding_completed')
     .eq('id', userId)
     .maybeSingle();
-  if (!full.error && full.data) {
-    const row = full.data as { role?: string; status?: string; onboarding_completed?: boolean };
-    const role = row.role === 'owner' || row.role === 'reseller' || row.role === 'staff' ? row.role : null;
-    return {
-      role,
-      status: typeof row.status === 'string' ? row.status : null,
-      onboardingCompleted: row.onboarding_completed === true,
-    };
+  if (full.error || !full.data) {
+    return NextResponse.redirect(new URL(ROUTES.login, request.url));
   }
-  const fallback = await supabase.from('profiles').select('role, status').eq('id', userId).maybeSingle();
-  if (fallback.error) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  const row = full.data as { role?: unknown; status?: unknown; onboarding_completed?: unknown };
+  const role =
+    row.role === 'owner' || row.role === 'reseller' || row.role === 'staff' ? row.role : null;
+  const status = typeof row.status === 'string' && row.status.trim().length > 0 ? row.status : null;
+  if (!role || !status) {
+    return NextResponse.redirect(new URL(ROUTES.login, request.url));
   }
-  const fallbackRow = fallback.data as { role?: string; status?: string } | null;
-  const role = fallbackRow?.role;
   return {
-    role: role === 'owner' || role === 'reseller' || role === 'staff' ? role : null,
-    status: typeof fallbackRow?.status === 'string' ? fallbackRow.status : 'active',
-    onboardingCompleted: true,
+    role,
+    status,
+    onboardingCompleted: row.onboarding_completed === true,
   };
 }
 
@@ -92,7 +89,7 @@ async function readProfileGate(
  * Protects dashboard routes. Public paths never enter the auth redirect logic,
  * so a stale cookie cannot bounce /login ↔ dashboard.
  *
- * Uses getSession() so middleware does not make an extra Auth network round trip.
+ * Uses getUser() to verify the JWT with Supabase Auth on every protected route.
  */
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const limited = await limitApiRequest(request);
@@ -138,13 +135,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
   const needsAuth =
     isOwnerRoute(pathname) || isResellerRoute(pathname) || isOnboardingRoute(pathname) || isPlatformRoute(pathname);
 
-  if (!session) {
+  if (userError || !user) {
     if (needsAuth) {
       const loginUrl = request.nextUrl.clone();
       loginUrl.pathname = ROUTES.login;
@@ -154,14 +152,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return supabaseResponse;
   }
 
-  const gate = await readProfileGate(supabase, session.user.id, request);
+  const gate = await readProfileGate(supabase, user.id, request);
   if (gate instanceof NextResponse) {
-    return gate;
+    return copyCookies(supabaseResponse, gate);
   }
   // SECURITY: the database profile is the source of truth for role.
-  let role = gate.role ?? readRoleFromJwt(session);
+  const role = gate.role ?? readRoleFromUser(user);
   if (role === null) {
-    role = 'reseller';
+    return copyCookies(supabaseResponse, NextResponse.redirect(new URL(ROUTES.login, request.url)));
   }
 
   const home = dashboardHomeForRole(role);
