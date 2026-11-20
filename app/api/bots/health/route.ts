@@ -11,6 +11,7 @@
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
+import { recordCronHeartbeat } from '@/lib/cron-heartbeat';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { runBotHealthChecks } from '@/modules/bots';
@@ -23,7 +24,14 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (authError) {
       return authError;
     }
-    const result = await runBotHealthChecks(asDbClient(createAdminSupabaseClient()));
+    const db = asDbClient(createAdminSupabaseClient());
+    const result = await runBotHealthChecks(db);
+    await recordCronHeartbeat(
+      db,
+      'cron.bot_health',
+      { checked: result.checked, errors: result.errors },
+      'Bot webhook health check',
+    );
     return jsonSuccess(result);
   } catch (error: unknown) {
     return handleRouteError(error);

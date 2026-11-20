@@ -8,6 +8,7 @@
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
+import { recordCronHeartbeat } from '@/lib/cron-heartbeat';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -22,13 +23,24 @@ export async function POST(req: NextRequest): Promise<Response> {
       return authError;
     }
     const db = asDbClient(createAdminSupabaseClient());
-    let supplierId: string | undefined;
+    let supplierId: string | undefined = new URL(req.url).searchParams.get('supplierId') ?? undefined;
     if (req.headers.get('content-type')?.includes('application/json')) {
-      const body = (await readJsonBody(req)) as { supplierId?: string };
-      supplierId = body.supplierId;
+      try {
+        const body = (await readJsonBody(req)) as { supplierId?: string };
+        if (typeof body.supplierId === 'string' && body.supplierId.trim().length > 0) {
+          supplierId = body.supplierId.trim();
+        }
+      } catch {
+        // Cron callers often send Content-Type: application/json with an empty body.
+      }
     }
     const suppliers = await listSuppliers(db);
-    const targets = suppliers.filter((supplier) => supplier.status === 'active' && supplier.hasApiKey && (!supplierId || supplier.id === supplierId));
+    const targets = suppliers.filter(
+      (supplier) =>
+        (supplier.status === 'active' || supplier.status === 'connected') &&
+        supplier.hasApiKey &&
+        (!supplierId || supplier.id === supplierId),
+    );
     const results = [];
     for (const supplier of targets) {
       const started = Date.now();
@@ -77,6 +89,16 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
       }
     }
+    await recordCronHeartbeat(
+      db,
+      'cron.supplier_sync',
+      {
+        suppliers: results.length,
+        ok: results.filter((row) => row.ok).length,
+        failed: results.filter((row) => !row.ok).length,
+      },
+      'Supplier catalog sync',
+    );
     return jsonSuccess({ results });
   } catch (error: unknown) {
     return handleRouteError(error);

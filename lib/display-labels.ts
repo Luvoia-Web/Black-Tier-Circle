@@ -223,6 +223,10 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'broadcast.send': 'Sent broadcast',
   'broadcast.schedule': 'Scheduled broadcast',
   'broadcast.cancel': 'Canceled scheduled broadcast',
+  'cron.fulfillment': 'Ran fulfillment cron',
+  'cron.supplier_reconcile': 'Ran supplier reconcile cron',
+  'cron.supplier_sync': 'Ran supplier sync cron',
+  'cron.bot_health': 'Ran bot health cron',
 };
 
 export function displayAuditAction(action: string): string {

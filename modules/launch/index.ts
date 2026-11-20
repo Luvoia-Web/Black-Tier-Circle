@@ -161,8 +161,10 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
       id: 'pay_mode',
       label: `Payment mode: ${paymentLive ? 'Live' : 'Demo'}`,
       group: 'payment',
-      passing: true,
-      detail: paymentLive ? 'live' : 'demo',
+      passing: paymentLive,
+      detail: paymentLive
+        ? 'Real BEP20 USDT / Binance Pay verification active'
+        : 'Demo mode auto-credits wallets without chain verification. Enable live verification before launch.',
     },
     {
       id: 'pay_method',

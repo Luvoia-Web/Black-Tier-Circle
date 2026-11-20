@@ -453,16 +453,25 @@ function catalogPatch(item: RemoteCatalogItem, now: string): Record<string, unkn
 async function loadRemoteCatalog(
   supplier: SupplierDbRow,
   apiKey: string,
-): Promise<{ readonly items: RemoteCatalogItem[]; readonly detectedName: string | null }> {
+): Promise<{
+  readonly items: RemoteCatalogItem[];
+  readonly detectedName: string | null;
+  readonly readBalance: (() => Promise<number | null>) | null;
+}> {
   const rawName = (supplier as { adapter_name?: string | null }).adapter_name;
   const adapterName = typeof rawName === 'string' ? rawName.trim() : '';
   if (adapterName === '') {
     const detected = detectAdapter(apiKey);
     const detectedName = storedAdapterName(detected);
     if (prefersProdSeller(detectedName, supplier.base_url, apiKey)) {
-      const listed = await createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name).listProducts();
+      const client = createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name);
+      const listed = await client.listProducts();
       return {
         detectedName,
+        readBalance:
+          typeof (client as { getBalance?: unknown }).getBalance === 'function'
+            ? async () => (await client.getBalance()).balance
+            : null,
         items: listed.map((item) => ({
           id: item.id,
           name: item.name,
@@ -478,12 +487,17 @@ async function loadRemoteCatalog(
       };
     }
     const products = await detected.getProducts(apiKey, supplier.base_url);
-    return { detectedName, items: products.map(mapAdapterProduct) };
+    return { detectedName, items: products.map(mapAdapterProduct), readBalance: null };
   }
   if (prefersProdSeller(adapterName, supplier.base_url, apiKey)) {
-    const listed = await createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name).listProducts();
+    const client = createProdSellerClient(apiKey, supplier.base_url, supplier.auth_header_name);
+    const listed = await client.listProducts();
     return {
       detectedName: null,
+      readBalance:
+        typeof (client as { getBalance?: unknown }).getBalance === 'function'
+          ? async () => (await client.getBalance()).balance
+          : null,
       items: listed.map((item) => ({
         id: item.id,
         name: item.name,
@@ -499,7 +513,7 @@ async function loadRemoteCatalog(
     };
   }
   const products = await adapterByName(adapterName).getProducts(apiKey, supplier.base_url);
-  return { detectedName: null, items: products.map(mapAdapterProduct) };
+  return { detectedName: null, items: products.map(mapAdapterProduct), readBalance: null };
 }
 
 async function loadExistingProducts(
@@ -660,9 +674,14 @@ export async function syncSupplierProducts(
   }
 
   const staleIds: string[] = [];
+  const alreadyOutIds: string[] = [];
   for (const row of existing.values()) {
-    if (row.in_stock === true && !seen.has(row.supplier_sku)) {
-      staleIds.push(row.id);
+    if (!seen.has(row.supplier_sku)) {
+      if (row.in_stock === true) {
+        staleIds.push(row.id);
+      } else {
+        alreadyOutIds.push(row.id);
+      }
     }
   }
   let outOfStock = 0;
@@ -680,6 +699,22 @@ export async function syncSupplierProducts(
       } else {
         outOfStock += chunk.length;
         hiddenIds.push(...chunk);
+      }
+    } catch (error: unknown) {
+      errors.push(safeSupplierSyncMessage(error));
+    }
+  }
+  if (alreadyOutIds.length > 0) {
+    try {
+      const touched = asWrite(
+        await supabase
+          .from('supplier_products')
+          .update({ last_synced_at: now })
+          .eq('supplier_id', supplierId)
+          .eq('in_stock', false),
+      );
+      if (touched.error) {
+        errors.push(safeSupplierSyncMessage(touched.error.message));
       }
     } catch (error: unknown) {
       errors.push(safeSupplierSyncMessage(error));
@@ -704,6 +739,24 @@ export async function syncSupplierProducts(
     errors.push(safeSupplierSyncMessage(error));
   }
 
+  if (loaded.readBalance) {
+    try {
+      const balance = await loaded.readBalance();
+      if (balance !== null && Number.isFinite(balance)) {
+        await supabase
+          .from('suppliers')
+          .update({
+            balance_usdt: balance,
+            balance_checked_at: now,
+          })
+          .eq('id', supplierId);
+        await recordBalanceSnapshot(supabase, supplierId, balance);
+      }
+    } catch {
+      // Balance refresh during catalog sync is best-effort.
+    }
+  }
+
   const catalog = await writeCatalogChanges(supabase, supplierId, existing, updatedItems, hiddenIds, now, errors);
 
   return {
@@ -716,6 +769,78 @@ export async function syncSupplierProducts(
     autoPaused: catalog.autoPaused,
     errors,
   };
+}
+
+export type SupplierSyncJobItem = {
+  readonly supplierId: string;
+  readonly name: string;
+  readonly ok: boolean;
+  readonly synced: number;
+  readonly errors: readonly string[];
+};
+
+/**
+ * Syncs every active supplier whose last sync is missing or older than minAgeMs.
+ * Used by cron jobs (including reconcile piggyback) and manual System health triggers.
+ */
+export async function syncDueSuppliers(
+  supabase: DbClient,
+  minAgeMs: number = 30 * 60 * 1000,
+): Promise<{ readonly results: readonly SupplierSyncJobItem[] }> {
+  const suppliers = await listSuppliers(supabase);
+  const nowMs = Date.now();
+  const due = suppliers.filter((supplier) => {
+    if (!(supplier.status === 'active' || supplier.status === 'connected') || !supplier.hasApiKey) {
+      return false;
+    }
+    if (minAgeMs <= 0 || !supplier.lastSyncAt) {
+      return true;
+    }
+    const lastMs = Date.parse(supplier.lastSyncAt);
+    return !Number.isFinite(lastMs) || nowMs - lastMs >= minAgeMs;
+  });
+
+  const results: SupplierSyncJobItem[] = [];
+  for (const supplier of due) {
+    try {
+      const summary = await syncSupplierProducts(supabase, supplier.id);
+      if (minAgeMs === 0) {
+        try {
+          await refreshSupplierBalance(supabase, supplier.id);
+        } catch {
+          // Best-effort balance refresh across non-ProdSeller adapters too.
+        }
+      }
+      results.push({
+        supplierId: supplier.id,
+        name: supplier.name,
+        ok: summary.errors.length === 0,
+        synced: summary.synced,
+        errors: summary.errors,
+      });
+    } catch (error: unknown) {
+      const message = safeSupplierSyncMessage(error);
+      try {
+        await supabase
+          .from('suppliers')
+          .update({
+            last_sync_error: message,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', supplier.id);
+      } catch {
+        // Ignore DB update error after sync error.
+      }
+      results.push({
+        supplierId: supplier.id,
+        name: supplier.name,
+        ok: false,
+        synced: 0,
+        errors: [message],
+      });
+    }
+  }
+  return { results };
 }
 
 const LINKED_COLUMNS =

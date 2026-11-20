@@ -6,6 +6,7 @@
 
 import Link from 'next/link';
 import { ErrorState, Skeleton, StatusPill } from '@/components/platform/ui';
+import { formatPlainDatesInText } from '@/lib/display-labels';
 import { useData } from '@/lib/hooks/use-data';
 import { ROUTES } from '@/lib/navigation';
 
@@ -28,11 +29,18 @@ export default function SupplierHealthPage(): JSX.Element {
       {state.data ? (
         <article className="glass-card space-y-2 rounded-lg p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-ink">{state.data.supplier}</p>
+            <p className="text-sm text-ink">{formatPlainDatesInText(state.data.supplier)}</p>
             <StatusPill tone={state.data.healthy ? 'ok' : 'fault'}>{state.data.healthy ? 'Answering' : 'Not answering'}</StatusPill>
           </div>
-          <p className="text-xs text-ink-faint">Mode {state.data.mode}</p>
-          <Link href={`${ROUTES.platform.catalog}?section=suppliers&panel=health`} className="inline-flex text-sm text-rose">Open supplier balances</Link>
+          <p className="text-xs text-ink-faint">Mode {formatPlainDatesInText(state.data.mode)}</p>
+          <div className="flex flex-wrap gap-4">
+            <Link href={`${ROUTES.platform.catalog}?section=suppliers&panel=health`} className="inline-flex text-sm text-rose hover:underline">
+              Open supplier balances
+            </Link>
+            <Link href={ROUTES.platform.systemHealth} className="inline-flex text-sm text-ink-soft hover:text-ink hover:underline">
+              View full system health
+            </Link>
+          </div>
         </article>
       ) : null}
     </section>

@@ -11,6 +11,7 @@
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
+import { recordCronHeartbeat } from '@/lib/cron-heartbeat';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { sweepRateLimitHits } from '@/lib/rate-limiter';
@@ -46,8 +47,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     } catch (error: unknown) {
       logger.error('referral sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
     }
+    let expiredTopups = 0;
     try {
-      await expirePendingTopups(db);
+      expiredTopups = await expirePendingTopups(db);
     } catch (error: unknown) {
       logger.error('top-up sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
     }
@@ -56,6 +58,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     } catch (error: unknown) {
       logger.error('rate limit sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
     }
+    await recordCronHeartbeat(
+      db,
+      'cron.fulfillment',
+      { processed: result.processed, failed: result.failed, expiredTopups },
+      'Order fulfillment cron',
+    );
     return jsonSuccess(result);
   } catch (error: unknown) {
     return handleRouteError(error);

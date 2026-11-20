@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|save code|update code|edit code|schedule broadcast|confirm send|review send|cancel broadcast|update points|add freebie|activate|deactivate|move up|remove chat|test key|mark /i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync suppliers|sync|run now|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|save code|update code|edit code|schedule broadcast|confirm send|review send|cancel broadcast|update points|add freebie|activate|deactivate|move up|remove chat|test key|mark /i;
 
 function loadEnv(text) {
   const env = {};
@@ -269,6 +269,16 @@ async function openRoute(context, role, route, width, serverLog) {
   }
   if (expected === '/discounts') {
     if (/Amount in minor units/i.test(body)) problems.push('raw minor units label on discounts');
+  }
+  if (expected === '/system-health') {
+    const badDemoRow = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('main li')];
+      return items.some((li) => {
+        const text = li.textContent ?? '';
+        return /Payment mode:\s*Demo/i.test(text) && !/Needs attention/i.test(text);
+      });
+    }).catch(() => false);
+    if (badDemoRow) problems.push('Payment mode: Demo did not show Needs attention');
   }
   if (landed !== expected) problems.push(`landed on ${landed}`);
   await page.close();
