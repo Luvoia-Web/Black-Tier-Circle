@@ -215,6 +215,14 @@ const AUDIT_ACTIONS: Readonly<Record<string, string>> = {
   'payment.override': 'Overrode payment status',
   'assistant.chat': 'Asked Remy AI',
   'intelligence.ask': 'Queried platform intelligence',
+  'discount.create': 'Created discount code',
+  'discount.update': 'Updated discount code',
+  'discount.enable': 'Turned discount code on',
+  'discount.disable': 'Turned discount code off',
+  'discount.delete': 'Deleted discount code',
+  'broadcast.send': 'Sent broadcast',
+  'broadcast.schedule': 'Scheduled broadcast',
+  'broadcast.cancel': 'Canceled scheduled broadcast',
 };
 
 export function displayAuditAction(action: string): string {

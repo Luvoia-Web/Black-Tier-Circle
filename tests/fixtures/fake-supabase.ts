@@ -595,6 +595,32 @@ export function createMemoryDb(initial: Record<string, MemoryRow[]> = {}): DbCli
       return { data: [{ success: true, new_balance: next.toString(), error_code: null }], error: null };
     }
 
+    if (fn === 'redeem_discount_code') {
+      const codes = tableOf('discount_codes');
+      const redemptions = tableOf('discount_redemptions');
+      const code = codes.find((row) => String(row.id) === String(args.p_code_id));
+      const orderMinor = asMinor(args.p_order_minor ?? '0');
+      const result = (ok: boolean, reason: string) => ({ data: { ok, reason }, error: null });
+      if (!code) return result(false, 'missing');
+      if (code.active !== true) return result(false, 'inactive');
+      const now = Date.now();
+      if (typeof code.starts_at === 'string' && Date.parse(code.starts_at) > now) return result(false, 'not_started');
+      if (typeof code.expires_at === 'string' && Date.parse(code.expires_at) <= now) return result(false, 'expired');
+      const used = Number(code.used_count ?? 0);
+      if (typeof code.max_uses === 'number' && used >= code.max_uses) return result(false, 'max_uses');
+      if (orderMinor < asMinor(code.min_order_minor ?? '0')) return result(false, 'min_order');
+      if (typeof code.per_customer_limit === 'number') {
+        const mine = redemptions.filter((row) => String(row.code_id) === String(code.id) && String(row.customer_id) === String(args.p_customer_id)).length;
+        if (mine >= code.per_customer_limit) return result(false, 'per_customer');
+      }
+      if (redemptions.some((row) => String(row.code_id) === String(code.id) && String(row.order_id) === String(args.p_order_id))) {
+        return result(true, 'already');
+      }
+      redemptions.push({ id: crypto.randomUUID(), code_id: code.id, customer_id: args.p_customer_id, order_id: args.p_order_id, created_at: nowIso() });
+      code.used_count = used + 1;
+      return result(true, 'redeemed');
+    }
+
     return { data: null, error: { message: `unknown rpc ${fn}` } };
   }
 

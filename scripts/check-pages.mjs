@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|test key|mark /i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|save code|update code|edit code|schedule broadcast|confirm send|review send|cancel broadcast|update points|add freebie|activate|deactivate|move up|remove chat|test key|mark /i;
 
 function loadEnv(text) {
   const env = {};
@@ -263,6 +263,12 @@ async function openRoute(context, role, route, width, serverLog) {
     if (/\bplatform\s+lacks?\b.*\binfrastructure\b|\b(?:lacks?|lacking|insufficient)\s+(?:the\s+|sufficient\s+|necessary\s+)?infrastructure\b/i.test(body)) {
       problems.push('unfiltered infrastructure noise');
     }
+  }
+  if (expected === '/marketing') {
+    if (/Customer id/i.test(body)) problems.push('raw Customer id field on marketing');
+  }
+  if (expected === '/discounts') {
+    if (/Amount in minor units/i.test(body)) problems.push('raw minor units label on discounts');
   }
   if (landed !== expected) problems.push(`landed on ${landed}`);
   await page.close();

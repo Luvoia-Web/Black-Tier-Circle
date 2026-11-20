@@ -119,13 +119,6 @@ export async function redeemOpenCheckout(db: DbClient, input: { readonly custome
   if (quoted < minor(row.min_order_minor)) {
     return { applied: true, ok: false, message: `This order is below the code minimum of ${formatUsdt(minor(row.min_order_minor))}.` };
   }
-  const existing = (await db.from('discount_redemptions').select('id').eq('code_id', row.id).eq('order_id', order.id).maybeSingle()) as QueryResult<unknown>;
-  if (missing(existing.error)) {
-    return { applied: true, ok: false, message: 'Discount codes need migration 0032.' };
-  }
-  if (existing.data) {
-    return { applied: true, ok: true, total: formatUsdt(quoted) };
-  }
   try {
     await assertCustomerAllowed(db, input.customerId, 'discount');
   } catch (error: unknown) {
@@ -133,17 +126,6 @@ export async function redeemOpenCheckout(db: DbClient, input: { readonly custome
       return { applied: true, ok: false, message: error.message };
     }
     throw error;
-  }
-  const prior = (await db.from('discount_redemptions').select('id', { count: 'exact', head: true }).eq('code_id', row.id)) as QueryResult<unknown>;
-  const used = prior.count ?? row.used_count;
-  if (row.max_uses !== null && used >= row.max_uses) {
-    return { applied: true, ok: false, message: 'That code has been used up.' };
-  }
-  if (row.per_customer_limit !== null) {
-    const mine = (await db.from('discount_redemptions').select('id', { count: 'exact', head: true }).eq('code_id', row.id).eq('customer_id', input.customerId)) as QueryResult<unknown>;
-    if ((mine.count ?? 0) >= row.per_customer_limit) {
-      return { applied: true, ok: false, message: 'You have already used that code.' };
-    }
   }
   const product = await getProduct(db, order.product_id);
   const quantity = typeof order.quantity === 'number' ? order.quantity : 1;
@@ -162,17 +144,44 @@ export async function redeemOpenCheckout(db: DbClient, input: { readonly custome
   if (priced.priceMinor >= quoted) {
     return { applied: true, ok: false, message: 'That code cannot lower this order below the store minimum.' };
   }
-  const saved = (await db.from('discount_redemptions').insert({ code_id: row.id, customer_id: input.customerId, order_id: order.id }).select('id').maybeSingle()) as QueryResult<unknown>;
-  if (saved.error?.code === '23505') {
-    return { applied: true, ok: true, total: formatUsdt(priced.priceMinor) };
+  // The only write path: redeem_discount_code locks the code row, checks every
+  // rule, inserts the redemption, and increments used_count in one transaction.
+  const redeemed = (await db.rpc('redeem_discount_code', {
+    p_code_id: row.id,
+    p_customer_id: input.customerId,
+    p_order_id: order.id,
+    p_order_minor: quoted.toString(),
+  })) as QueryResult<unknown>;
+  if (redeemed.error) {
+    return { applied: true, ok: false, message: 'That code could not be applied. Try again.' };
   }
-  if (saved.error) {
-    return { applied: true, ok: false, message: missing(saved.error) ? 'Discount codes need migration 0032.' : 'That code could not be applied. Try again.' };
+  const outcome = readRedeemOutcome(redeemed.data);
+  if (!outcome.ok) {
+    return { applied: true, ok: false, message: REDEEM_REASONS[outcome.reason] ?? 'That code cannot be used on this order.' };
+  }
+  if (outcome.reason === 'already') {
+    return { applied: true, ok: true, total: formatUsdt(quoted) };
   }
   const updated = await db.from('orders').update({ quoted_retail_price: priced.priceMinor.toString(), updated_at: new Date().toISOString() }).eq('id', order.id).eq('payment_status', 'awaiting');
   if (updated.error) {
     throw new ValidationError('DISCOUNT_FAILED', 'The code was recorded but the price did not change. Open the order and try the code again.');
   }
-  await db.from('discount_codes').update({ used_count: used + 1 }).eq('id', row.id).eq('used_count', row.used_count);
   return { applied: true, ok: true, total: formatUsdt(priced.priceMinor) };
+}
+
+const REDEEM_REASONS: Readonly<Record<string, string>> = {
+  missing: 'That code does not exist.',
+  inactive: 'That code is turned off.',
+  not_started: 'That code has not started yet.',
+  expired: 'That code has expired.',
+  max_uses: 'That code has been used up.',
+  min_order: 'This order is below the code minimum.',
+  per_customer: 'You have already used that code.',
+};
+
+function readRedeemOutcome(data: unknown): { readonly ok: boolean; readonly reason: string } {
+  const value = Array.isArray(data) ? data[0] : data;
+  if (!value || typeof value !== 'object') return { ok: false, reason: 'unknown' };
+  const record = value as Record<string, unknown>;
+  return { ok: record.ok === true, reason: typeof record.reason === 'string' ? record.reason : 'unknown' };
 }
