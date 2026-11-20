@@ -1,8 +1,7 @@
 -- Restores the rows copied by scripts/sql/fresh-start.sql.
 -- Run only after that script committed, and only if fresh_start_backup still exists.
--- Product file bytes were deleted from storage. This puts the storage.objects
--- rows back. The bytes themselves are gone, so downloads of those paths fail
--- until the files are uploaded again.
+-- Note: storage buckets (product-files / product-previews) are emptied manually via
+-- Supabase Storage UI and are not touched by this SQL script.
 -- Not applied by the agent.
 
 begin;
@@ -39,9 +38,22 @@ insert into public.bot_connections
 select * from fresh_start_backup.bot_connections b
 where not exists (select 1 from public.bot_connections x where x.id = b.id);
 
+-- Restore customers in two steps so self-referencing referred_by_customer_id
+-- never violates the foreign key regardless of row insert order.
+create temp table _restore_customers on commit drop as
+  select * from fresh_start_backup.customers;
+
+update _restore_customers set referred_by_customer_id = null;
+
 insert into public.customers
-select * from fresh_start_backup.customers b
+select * from _restore_customers b
 where not exists (select 1 from public.customers c where c.id = b.id);
+
+update public.customers c
+set referred_by_customer_id = b.referred_by_customer_id
+from fresh_start_backup.customers b
+where c.id = b.id
+  and b.referred_by_customer_id is not null;
 
 insert into public.products
 select * from fresh_start_backup.products b
@@ -197,9 +209,32 @@ insert into public.store_config_versions
 select * from fresh_start_backup.store_config_versions b
 where not exists (select 1 from public.store_config_versions v where v.id = b.id);
 
+update public.store_config_versions v
+set saved_by = b.saved_by
+from fresh_start_backup.store_config_versions b
+where v.id = b.id;
+
+insert into public.broadcasts
+select * from fresh_start_backup.broadcasts b
+where not exists (select 1 from public.broadcasts x where x.id = b.id);
+
+update public.broadcasts x
+set created_by = b.created_by
+from fresh_start_backup.broadcasts b
+where x.id = b.id;
+
 insert into public.notifications
 select * from fresh_start_backup.notifications b
 where not exists (select 1 from public.notifications n where n.id = b.id);
+
+insert into public.invitations
+select * from fresh_start_backup.invitations b
+where not exists (select 1 from public.invitations i where i.id = b.id);
+
+update public.invitations i
+set invited_by = b.invited_by
+from fresh_start_backup.invitations b
+where i.id = b.id;
 
 insert into public.audit_log
 select * from fresh_start_backup.audit_log b
@@ -210,15 +245,6 @@ set actor_id = b.actor_id,
     tenant_id = b.tenant_id
 from fresh_start_backup.audit_log b
 where a.id = b.id;
-
-update public.invitations i
-set invited_by = b.invited_by
-from fresh_start_backup.invitations b
-where i.id = b.id;
-
-insert into storage.objects
-select * from fresh_start_backup.storage_objects b
-where not exists (select 1 from storage.objects o where o.id = b.id);
 
 commit;
 
