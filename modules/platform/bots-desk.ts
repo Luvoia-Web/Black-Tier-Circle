@@ -138,21 +138,25 @@ export async function readBots(
   role: 'owner' | 'reseller',
   tenantId: string | null,
 ): Promise<{ readonly bots: readonly BotCard[] }> {
+  if (role === 'reseller' && !tenantId) {
+    return { bots: [] };
+  }
   const sinceMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const orders = records(
-    (await db
-      .from('orders')
-      .select('id, tenant_id, bot_id, channel, payment_status, quoted_retail_price, created_at')
-      .order('created_at', { ascending: false })
-      .limit(5000)) as QueryResult<unknown>,
-    'BOTS_ORDERS_FAILED',
-  );
-  const customers = records(
-    (await db.from('customers').select('id, bot_id').limit(5000)) as QueryResult<unknown>,
-    'BOTS_BUYERS_FAILED',
-  );
+  let ordersQuery = db
+    .from('orders')
+    .select('id, tenant_id, bot_id, channel, payment_status, quoted_retail_price, created_at')
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (role === 'reseller' && tenantId) {
+    ordersQuery = ordersQuery.eq('tenant_id', tenantId);
+  }
+  const orders = records((await ordersQuery) as QueryResult<unknown>, 'BOTS_ORDERS_FAILED');
   const cards: BotCard[] = [];
   if (role === 'owner') {
+    const customers = records(
+      (await db.from('customers').select('id, bot_id').limit(5000)) as QueryResult<unknown>,
+      'BOTS_BUYERS_FAILED',
+    );
     const [settings, tokenState, paused] = await Promise.all([
       getPlatformSettings(db),
       readOwnerBotTokenState(db),
@@ -229,6 +233,14 @@ export async function readBots(
       (await db.from('bot_connections').select('id, tenant_id, username, status, encrypted_token, last_health_at').eq('tenant_id', tenantId).limit(5)) as QueryResult<unknown>,
       'BOTS_LIST_FAILED',
     );
+    const botIds = bots.map((b) => text(b.id)).filter(Boolean);
+    const customers =
+      botIds.length > 0
+        ? records(
+            (await db.from('customers').select('id, bot_id').in('bot_id', botIds).limit(5000)) as QueryResult<unknown>,
+            'BOTS_BUYERS_FAILED',
+          )
+        : [];
     const tenant = records((await db.from('tenants').select('id, display_name').eq('id', tenantId).limit(1)) as QueryResult<unknown>, 'BOTS_TENANTS_FAILED')[0];
     for (const bot of bots) {
       const related = orders.filter((row) => text(row.tenant_id) === tenantId);
@@ -330,6 +342,7 @@ export async function readBotDetail(
 
   let token: string | null = null;
   let decryptFailed = false;
+  let rowTenantId: string | null = null;
   if (botId === 'owner' && role === 'owner') {
     const state = await readOwnerBotTokenState(db);
     if (state.status === 'ok') token = state.token;
@@ -337,7 +350,8 @@ export async function readBotDetail(
   } else {
     const row = (await db.from('bot_connections').select('encrypted_token, tenant_id').eq('id', botId).maybeSingle()) as QueryResult<Record<string, unknown> | null>;
     if (row.error) throw new AppError('BOTS_LIST_FAILED', row.error.message, 500);
-    if (role === 'reseller' && text(row.data?.tenant_id) !== tenantId) return null;
+    rowTenantId = text(row.data?.tenant_id) || null;
+    if (role === 'reseller' && (!tenantId || rowTenantId !== tenantId)) return null;
     const encrypted = text(row.data?.encrypted_token);
     if (encrypted) {
       try {
@@ -354,16 +368,28 @@ export async function readBotDetail(
     : { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: card.lastUpdate, webhookError: null };
   const resolved = resolveState(card.status, card.status === 'paused', decryptFailed, health.tokenValid, health.webhookSet, health.webhookError);
 
-  const orders = records(
-    (await db.from('orders').select('id, quoted_retail_price, payment_status, created_at, bot_id, tenant_id, channel').order('created_at', { ascending: false }).limit(24)) as QueryResult<unknown>,
-    'BOTS_ORDERS_FAILED',
-  ).filter((row) =>
+  let ordersQuery = db
+    .from('orders')
+    .select('id, quoted_retail_price, payment_status, created_at, bot_id, tenant_id, channel')
+    .order('created_at', { ascending: false })
+    .limit(24);
+  let buyersQuery = db.from('customers').select('id, username, first_name, bot_id').limit(12);
+  if (botId === 'owner') {
+    ordersQuery = ordersQuery.is('tenant_id', null);
+    buyersQuery = buyersQuery.is('bot_id', null);
+  } else if (rowTenantId) {
+    ordersQuery = ordersQuery.eq('tenant_id', rowTenantId);
+    buyersQuery = buyersQuery.eq('bot_id', botId);
+  } else {
+    ordersQuery = ordersQuery.eq('bot_id', botId);
+    buyersQuery = buyersQuery.eq('bot_id', botId);
+  }
+  const orders = records((await ordersQuery) as QueryResult<unknown>, 'BOTS_ORDERS_FAILED').filter((row) =>
     botId === 'owner'
       ? text(row.tenant_id) === '' && text(row.channel) !== 'reseller_bot'
-      : text(row.bot_id) === botId || text(row.tenant_id) === tenantId,
+      : true,
   );
-  const buyers = records((await db.from('customers').select('id, username, first_name, bot_id').limit(12)) as QueryResult<unknown>, 'BOTS_BUYERS_FAILED')
-    .filter((row) => (botId === 'owner' ? text(row.bot_id) === '' : text(row.bot_id) === botId));
+  const buyers = records((await buyersQuery) as QueryResult<unknown>, 'BOTS_BUYERS_FAILED');
 
   const errors: string[] = [];
   if (decryptFailed) errors.push(BOT_TOKEN_DECRYPT_ERROR_MESSAGE);

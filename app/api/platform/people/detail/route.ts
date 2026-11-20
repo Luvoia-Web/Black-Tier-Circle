@@ -28,6 +28,7 @@ export async function GET(request: Request): Promise<Response> {
       id: url.searchParams.get('id') ?? '',
       kind: url.searchParams.get('kind') ?? 'buyer',
       role,
+      tenantId: tenant?.id ?? null,
       botId: connection?.id ?? null,
     });
     return jsonSuccess({ person });

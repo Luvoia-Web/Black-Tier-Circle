@@ -63,11 +63,18 @@ export default function OverviewPage(): JSX.Element {
               <div className="mt-4">
                 <AreaTrend
                   data={data.series.length > 0 ? data.series : [{ label: 'Now', owner: 0, reseller: 0, api: 0 }]}
-                  series={[
-                    { key: 'owner', label: 'Owner store', color: CHART_COLORS.rose, value: data.legend.owner },
-                    { key: 'reseller', label: 'Reseller stores', color: CHART_COLORS.amber, value: data.legend.reseller },
-                    { key: 'api', label: 'API', color: CHART_COLORS.sky, value: data.legend.api },
-                  ]}
+                  series={
+                    data.role === 'reseller'
+                      ? [
+                          { key: 'reseller', label: 'Store bot', color: CHART_COLORS.rose, value: data.legend.reseller },
+                          { key: 'api', label: 'API', color: CHART_COLORS.sky, value: data.legend.api },
+                        ]
+                      : [
+                          { key: 'owner', label: 'Owner store', color: CHART_COLORS.rose, value: data.legend.owner },
+                          { key: 'reseller', label: 'Reseller stores', color: CHART_COLORS.amber, value: data.legend.reseller },
+                          { key: 'api', label: 'API', color: CHART_COLORS.sky, value: data.legend.api },
+                        ]
+                  }
                 />
               </div>
             </article>

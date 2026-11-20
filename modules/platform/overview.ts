@@ -88,6 +88,9 @@ export async function readOverview(
   range: OverviewRange,
   now: Date = new Date(),
 ): Promise<OverviewPayload> {
+  if (scope.role === 'reseller' && !scope.tenantId) {
+    throw new AppError('TENANT_REQUIRED', 'Reseller account is not active', 403);
+  }
   const start = startFor(range, now);
   const prior = previousStart(range, start, now);
   let query = db.from('orders').select('id, tenant_id, channel, payment_status, fulfillment_status, quoted_retail_price, quantity, created_at, customer_id, product_id').gte('created_at', prior.toISOString()).order('created_at', { ascending: false }).limit(1000);
@@ -178,10 +181,13 @@ export async function readOverview(
   const previousOrders = paidBefore.length;
   const orderDelta = previousOrders === 0 ? (paid.length > 0 ? 100 : 0) : Math.round(((paid.length - previousOrders) / previousOrders) * 100);
 
-  let liveQuery = db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', new Date(now.getTime() - 5 * 60 * 1000).toISOString());
-  if (scope.botId) liveQuery = liveQuery.eq('bot_id', scope.botId);
-  const liveResult = (await liveQuery) as QueryResult<unknown>;
-  const live = liveResult.error ? 0 : (liveResult.count ?? 0);
+  let live = 0;
+  if (scope.role === 'owner' || scope.botId) {
+    let liveQuery = db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', new Date(now.getTime() - 5 * 60 * 1000).toISOString());
+    if (scope.botId) liveQuery = liveQuery.eq('bot_id', scope.botId);
+    const liveResult = (await liveQuery) as QueryResult<unknown>;
+    live = liveResult.error ? 0 : (liveResult.count ?? 0);
+  }
 
   const hourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
   const paidHour = paid.filter((row) => text(row.created_at) >= hourAgo).length;

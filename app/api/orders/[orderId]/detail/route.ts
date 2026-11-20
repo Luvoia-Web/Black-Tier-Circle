@@ -42,7 +42,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     const db = asDbClient(session.admin);
     const order = await getOrder(db, context.params.orderId);
     await assertCanViewOrder(session, db, order);
-    const payload = await buildOrderDetail(db, order);
+    const payload = await buildOrderDetail(db, order, session.profile.role);
     return jsonSuccess(payload);
   } catch (error: unknown) {
     return handleRouteError(error);
@@ -80,20 +80,31 @@ async function assertCanViewOrder(
  * @param order - Loaded order
  * @returns JSON-safe detail payload (bigint amounts as strings)
  */
-async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetailPayload> {
+async function buildOrderDetail(
+  db: DbClient,
+  order: Order,
+  viewerRole: 'owner' | 'reseller' | string,
+): Promise<OrderDetailPayload> {
+  const isReseller = viewerRole === 'reseller';
   const [product, payment, fulfillment] = await Promise.all([
     getProduct(db, order.productId),
     getPaymentStatus(db, order.id),
     getOrderFulfillmentStatus(db, order.id),
   ]);
-  const customer = await loadCustomer(db, order.customerId);
+  const customer = await loadCustomer(db, order.customerId, isReseller ? order.tenantId : null);
   const attempt = fulfillment.fulfillmentAttempts[0] ?? null;
   const claim = payment.claim;
-  const labels = await sourceAndChannel(db, order.tenantId, order.channel, product.supplierId);
+  const labels = await sourceAndChannel(db, order.tenantId, order.channel, isReseller ? null : product.supplierId, isReseller);
   const [events, replacementOpen] = await Promise.all([loadEvents(db, order.id, attempt?.error ?? null), openReplacement(db, order.id)]);
   return {
     order: { ...serializeOrder(order), channelLabel: labels.channelLabel },
-    product: { title: product.title, sku: product.sku, supplierSku: product.supplierSku, deliveryType: product.deliveryType, sourceLabel: labels.sourceLabel },
+    product: {
+      title: product.title,
+      sku: product.sku,
+      supplierSku: isReseller ? null : product.supplierSku,
+      deliveryType: product.deliveryType,
+      sourceLabel: labels.sourceLabel,
+    },
     customer,
     paymentClaim: claim
       ? {
@@ -108,15 +119,18 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
       ? {
           method: attempt.method,
           status: attempt.status,
-          artifactPath: attempt.artifactPath,
+          artifactPath: isReseller ? null : attempt.artifactPath,
           completedAt: attempt.completedAt ? attempt.completedAt.toISOString() : null,
           error: attempt.error,
         }
       : null,
-    deliveredContent: resolveDeliveredContent(attempt?.artifactPath ?? null, fulfillment.deliveryAttempts),
+    deliveredContent: resolveDeliveredContent(
+      isReseller && attempt?.artifactPath?.startsWith('supplier_order:') ? null : (attempt?.artifactPath ?? null),
+      fulfillment.deliveryAttempts,
+    ),
     events,
     replacementOpen,
-    canReplaceFromSupplier: Boolean(product.supplierId && product.supplierSku),
+    canReplaceFromSupplier: isReseller ? false : Boolean(product.supplierId && product.supplierSku),
   };
 }
 
@@ -129,13 +143,18 @@ async function buildOrderDetail(db: DbClient, order: Order): Promise<OrderDetail
 async function loadCustomer(
   db: DbClient,
   customerId: string | null,
+  scopedTenantId: string | null = null,
 ): Promise<OrderDetailPayload['customer']> {
   if (customerId === null) {
     return null;
   }
   try {
     const customer = await getCustomerById(db, customerId);
-    const orders = (await db.from('orders').select('id', { count: 'exact', head: true }).eq('customer_id', customerId)) as QueryResult<unknown>;
+    let ordersQuery = db.from('orders').select('id', { count: 'exact', head: true }).eq('customer_id', customerId);
+    if (scopedTenantId) {
+      ordersQuery = ordersQuery.eq('tenant_id', scopedTenantId);
+    }
+    const orders = (await ordersQuery) as QueryResult<unknown>;
     return {
       telegramUserId: customer.telegramUserId,
       telegramChatId: customer.telegramChatId,
@@ -160,9 +179,10 @@ async function sourceAndChannel(
   tenantId: string | null,
   channel: Order['channel'],
   supplierId: string | null,
+  isReseller: boolean = false,
 ): Promise<{ sourceLabel: string; channelLabel: string }> {
-  let sourceLabel = 'Own Product';
-  if (supplierId) {
+  let sourceLabel = isReseller ? 'Platform catalog' : 'Own Product';
+  if (!isReseller && supplierId) {
     const supplier = await db.from('suppliers').select('name').eq('id', supplierId).maybeSingle();
     const name = (supplier.data as { name?: string } | null)?.name;
     sourceLabel = name && name.length > 0 ? name : 'Supplier API';

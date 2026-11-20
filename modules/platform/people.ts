@@ -398,7 +398,13 @@ export async function readPeople(
 
 export async function readPerson(
   db: DbClient,
-  input: { readonly id: string; readonly kind: string; readonly role: 'owner' | 'reseller'; readonly botId: string | null },
+  input: {
+    readonly id: string;
+    readonly kind: string;
+    readonly role: 'owner' | 'reseller';
+    readonly tenantId?: string | null;
+    readonly botId: string | null;
+  },
 ): Promise<PersonDetail | null> {
   if (input.kind === 'reseller') {
     if (input.role !== 'owner') {
@@ -453,31 +459,38 @@ export async function readPerson(
   if (!row) {
     return null;
   }
-  if (input.role === 'reseller' && text(row.bot_id) !== (input.botId ?? '')) {
+  if (input.role === 'reseller' && (!input.botId || text(row.bot_id) !== input.botId)) {
     return null;
   }
 
   const botStores = text(row.bot_id) ? await resolveBotStoreNames(db) : new Map<string, string>();
   const storeName = text(row.bot_id) ? (botStores.get(text(row.bot_id)) ?? 'Reseller store') : 'Owner store';
 
+  let buyerOrdersQuery = db
+    .from('orders')
+    .select('id, product_id, quantity, quoted_retail_price, payment_status, fulfillment_status, delivery_status, created_at')
+    .eq('customer_id', input.id)
+    .order('created_at', { ascending: false })
+    .limit(15);
+  let buyerThreadsQuery = db
+    .from('support_threads')
+    .select('id, status, unread_for_owner, last_message_at')
+    .eq('customer_id', input.id)
+    .order('last_message_at', { ascending: false })
+    .limit(10);
+  if (input.role === 'reseller' && input.tenantId) {
+    buyerOrdersQuery = buyerOrdersQuery.eq('tenant_id', input.tenantId);
+    buyerThreadsQuery = buyerThreadsQuery.eq('tenant_id', input.tenantId);
+  }
+
   const [ordersRes, referralsRes, threadsRes, topupsRes, pointsRes, auditsRes, replacementsRes] = await Promise.all([
-    db
-      .from('orders')
-      .select('id, product_id, quantity, quoted_retail_price, payment_status, fulfillment_status, delivery_status, created_at')
-      .eq('customer_id', input.id)
-      .order('created_at', { ascending: false })
-      .limit(15) as unknown as Promise<QueryResult<unknown>>,
+    buyerOrdersQuery as unknown as Promise<QueryResult<unknown>>,
     db
       .from('customers')
       .select('username, first_name')
       .eq('referred_by_customer_id', input.id)
       .limit(8) as unknown as Promise<QueryResult<unknown>>,
-    db
-      .from('support_threads')
-      .select('id, status, unread_for_owner, last_message_at')
-      .eq('customer_id', input.id)
-      .order('last_message_at', { ascending: false })
-      .limit(10) as unknown as Promise<QueryResult<unknown>>,
+    buyerThreadsQuery as unknown as Promise<QueryResult<unknown>>,
     db
       .from('wallet_topups')
       .select('id, amount_expected_minor, credited_amount_minor, status, created_at')
@@ -622,7 +635,7 @@ export async function readPerson(
         status: display.label,
         tone: display.tone,
         delivered: isOrderDelivered(tracks),
-        hasSupplier: product?.hasSupplier ?? false,
+        hasSupplier: input.role === 'owner' ? (product?.hasSupplier ?? false) : false,
         at: text(order.created_at),
       };
     }),

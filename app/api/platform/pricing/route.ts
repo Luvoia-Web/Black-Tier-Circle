@@ -7,6 +7,7 @@ import { AuthError, ValidationError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { usdtToMinor } from '@/lib/money';
 import { applyDefaultPricing, readPricing, savePricingDefaults } from '@/modules/platform/pricing';
+import { getTenantByUserId } from '@/modules/tenants';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -29,10 +30,13 @@ async function ownerDb() {
 export async function GET(): Promise<Response> {
   try {
     const session = await requireUser();
-    if (session.profile.role !== 'owner' && session.profile.role !== 'reseller') {
+    const role = session.profile.role;
+    if (role !== 'owner' && role !== 'reseller') {
       throw new AuthError('FORBIDDEN', 'You do not have access to pricing', 403);
     }
-    return jsonSuccess(await readPricing(asDbClient(session.admin)));
+    const db = asDbClient(session.admin);
+    const tenant = role === 'reseller' ? await getTenantByUserId(db, session.user.id) : null;
+    return jsonSuccess(await readPricing(db, { role, tenantId: tenant?.id ?? null }));
   } catch (error: unknown) {
     return handleRouteError(error);
   }

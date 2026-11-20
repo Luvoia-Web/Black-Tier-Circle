@@ -40,7 +40,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
     { id: 'level', header: 'Level', render: (row) => <Level row={row} /> },
     { id: 'sold', header: 'Sold, 30 days', numeric: true, render: (row) => String(row.sold30) },
     { id: 'days', header: 'Days left', numeric: true, render: (row) => row.daysLeft === null ? '—' : String(row.daysLeft) },
-    { id: 'qty', header: 'On hand', render: (row) => <Quantity row={row} onSaved={page.refetch} /> },
+    { id: 'qty', header: 'On hand', render: (row) => <Quantity row={row} role={data.role} onSaved={page.refetch} /> },
     { id: 'point', header: 'Reorder point', render: (row) => <ReorderPoint row={row} locked={data.needsMigration || data.role !== 'owner'} onSaved={page.refetch} /> },
   ];
   return (
@@ -83,8 +83,15 @@ function ReorderPoint({ row, locked, onSaved }: { readonly row: InventoryRow; re
   );
 }
 
-function Quantity({ row, onSaved }: { readonly row: InventoryRow; readonly onSaved: () => void }): JSX.Element {
+function Quantity({ row, role, onSaved }: { readonly row: InventoryRow; readonly role: 'owner' | 'reseller'; readonly onSaved: () => void }): JSX.Element {
   const [value, setValue] = useState(row.onHand ?? 0);
+  if (role === 'reseller') {
+    return (
+      <span className="text-sm text-ink">
+        {row.unlimited ? 'Unlimited' : row.onHand === null ? 'Available' : `${row.onHand} left`}
+      </span>
+    );
+  }
   if (row.mode === 'supplier') return <span className="text-sm text-ink">Supplier {row.supplierLive}</span>;
   if (row.mode === 'units') return <span className="text-sm text-ink">{row.unlimited ? '∞' : `${row.onHand ?? 0} left`}</span>;
   async function save(next: number): Promise<void> {
@@ -102,6 +109,85 @@ function Quantity({ row, onSaved }: { readonly row: InventoryRow; readonly onSav
   );
 }
 
+function ResellerPricingView({ data, onSaved }: { readonly data: PricingPage; readonly onSaved: () => void }): JSX.Element {
+  const [markup, setMarkup] = useState(data.retailValue || '20');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function applyMarkup(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const numeric = Number(markup);
+    if (!Number.isFinite(numeric) || numeric < 0 || numeric > 999.99) {
+      setError('Enter a markup percent between 0 and 999.99.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    const result = await runAction(API_ROUTES.resellerMarkup, {
+      method: 'POST',
+      body: { markupPercent: numeric },
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    setNote(`Updated store markup to ${numeric}% on listings without a custom override.`);
+    onSaved();
+  }
+
+  return (
+    <div className="space-y-4">
+      <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => void applyMarkup(event)}>
+        <p className="text-sm text-ink">
+          Store default retail markup. Listings with a custom price override keep their own price.
+        </p>
+        <div className="max-w-xs">
+          <TextField
+            id="reseller-markup-percent"
+            label="Default markup (%)"
+            value={markup}
+            onChange={(event) => setMarkup(event.target.value)}
+          />
+        </div>
+        {error ? <p className="text-sm" style={{ color: 'var(--fault-ink)' }}>{error}</p> : null}
+        {note ? <p className="text-sm text-ink">{note}</p> : null}
+        <Button type="submit" loading={busy}>Apply markup to store listings</Button>
+      </form>
+      <div className="glass-card space-y-2 rounded-lg p-4">
+        <p className="text-sm text-ink">
+          {data.defaultCount} {data.defaultCount === 1 ? 'listing uses' : 'listings use'} your store default ({data.retailValue}%).
+        </p>
+        {data.defaultPreview.length === 0 ? (
+          <p className="text-sm text-ink-soft">No store listings use the default markup yet.</p>
+        ) : (
+          <ul className="space-y-1 text-sm text-ink">
+            {data.defaultPreview.map((row) => (
+              <li key={row.id}>
+                {row.title}: wholesale {row.fromWholesale} USDT → retail {row.toRetail} USDT
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <DataTable
+        caption="Listings with a custom retail price"
+        columns={[
+          { id: 'title', header: 'Product', render: (row) => row.title },
+          { id: 'wholesale', header: 'Wholesale cost', render: (row) => `${row.wholesaleValue} USDT` },
+          { id: 'retail', header: 'Your retail price', render: (row) => `${row.retailValue} USDT` },
+        ]}
+        rows={data.overrides}
+        rowKey={(row) => row.id}
+        emptyTitle="No custom price overrides"
+        emptyMessage="Every active listing is following your store markup."
+      />
+    </div>
+  );
+}
+
 export function PricingSection(): JSX.Element {
   const page = useData<PricingPage>('/api/platform/pricing');
   const [fromCost, setFromCost] = useState('1.00');
@@ -113,6 +199,9 @@ export function PricingSection(): JSX.Element {
   if (page.loading && !page.data) return <Skeleton className="h-40 w-full" />;
   if (page.error || !page.data) return <ErrorState message={page.error?.message ?? 'Pricing did not load.'} onRetry={page.refetch} />;
   const data = page.data;
+  if (data.role === 'reseller') {
+    return <ResellerPricingView data={data} onSaved={page.refetch} />;
+  }
 
   async function save(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();

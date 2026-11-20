@@ -29,6 +29,7 @@ export type PricingPreview = {
 };
 
 export type PricingPage = {
+  readonly role?: 'owner' | 'reseller';
   readonly wholesaleKind: MarkupKind;
   readonly wholesaleValue: string;
   readonly retailKind: MarkupKind;
@@ -110,7 +111,103 @@ function quoteDefault(row: Record<string, unknown>, policy: SyncPolicy): { reado
   return { cost, wholesale, retail, blocked };
 }
 
-export async function readPricing(db: DbClient): Promise<PricingPage> {
+async function readResellerPricing(db: DbClient, tenantId: string): Promise<PricingPage> {
+  const settingsRes = (await db
+    .from('tenant_settings')
+    .select('markup_percent')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()) as QueryResult<Record<string, unknown> | null>;
+  const rawMarkup = settingsRes.data?.markup_percent;
+  const parsedMarkup = typeof rawMarkup === 'number' ? rawMarkup : Number(rawMarkup ?? 20);
+  const markupPercent = Number.isFinite(parsedMarkup) && parsedMarkup >= 0 ? parsedMarkup : 20;
+
+  const listings = records(
+    (await db
+      .from('reseller_listings')
+      .select('id, product_id, retail_price, price_override')
+      .eq('tenant_id', tenantId)
+      .limit(1000)) as QueryResult<unknown>,
+  );
+  const productIds = listings.map((row) => text(row.product_id)).filter(Boolean);
+  const products =
+    productIds.length === 0
+      ? []
+      : records(
+          (await db
+            .from('products')
+            .select('id, title, status, stock_unlimited, stock_count, wholesale_price')
+            .in('id', productIds)
+            .limit(1000)) as QueryResult<unknown>,
+        );
+  const byProductId = new Map(products.map((row) => [text(row.id), row]));
+  const rule: MarkupSide = { kind: 'percent', percent: markupPercent, minor: null };
+
+  const overrides: PricingOverride[] = [];
+  const preview: PricingPreview[] = [];
+  let attention = 0;
+  let defaultCount = 0;
+
+  for (const listing of listings) {
+    const product = byProductId.get(text(listing.product_id));
+    if (!product || text(product.status) === 'archived') continue;
+    if (product.stock_unlimited === false && (typeof product.stock_count !== 'number' || product.stock_count <= REORDER_POINT)) {
+      attention += 1;
+    }
+    const wholesale = priceOf(product, 'wholesale_price');
+    const retail = priceOf(listing, 'retail_price');
+    const expected = priceWithRule(wholesale, rule);
+    if (listing.price_override === true || retail !== expected) {
+      overrides.push({
+        id: text(listing.id),
+        title: text(product.title) || text(product.id),
+        wholesaleKind: 'fixed',
+        wholesaleValue: sideValue('fixed', null, wholesale),
+        retailKind: 'fixed',
+        retailValue: sideValue('fixed', null, retail),
+      });
+      continue;
+    }
+    defaultCount += 1;
+    if (preview.length < 12) {
+      preview.push({
+        id: text(listing.id),
+        title: text(product.title) || text(product.id),
+        fromWholesale: sideValue('fixed', null, wholesale),
+        fromRetail: sideValue('fixed', null, retail),
+        toWholesale: sideValue('fixed', null, wholesale),
+        toRetail: sideValue('fixed', null, expected),
+        blocked: retail < wholesale,
+      });
+    }
+  }
+
+  return {
+    role: 'reseller',
+    wholesaleKind: 'percent',
+    wholesaleValue: '0',
+    retailKind: 'percent',
+    retailValue: String(markupPercent),
+    minMarginPercent: 0,
+    overrides,
+    attentionCount: attention,
+    defaultCount,
+    defaultPreview: preview,
+  };
+}
+
+export async function readPricing(
+  db: DbClient,
+  scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null } = {
+    role: 'owner',
+    tenantId: null,
+  },
+): Promise<PricingPage> {
+  if (scope.role === 'reseller') {
+    if (!scope.tenantId) {
+      throw new AppError('TENANT_REQUIRED', 'Reseller account is not active', 403);
+    }
+    return readResellerPricing(db, scope.tenantId);
+  }
   const policy = await loadSyncPolicy(db);
   const products = records((await db.from('products').select(PRODUCT_COLUMNS).limit(1000)) as QueryResult<unknown>);
   const overrides: PricingOverride[] = [];
@@ -147,6 +244,7 @@ export async function readPricing(db: DbClient): Promise<PricingPage> {
     });
   }
   return {
+    role: 'owner',
     wholesaleKind: policy.wholesale.kind,
     wholesaleValue: sideValue(policy.wholesale.kind, policy.wholesale.percent, policy.wholesale.minor),
     retailKind: policy.retail.kind,

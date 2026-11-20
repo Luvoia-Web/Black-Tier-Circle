@@ -10,7 +10,7 @@ import { listProducts } from '@/modules/catalog';
 import { getBotConnection } from '@/modules/bots';
 import { getPlatformSettings } from '@/modules/platform/index';
 import { readBotMenuToggles } from '@/modules/platform/settings-extra';
-import { readStudio } from '@/modules/store-config/access';
+import { readStudio, tenantIdForStudio } from '@/modules/store-config/access';
 import { getTenantSettings, updateTenantSettings } from '@/modules/tenant-settings';
 
 export type PreviewProduct = {
@@ -54,12 +54,13 @@ const SAMPLE: PreviewProduct = {
 };
 
 export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, userId: string) {
+  const scopedTenantId = tenantIdForStudio(role, tenantId);
   const [studio, products, status, bot, history, testChat, menuToggles] = await Promise.all([
-    readStudio(db, role, tenantId),
-    previewProducts(db, role, tenantId),
-    role === 'owner' ? ownerStatus(db) : resellerStatus(db, tenantId),
-    role === 'owner' ? ownerBot(db) : resellerBot(db, tenantId),
-    versions(db, role === 'owner' ? null : tenantId),
+    readStudio(db, role, scopedTenantId),
+    previewProducts(db, role, scopedTenantId),
+    role === 'owner' ? ownerStatus(db) : resellerStatus(db, scopedTenantId),
+    role === 'owner' ? ownerBot(db) : resellerBot(db, scopedTenantId),
+    versions(db, scopedTenantId),
     readTestChat(db, userId),
     readBotMenuToggles(db),
   ]);
@@ -67,7 +68,7 @@ export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenant
 }
 
 export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, version: number) {
-  const scope = role === 'owner' ? null : tenantId;
+  const scope = tenantIdForStudio(role, tenantId);
   const query = db.from('store_config_versions').select('version, config, saved_at').eq('version', version).limit(1);
   const result = (await (scope === null ? query.is('tenant_id', null) : query.eq('tenant_id', scope))) as QueryResult<unknown>;
   if (missing(result.error)) {
@@ -95,7 +96,10 @@ async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantI
   const published = catalog.filter((product) => product.status === 'published');
   let allowed = published.length > 0 ? published : catalog.filter((product) => product.status !== 'archived').concat(catalog.filter((product) => product.status === 'archived'));
   const prices = new Map<string, bigint>();
-  if (role === 'reseller' && tenantId) {
+  if (role === 'reseller') {
+    if (!tenantId) {
+      return [SAMPLE];
+    }
     const listings = (await db.from('reseller_listings').select('product_id, retail_price').eq('tenant_id', tenantId).eq('is_visible', true).limit(8)) as QueryResult<unknown>;
     const rows = Array.isArray(listings.data) ? listings.data : [];
     const ids = new Set<string>();

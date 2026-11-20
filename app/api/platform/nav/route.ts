@@ -42,19 +42,22 @@ export async function GET(): Promise<Response> {
       .select('id', { count: 'exact', head: true })
       .or('fulfillment_status.eq.failed,payment_status.eq.failed')
       .in('delivery_status', NOT_DELIVERED_STATUSES);
-    let live = db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', liveSince);
     let day = db.from('orders').select('quoted_retail_price, payment_status').eq('payment_status', 'verified').gte('created_at', dayStart.toISOString()).limit(500);
     if (tenant) {
       orders = orders.eq('tenant_id', tenant.id);
       day = day.eq('tenant_id', tenant.id);
     }
-    if (bot) {
-      live = live.eq('bot_id', bot.id);
-    }
+
+    const livePromise: Promise<QueryResult<unknown>> =
+      role === 'owner' || bot
+        ? ((bot
+            ? db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', liveSince).eq('bot_id', bot.id)
+            : db.from('customers').select('id', { count: 'exact', head: true }).gte('updated_at', liveSince)) as unknown as Promise<QueryResult<unknown>>)
+        : Promise.resolve({ data: null, error: null, count: 0 } as QueryResult<unknown>);
 
     const [orderResult, liveResult, dayResult] = await Promise.all([
       orders as unknown as Promise<QueryResult<unknown>>,
-      live as unknown as Promise<QueryResult<unknown>>,
+      livePromise,
       day as unknown as Promise<QueryResult<unknown>>,
     ]);
 

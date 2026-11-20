@@ -421,7 +421,7 @@ export async function readSupportThread(
     return emptyDetail(false);
   }
   const threadTenantId = text(row.tenant_id) || null;
-  if (!scope.owner && (threadTenantId ?? '') !== (scope.tenantId ?? '')) {
+  if (!scope.owner && (!scope.tenantId || threadTenantId !== scope.tenantId)) {
     return emptyDetail(false);
   }
 
@@ -524,7 +524,7 @@ export async function readSupportThread(
         productTitle: prod?.title ?? 'Digital item',
         quantity: Number(order.quantity ?? 1) || 1,
         total: formatUsdt(minor(order.quoted_retail_price)),
-        hasSupplier: prod?.hasSupplier ?? false,
+        hasSupplier: scope.owner ? (prod?.hasSupplier ?? false) : false,
         hasOpenReplacement: openReplacementOrderIds.has(id),
         at: text(order.created_at),
       };
@@ -561,7 +561,7 @@ export async function setSupportThreadStatus(
     throw new NotFoundError('That support thread was not found.');
   }
   const threadTenantId = text(row.tenant_id) || null;
-  if (!input.scope.owner && (threadTenantId ?? '') !== (input.scope.tenantId ?? '')) {
+  if (!input.scope.owner && (!input.scope.tenantId || threadTenantId !== input.scope.tenantId)) {
     throw new AuthError('FORBIDDEN', 'That thread is not in your store', 403);
   }
   const saved = await db

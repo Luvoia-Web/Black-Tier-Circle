@@ -85,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
     const parsed = PeoplePostSchema.parse(raw);
 
     const customer = await getCustomerById(current.db, parsed.customerId);
-    if (current.role === 'reseller' && customer.botId !== current.botId) {
+    if (current.role === 'reseller' && (!current.botId || customer.botId !== current.botId)) {
       throw new AuthError('FORBIDDEN', 'That buyer is not in your store', 403);
     }
 

@@ -125,6 +125,20 @@ export async function readMoney(
   scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null },
   kindOrFilters: string | MoneyFilters = {},
 ): Promise<MoneyPayload> {
+  if (scope.role === 'reseller' && !scope.tenantId) {
+    const zero = formatUsdt(0n);
+    return {
+      role: 'reseller',
+      ownerBalance: zero,
+      customerWallets: zero,
+      resellerDebt: zero,
+      pendingOrders: zero,
+      suppliers: [],
+      wallets: [],
+      ledger: [],
+      debts: [],
+    };
+  }
   const filters: MoneyFilters =
     typeof kindOrFilters === 'string' ? { kind: kindOrFilters } : kindOrFilters;
 

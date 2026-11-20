@@ -141,13 +141,14 @@ export function CatalogView(): JSX.Element {
           : detail.data ? (
             <ItemDrawer
               row={detail.data.row}
+              role={role}
               history={detail.data.history}
               onEdit={openEditor}
             />
           ) : <p className="text-sm text-ink">This item is not in the catalog.</p>,
     );
     return () => setDrawer(null);
-  }, [item, editing, creating, detail.loading, detail.error, detail.data, detail.refetch, setDrawer, openEditor]);
+  }, [item, editing, creating, detail.loading, detail.error, detail.data, detail.refetch, setDrawer, openEditor, role]);
 
   function replace(next: URLSearchParams): void {
     const value = next.toString();
@@ -249,6 +250,9 @@ export function CatalogView(): JSX.Element {
   }
 
   const activeStage = params.get('stage') ?? 'live';
+  const visibleStages = role === 'reseller'
+    ? STAGES.filter((stage) => stage.id !== 'not_imported' && stage.id !== 'archived')
+    : STAGES;
 
   return (
     <section className="space-y-4">
@@ -305,7 +309,7 @@ export function CatalogView(): JSX.Element {
               <TextField id="catalog-search" label="Search" placeholder="Search by name, SKU or supplier" defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
             </div>
             <div className="ml-auto inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
-              {STAGES.map((stage) => (
+              {visibleStages.map((stage) => (
                 <button key={stage.id} type="button" aria-pressed={activeStage === stage.id} className={`h-8 rounded-lg px-3 text-[12.5px] ${activeStage === stage.id ? 'bg-white/12 text-ink' : 'text-ink-faint'}`} onClick={() => setParam('stage', stage.id === 'live' ? '' : stage.id)}>{stage.label}</button>
               ))}
             </div>
@@ -330,6 +334,7 @@ export function CatalogView(): JSX.Element {
                 <ProductCard
                   key={row.id}
                   row={row}
+                  role={role}
                   selected={selected.has(row.id)}
                   onToggle={() => {
                     const next = new Set(selected);
@@ -344,7 +349,7 @@ export function CatalogView(): JSX.Element {
             </div>
           ) : null}
           {layout === 'list' && rows.length > 0 ? (
-            <ProductTable rows={rows} selected={selected} onSelected={setSelected} onOpen={(row) => setParam('item', row.supplierProductId ?? row.productId ?? row.id)} onSaved={list.refetch} />
+            <ProductTable rows={rows} role={role} selected={selected} onSelected={setSelected} onOpen={(row) => setParam('item', row.supplierProductId ?? row.productId ?? row.id)} onSaved={list.refetch} />
           ) : null}
           {list.data ? <Pagination page={list.data.page} pageSize={list.data.pageSize} total={list.data.total} onPage={(page) => setParam('page', String(page))} /> : null}
           {chosen.length > 0 ? (
@@ -401,7 +406,7 @@ function CategoryChip({ label, count, on, onClick }: { readonly label: string; r
   );
 }
 
-function ProductCard({ row, selected, onToggle, onOpen, onSaved }: { readonly row: CatalogRow; readonly selected: boolean; readonly onToggle: () => void; readonly onOpen: () => void; readonly onSaved: () => void }): JSX.Element {
+function ProductCard({ row, role, selected, onToggle, onOpen, onSaved }: { readonly row: CatalogRow; readonly role: 'owner' | 'reseller'; readonly selected: boolean; readonly onToggle: () => void; readonly onOpen: () => void; readonly onSaved: () => void }): JSX.Element {
   return (
     <article className={`glass-card rounded-lg p-3 ${selected ? 'border-rose/60 shadow-[0_0_0_1px_rgba(255,95,143,0.35)]' : ''}`}>
       <button type="button" className="relative block h-[122px] w-full overflow-hidden rounded-[14px]" onClick={onOpen} aria-label={`Open ${row.title}`}>
@@ -413,27 +418,27 @@ function ProductCard({ row, selected, onToggle, onOpen, onSaved }: { readonly ro
         <input type="checkbox" aria-label={`Select ${row.title}`} checked={selected} className="absolute left-2 top-2 h-4 w-4" onClick={(event) => event.stopPropagation()} onChange={onToggle} />
       </button>
       <button type="button" className="mt-2 block text-left text-sm font-medium text-ink" onClick={onOpen}>{row.title}</button>
-      <p className="text-xs text-ink-faint">{row.category || 'Uncategorised'} · {row.deliveryLabel} · {row.supplierName}</p>
+      <p className="text-xs text-ink-faint">{row.category || 'Uncategorised'} · {row.deliveryLabel}{role === 'owner' ? ` · ${row.supplierName}` : ''}</p>
       <div className="mt-2 flex items-center justify-between gap-2">
         <InlinePrice row={row} onSaved={onSaved} />
         <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill>
       </div>
       <InlineStatus row={row} onSaved={onSaved} />
-      <InlineRule row={row} onSaved={onSaved} />
+      {role === 'owner' && !row.listingId ? <InlineRule row={row} onSaved={onSaved} /> : null}
     </article>
   );
 }
 
-function ProductTable({ rows, selected, onSelected, onOpen, onSaved }: { readonly rows: readonly CatalogRow[]; readonly selected: ReadonlySet<string>; readonly onSelected: (next: ReadonlySet<string>) => void; readonly onOpen: (row: CatalogRow) => void; readonly onSaved: () => void }): JSX.Element {
+function ProductTable({ rows, role, selected, onSelected, onOpen, onSaved }: { readonly rows: readonly CatalogRow[]; readonly role: 'owner' | 'reseller'; readonly selected: ReadonlySet<string>; readonly onSelected: (next: ReadonlySet<string>) => void; readonly onOpen: (row: CatalogRow) => void; readonly onSaved: () => void }): JSX.Element {
   const columns: Column<CatalogRow>[] = [
     { id: 'title', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md text-xs font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{initials(row.title)}</span>{row.title}</span> },
     { id: 'category', header: 'Category', render: (row) => row.category || '—' },
     { id: 'delivery', header: 'Delivery', render: (row) => row.deliveryLabel },
-    { id: 'supplier', header: 'Supplier', render: (row) => row.supplierName },
+    ...(role === 'owner' ? [{ id: 'supplier', header: 'Supplier', render: (row: CatalogRow) => row.supplierName }] : []),
     { id: 'price', header: 'Price', numeric: true, render: (row) => <InlinePrice row={row} onSaved={onSaved} /> },
     { id: 'stock', header: 'Stock', render: (row) => <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill> },
     { id: 'margin', header: 'Margin', numeric: true, render: (row) => row.marginLabel },
-    { id: 'rule', header: 'Markup rule', render: (row) => <InlineRule row={row} onSaved={onSaved} /> },
+    ...(role === 'owner' ? [{ id: 'rule', header: 'Markup rule', render: (row: CatalogRow) => <InlineRule row={row} onSaved={onSaved} /> }] : []),
   ];
   return (
     <DataTable caption="Products" columns={columns} rows={rows} rowKey={(row) => row.id} selected={selected} onSelected={onSelected} onOpen={onOpen} emptyTitle="No products match" emptyMessage="Clear a filter, or import from a supplier." />
@@ -547,7 +552,7 @@ function RuleForm({ busy, onSave }: { readonly busy: boolean; readonly onSave: (
   );
 }
 
-function ItemDrawer({ row, history, onEdit }: { readonly row: CatalogRow; readonly history: DetailPayload['history']; readonly onEdit: () => void }): JSX.Element {
+function ItemDrawer({ row, role, history, onEdit }: { readonly row: CatalogRow; readonly role: 'owner' | 'reseller'; readonly history: DetailPayload['history']; readonly onEdit: () => void }): JSX.Element {
   return (
     <div className="space-y-3 text-ink">
       <div className="flex items-start justify-between gap-3">
@@ -558,9 +563,11 @@ function ItemDrawer({ row, history, onEdit }: { readonly row: CatalogRow; readon
         <Button variant="secondary" onClick={onEdit}>Edit</Button>
       </div>
       <StatusPill tone={stockTone(row.stockKind, row.stockCount)}>{stockText(row)}</StatusPill>
-      <p className="text-sm text-ink-soft">{row.category || 'Uncategorised'} · {row.deliveryLabel} · {row.supplierName}</p>
+      <p className="text-sm text-ink-soft">{row.category || 'Uncategorised'} · {row.deliveryLabel}{role === 'owner' ? ` · ${row.supplierName}` : ''}</p>
       <p className="font-num text-sm">{money(row.priceMinor)} USDT · margin {row.marginLabel}</p>
-      <p className="text-sm text-ink-soft">Wholesale {ruleText(row.wholesaleKind, row.wholesaleValue)} · retail {ruleText(row.retailKind, row.retailValue)}</p>
+      {role === 'owner' && !row.listingId ? (
+        <p className="text-sm text-ink-soft">Wholesale {ruleText(row.wholesaleKind, row.wholesaleValue)} · retail {ruleText(row.retailKind, row.retailValue)}</p>
+      ) : null}
       <h3 className="text-sm">History</h3>
       {history.length === 0 ? <p className="text-sm text-ink-soft">No orders yet.</p> : (
         <ul className="space-y-2">

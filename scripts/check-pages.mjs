@@ -280,6 +280,11 @@ async function openRoute(context, role, route, width, serverLog) {
     }).catch(() => false);
     if (badDemoRow) problems.push('Payment mode: Demo did not show Needs attention');
   }
+  if (role === 'reseller') {
+    if (/\bTop resellers\b|\bSupplier balance\b|\bImport from supplier\b/i.test(body)) {
+      problems.push('reseller sees owner-only text');
+    }
+  }
   if (landed !== expected) problems.push(`landed on ${landed}`);
   await page.close();
   return { route, role, width, pass: problems.length === 0, problems };

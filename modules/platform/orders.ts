@@ -216,18 +216,24 @@ async function scoped(db: DbClient, filters: Filters, tenantId: string | null): 
     query = query.eq('id', filters.search);
   } else if (filters.search) {
     const like = `%${filters.search}%`;
-    const byRef = records((await db.from('orders').select('id').ilike('external_order_ref', like).limit(200)) as QueryResult<unknown>);
+    let refQuery = db.from('orders').select('id').ilike('external_order_ref', like).limit(200);
+    if (tenantId) refQuery = refQuery.eq('tenant_id', tenantId);
+    const byRef = records((await refQuery) as QueryResult<unknown>);
     const customerIds = await idsMatching(db, 'customers', ['username', 'first_name'], filters.search);
     const productIds = await idsMatching(db, 'products', ['title', 'sku'], filters.search);
     const orderIds = new Set(byRef.map((row) => text(row.id)).filter(Boolean));
     if (customerIds.length > 0) {
-      for (const row of records((await db.from('orders').select('id').in('customer_id', customerIds).limit(200)) as QueryResult<unknown>)) {
+      let custOrders = db.from('orders').select('id').in('customer_id', customerIds).limit(200);
+      if (tenantId) custOrders = custOrders.eq('tenant_id', tenantId);
+      for (const row of records((await custOrders) as QueryResult<unknown>)) {
         const id = text(row.id);
         if (id) orderIds.add(id);
       }
     }
     if (productIds.length > 0) {
-      for (const row of records((await db.from('orders').select('id').in('product_id', productIds).limit(200)) as QueryResult<unknown>)) {
+      let prodOrders = db.from('orders').select('id').in('product_id', productIds).limit(200);
+      if (tenantId) prodOrders = prodOrders.eq('tenant_id', tenantId);
+      for (const row of records((await prodOrders) as QueryResult<unknown>)) {
         const id = text(row.id);
         if (id) orderIds.add(id);
       }
@@ -256,7 +262,11 @@ function minorOf(value: unknown, fallback = 0n): bigint {
   }
 }
 
-async function mapRows(db: DbClient, raw: readonly Record<string, unknown>[]): Promise<OrderListRow[]> {
+async function mapRows(
+  db: DbClient,
+  raw: readonly Record<string, unknown>[],
+  tenantId: string | null = null,
+): Promise<OrderListRow[]> {
   const productIds = [...new Set(raw.map((row) => text(row.product_id)).filter(Boolean))];
   const customerIds = [...new Set(raw.map((row) => text(row.customer_id)).filter(Boolean))];
   const products = new Map<string, { readonly title: string; readonly supplierPriceMinor: bigint | null }>();
@@ -264,8 +274,9 @@ async function mapRows(db: DbClient, raw: readonly Record<string, unknown>[]): P
   const stores = new Map<string, string>();
   const tenantIds = [...new Set(raw.map((row) => text(row.tenant_id)).filter(Boolean))];
   if (productIds.length > 0) {
-    for (const row of records((await db.from('products').select('id, title, supplier_price_minor').in('id', productIds)) as QueryResult<unknown>)) {
-      const hasSupplier = row.supplier_price_minor !== null && row.supplier_price_minor !== undefined && row.supplier_price_minor !== '';
+    const productCols = tenantId ? 'id, title' : 'id, title, supplier_price_minor';
+    for (const row of records((await db.from('products').select(productCols).in('id', productIds)) as QueryResult<unknown>)) {
+      const hasSupplier = !tenantId && row.supplier_price_minor !== null && row.supplier_price_minor !== undefined && row.supplier_price_minor !== '';
       products.set(text(row.id), {
         title: text(row.title),
         supplierPriceMinor: hasSupplier ? minorOf(row.supplier_price_minor) : null,
@@ -388,7 +399,7 @@ export async function readOrders(db: DbClient, tenantId: string | null, filters:
   if (listed.error) {
     throw new AppError('ORDER_LIST_FAILED', listed.error.message, 500);
   }
-  const [rows, summary] = await Promise.all([mapRows(db, records(listed)), summarize(db, tenantId, filters)]);
+  const [rows, summary] = await Promise.all([mapRows(db, records(listed), tenantId), summarize(db, tenantId, filters)]);
   return { rows, total, page: filters.page, pageSize: filters.pageSize, summary };
 }
 
@@ -397,7 +408,7 @@ export async function readOrdersCsv(db: DbClient, tenantId: string | null, filte
   if (listed.error) {
     throw new AppError('ORDER_LIST_FAILED', listed.error.message, 500);
   }
-  const rows = await mapRows(db, records(listed));
+  const rows = await mapRows(db, records(listed), tenantId);
   const header = 'id,product,customer,channel,payment,fulfillment,delivery,total,created';
   const body = rows.map((row) => [row.id, row.productTitle, row.customerLabel, row.channel, row.paymentStatus, row.fulfillmentStatus, row.deliveryStatus, row.total, row.createdAt].map(csvCell).join(','));
   return [header, ...body].join('\n');

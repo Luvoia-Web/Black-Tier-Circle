@@ -574,15 +574,15 @@ async function ownerPage(db: DbClient, filters: Filters): Promise<CatalogPage> {
 async function resellerPage(db: DbClient, tenantId: string, filters: Filters): Promise<CatalogPage> {
   const listings = records((await db.from('reseller_listings').select('id, product_id, is_visible, retail_price').eq('tenant_id', tenantId).limit(1000)) as QueryResult<unknown>);
   const products = await readProducts(db, listings.map((row) => text(row.product_id)).filter(Boolean));
-  const names = new Map((await facets(db)).suppliers.map((item) => [item.id, item.name]));
+  const emptyNames = new Map<string, string>();
   let rows = listings.map((listing) => {
     const product = products.get(text(listing.product_id)) ?? null;
-    const base = product ? toOwnRow(product, names) : presentRow({
+    const base = product ? toOwnRow(product, emptyNames) : presentRow({
       id: text(listing.id),
       supplierProductId: null,
       productId: text(listing.product_id) || null,
       supplierId: null,
-      supplierName: 'Listing',
+      supplierName: 'Platform catalog',
       title: text(listing.product_id) || 'Listing',
       sku: '',
       category: null,
@@ -600,6 +600,8 @@ async function resellerPage(db: DbClient, tenantId: string, filters: Filters): P
       ...base,
       id: text(listing.product_id) || text(listing.id),
       listingId: text(listing.id) || null,
+      supplierId: null,
+      supplierName: 'Platform catalog',
       priceMinor: price,
       marginLabel: marginLabel(price, base.costMinor),
       stage: paused ? 'paused' as const : base.stage,
@@ -614,7 +616,7 @@ async function resellerPage(db: DbClient, tenantId: string, filters: Filters): P
   }
   const summary: CatalogSummary = {
     itemCount: rows.length,
-    supplierCount: new Set(rows.map((row) => row.supplierId).filter((id): id is string => Boolean(id))).size,
+    supplierCount: 0,
     liveCount: rows.filter((row) => row.stage === 'live' || row.stage === 'out_of_stock').length,
     attentionCount: rows.filter((row) => row.stockKind === 'out').length,
     categoryCounts: [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0])).slice(0, 12).map(([name, count]) => ({ name, count })),
@@ -631,7 +633,7 @@ async function resellerPage(db: DbClient, tenantId: string, filters: Filters): P
     if (!needle) {
       return true;
     }
-    return row.title.toLowerCase().includes(needle) || row.sku.toLowerCase().includes(needle) || row.supplierName.toLowerCase().includes(needle);
+    return row.title.toLowerCase().includes(needle) || row.sku.toLowerCase().includes(needle);
   });
   const start = (filters.page - 1) * filters.pageSize;
   const pageRows = rows.slice(start, start + filters.pageSize);
@@ -663,29 +665,61 @@ export async function readCatalog(
 }
 
 export async function readCatalogDetail(db: DbClient, id: string, tenantId: string | null): Promise<CatalogDetail> {
-  const supplier = (await db.from('supplier_products').select('*').eq('id', id).maybeSingle()) as QueryResult<Record<string, unknown> | null>;
-  const names = new Map((await facets(db)).suppliers.map((item) => [item.id, item.name]));
   let row: CatalogRow | null = null;
   let productId = '';
-  if (supplier.data && !supplier.error) {
-    const linked = text(supplier.data.product_id);
-    const products = await readProducts(db, linked ? [linked] : []);
-    row = toSupplierRow(supplier.data, products.get(linked) ?? null, names);
-    productId = linked;
-  } else {
-    const products = await readProducts(db, [id]);
-    const product = products.get(id);
+  if (tenantId) {
+    const byProduct = (await db
+      .from('reseller_listings')
+      .select('id, product_id, retail_price, is_visible')
+      .eq('tenant_id', tenantId)
+      .eq('product_id', id)
+      .maybeSingle()) as QueryResult<Record<string, unknown> | null>;
+    const listingData =
+      byProduct.data ??
+      ((await db
+        .from('reseller_listings')
+        .select('id, product_id, retail_price, is_visible')
+        .eq('tenant_id', tenantId)
+        .eq('id', id)
+        .maybeSingle()) as QueryResult<Record<string, unknown> | null>).data;
+    if (!listingData) {
+      throw new AppError('CATALOG_NOT_FOUND', 'That item is not in your catalog.', 404);
+    }
+    productId = text(listingData.product_id);
+    const products = await readProducts(db, productId ? [productId] : []);
+    const product = products.get(productId);
     if (!product) {
-      throw new AppError('CATALOG_NOT_FOUND', 'That item is not in the catalog.', 404);
+      throw new AppError('CATALOG_NOT_FOUND', 'That item is not in your catalog.', 404);
     }
-    if (tenantId) {
-      const listing = (await db.from('reseller_listings').select('id').eq('tenant_id', tenantId).eq('product_id', id).maybeSingle()) as QueryResult<unknown>;
-      if (!listing.data) {
-        throw new AppError('CATALOG_NOT_FOUND', 'That item is not in your catalog.', 404);
+    const base = toOwnRow(product, new Map<string, string>());
+    const price = minorOf(listingData.retail_price) ?? base.priceMinor;
+    row = {
+      ...base,
+      id: productId,
+      listingId: text(listingData.id) || null,
+      supplierId: null,
+      supplierName: 'Platform catalog',
+      priceMinor: price,
+      marginLabel: marginLabel(price, base.costMinor),
+      stage: listingData.is_visible === false ? 'paused' : base.stage,
+    };
+  } else {
+    const supplier = (await db.from('supplier_products').select('*').eq('id', id).maybeSingle()) as QueryResult<Record<string, unknown> | null>;
+    const names = new Map((await facets(db)).suppliers.map((item) => [item.id, item.name]));
+    if (supplier.data && !supplier.error) {
+      const linked = text(supplier.data.product_id);
+      const products = await readProducts(db, linked ? [linked] : []);
+      row = toSupplierRow(supplier.data, products.get(linked) ?? null, names);
+      productId = linked;
+    } else {
+      const products = await readProducts(db, [id]);
+      const product = products.get(id);
+      if (!product) {
+        throw new AppError('CATALOG_NOT_FOUND', 'That item is not in the catalog.', 404);
       }
+      row = toOwnRow(product, names);
+      productId = id;
     }
-    row = toOwnRow(product, names);
-    productId = id;
   }
   const history: { id: string; label: string; at: string }[] = [];
   if (productId) {

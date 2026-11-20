@@ -79,7 +79,10 @@ export async function readInventory(
     : wide);
   if (!needsMigration && wide.error) throw new AppError('INVENTORY_READ_FAILED', wide.error.message, 500);
   const ids = products.map((row) => text(row.id)).filter((id) => id && (!allowed || allowed.has(id)));
-  const suppliers = records((await db.from('suppliers').select('id, name').limit(100)) as QueryResult<unknown>);
+  const suppliers =
+    scope.role === 'owner'
+      ? records((await db.from('suppliers').select('id, name').limit(100)) as QueryResult<unknown>)
+      : [];
   const names = new Map(suppliers.map((row) => [text(row.id), text(row.name)]));
   const linked = ids.length === 0
     ? []
@@ -125,7 +128,10 @@ export async function readInventory(
     rows.push({
       id,
       title: text(product.title) || id,
-      supplierName: names.get(text(product.supplier_id)) || (mode === 'supplier' ? 'Supplier' : 'Own product'),
+      supplierName:
+        scope.role === 'reseller'
+          ? 'Platform catalog'
+          : names.get(text(product.supplier_id)) || (mode === 'supplier' ? 'Supplier' : 'Own product'),
       deliveryType: delivery || 'manual',
       onHand,
       unlimited,

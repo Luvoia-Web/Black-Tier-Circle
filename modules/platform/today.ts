@@ -63,6 +63,14 @@ export async function readToday(
   db: DbClient,
   scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null; readonly botId: string | null },
 ): Promise<TodayPayload> {
+  if (scope.role === 'reseller' && !scope.tenantId) {
+    return {
+      role: 'reseller',
+      items: [],
+      supportNeedsMigration: false,
+      day: { orders: 0, revenue: formatUsdt(0n), newBuyers: 0 },
+    };
+  }
   const items: TodayItem[] = [];
   const since = startOfToday();
 
@@ -208,13 +216,17 @@ export async function readToday(
   const revenue = dayRows
     .filter((row) => text(row.payment_status) === 'verified')
     .reduce((sum, row) => sum + BigInt(typeof row.quoted_retail_price === 'number' || typeof row.quoted_retail_price === 'string' ? row.quoted_retail_price : 0), 0n);
-  let buyers = db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since);
-  if (scope.botId) {
-    buyers = buyers.eq('bot_id', scope.botId);
-  } else if (scope.role === 'owner') {
-    buyers = buyers.is('bot_id', null);
+  let newBuyers = 0;
+  if (scope.role === 'owner' || scope.botId) {
+    let buyers = db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since);
+    if (scope.botId) {
+      buyers = buyers.eq('bot_id', scope.botId);
+    } else if (scope.role === 'owner') {
+      buyers = buyers.is('bot_id', null);
+    }
+    const buyerResult = (await buyers) as QueryResult<unknown>;
+    newBuyers = buyerResult.count ?? records(buyerResult).length;
   }
-  const buyerResult = (await buyers) as QueryResult<unknown>;
 
   return {
     role: scope.role,
@@ -223,7 +235,7 @@ export async function readToday(
     day: {
       orders: dayRows.length,
       revenue: formatUsdt(revenue),
-      newBuyers: buyerResult.count ?? records(buyerResult).length,
+      newBuyers,
     },
   };
 }

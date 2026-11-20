@@ -10,7 +10,7 @@ import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { assertRateLimit } from '@/lib/request-rate-limit';
 import { loadFraudThresholds } from '@/modules/platform/fraud';
 import { getPlatformSettings, updatePlatformInfo } from '@/modules/platform';
-import { readResellerPolicy, RESELLER_POLICY_FIELDS, saveResellerPolicy } from '@/modules/platform/policy';
+import { readEffectiveResellerPolicy, RESELLER_POLICY_FIELDS, saveResellerPolicy } from '@/modules/platform/policy';
 import { readRevenueGoal, writeRevenueGoal, parseGoalUsdt } from '@/modules/platform/goal';
 import {
   listStoresWithOverrides,
@@ -136,7 +136,7 @@ async function audit(db: DbClient, actorId: string, action: string, tenantId: st
 export async function GET(): Promise<Response> {
   try {
     const current = await scope();
-    const policy = await readResellerPolicy(current.db);
+    const policy = await readEffectiveResellerPolicy(current.db, current.tenantId);
     const fraud = await loadFraudThresholds(current.db);
     const platform = current.role === 'owner' ? await getPlatformSettings(current.db) : null;
     const goal = await readRevenueGoal(current.db, { role: current.role, tenantId: current.tenantId });
