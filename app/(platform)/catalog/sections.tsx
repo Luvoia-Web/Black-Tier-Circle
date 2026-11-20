@@ -37,7 +37,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
     { id: 'sold', header: 'Sold, 30 days', numeric: true, render: (row) => String(row.sold30) },
     { id: 'days', header: 'Days left', numeric: true, render: (row) => row.daysLeft === null ? '—' : String(row.daysLeft) },
     { id: 'qty', header: 'On hand', render: (row) => <Quantity row={row} role={data.role} onSaved={page.refetch} /> },
-    { id: 'point', header: 'Reorder point', render: (row) => <ReorderPoint row={row} locked={data.needsMigration || data.role !== 'owner'} onSaved={page.refetch} /> },
+    { id: 'point', header: 'Reorder point', render: (row) => <ReorderPoint row={row} locked={data.role !== 'owner'} onSaved={page.refetch} /> },
   ];
   return (
     <div className="space-y-4">
@@ -46,7 +46,6 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
         <StatTile label="Units on hand" value={String(data.unitsOnHand)} icon={Boxes} tone="sky" />
         <StatTile label="Needs attention" value={String(data.attentionCount)} icon={AlertTriangle} tone="amber" />
       </div>
-      {data.needsMigration ? <p className="text-sm text-ink">Needs migration 0034. Every product uses the shared reorder point of 10 until products.reorder_point exists.</p> : null}
       <button type="button" aria-pressed={attention} className={`h-8 rounded-xl border px-3 text-[12.5px] ${attention ? 'border-rose/50 bg-rose/20 text-ink' : 'border-white/10 text-ink-soft'}`} onClick={() => onAttention(!attention)}>
         Needs attention ({data.attentionCount})
       </button>

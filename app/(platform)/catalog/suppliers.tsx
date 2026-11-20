@@ -344,7 +344,7 @@ function Health(): JSX.Element {
           <article key={row.supplierId} className="glass-card space-y-1 rounded-lg p-4">
             <p className="text-sm text-ink">{row.name}</p>
             <p className="text-xs text-ink-faint">Balance {row.balance} USDT · {row.status}</p>
-            {row.balanceTrend.length > 1 ? <Sparkline data={row.balanceTrend} /> : <p className="text-xs text-ink-faint">{health.needsMigration ? 'Needs migration 0034 before the balance trend can be drawn.' : 'One reading so far. The trend appears after the next balance check.'}</p>}
+            {row.balanceTrend.length > 1 ? <Sparkline data={row.balanceTrend} /> : <p className="text-xs text-ink-faint">One reading so far. The trend appears after the next balance check.</p>}
             <p className="text-xs text-ink-faint">Last sync {row.lastSyncAt ? <RelativeTime value={row.lastSyncAt} /> : 'never'}{row.lastSyncError ? ` · ${row.lastSyncError}` : ''}</p>
             <p className="text-xs text-ink-faint">Error rate {row.errorRate === null ? '—' : `${row.errorRate}%`} · average fulfilment {row.averageMinutes === null ? '—' : `${row.averageMinutes} min`}</p>
           </article>

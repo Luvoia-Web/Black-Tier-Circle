@@ -2,8 +2,7 @@
  * @file modules/platform/settings-extra.ts
  *
  * Hydration and split-section persistence helpers for Owner Settings.
- * Migration 0035 columns are assumed present (applied). Migration 0036 columns
- * (bot_show_reseller_signup, bot_show_my_api) degrade safely until applied.
+ * Migrations 0034–0038 are applied in production.
  */
 
 import { normalizeEthAddress } from '@/integrations/bsc/verify';
@@ -14,17 +13,6 @@ import { isProductionDemoAllowed, paymentSandboxEnabled } from '@/lib/payment-co
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { updatePaymentSettings } from '@/modules/platform';
 import { loadTopupPolicy, TOPUP_DEFAULT_MAX_MINOR, TOPUP_FLOOR_MINOR } from '@/modules/topups';
-
-function missingColumn(error: { message: string; code?: string } | null): boolean {
-  if (!error) return false;
-  const message = error.message.toLowerCase();
-  return (
-    error.code === '42703' ||
-    error.code === '42P01' ||
-    message.includes('does not exist') ||
-    message.includes('schema cache')
-  );
-}
 
 function parseMinor(value: unknown, fallback: bigint): bigint {
   if (typeof value === 'bigint') return value;
@@ -76,7 +64,10 @@ export async function readBotMenuToggles(
     .select('bot_show_reseller_signup, bot_show_my_api')
     .limit(1)
     .maybeSingle()) as QueryResult<Record<string, unknown> | null>;
-  if (res.error || !res.data) {
+  if (res.error) {
+    throw new AppError('PLATFORM_SETTINGS_LOOKUP_FAILED', res.error.message, 500);
+  }
+  if (!res.data) {
     return { resellerSignup: false, myApi: false };
   }
   return {
@@ -105,9 +96,7 @@ export async function saveBotMenuToggles(
 }
 
 /**
- * Reads platform_settings.payment_demo_mode (added in migration 0038).
- * Returns null if the column has not been added yet, letting paymentSandboxEnabled()
- * fall back to PAYMENT_SANDBOX.
+ * Reads platform_settings.payment_demo_mode (migration 0038).
  */
 export async function readPaymentDemoMode(db: DbClient): Promise<boolean | null> {
   const res = (await db
@@ -116,7 +105,6 @@ export async function readPaymentDemoMode(db: DbClient): Promise<boolean | null>
     .limit(1)
     .maybeSingle()) as QueryResult<{ payment_demo_mode?: unknown } | null>;
   if (res.error) {
-    if (missingColumn(res.error)) return null;
     throw new AppError('PLATFORM_SETTINGS_LOOKUP_FAILED', res.error.message, 500);
   }
   if (!res.data || typeof res.data.payment_demo_mode !== 'boolean') {
@@ -143,12 +131,6 @@ export async function savePaymentDemoMode(
     .update({ payment_demo_mode: demoMode, updated_at: new Date().toISOString() })
     .eq('id', id);
   if (saved.error) {
-    if (missingColumn(saved.error)) {
-      throw new ValidationError(
-        'PAYMENT_MODE_NEEDS_MIGRATION',
-        'Apply migration 0038 before switching payment mode from Settings, or update PAYMENT_SANDBOX on the server.',
-      );
-    }
     throw new AppError('SETTINGS_UPDATE_FAILED', saved.error.message, 500);
   }
   return { paymentMode: paymentSandboxEnabled(demoMode) ? 'demo' : 'live' };

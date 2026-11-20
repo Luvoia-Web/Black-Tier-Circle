@@ -291,8 +291,6 @@ async function writeAuditLog(
 }
 
 function supplierSkuForProduct(product: { sku: string; supplierSku: string | null }): string {
-  // TODO(supplier-integration): products need a supplier_sku field
-  // For now, use product.sku as the supplier SKU when supplier_sku is unset
   return product.supplierSku && product.supplierSku.trim().length > 0 ? product.supplierSku : product.sku;
 }
 

@@ -1,6 +1,6 @@
 /**
  * Supplier order monitor and health.
- * Balance history comes from supplier_balance_snapshots. A missing table means 0034 is not applied.
+ * Balance history comes from supplier_balance_snapshots.
  */
 
 import { AppError } from '@/lib/errors';
@@ -85,10 +85,8 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
   }
   const suppliers = records((await db.from('suppliers').select('id, name, status, last_sync_at, last_sync_error, balance_usdt').order('name', { ascending: true }).limit(100)) as QueryResult<unknown>);
   const snapshots = (await db.from('supplier_balance_snapshots').select('supplier_id, balance_usdt, checked_at').order('checked_at', { ascending: true }).limit(500)) as QueryResult<unknown>;
-  const needsMigration = Boolean(snapshots.error && (snapshots.error.code === '42P01' || snapshots.error.code === '42703' || snapshots.error.message.toLowerCase().includes('does not exist') || snapshots.error.message.toLowerCase().includes('schema cache')));
-  if (snapshots.error && !needsMigration) throw new AppError('SUPPLIER_DESK_FAILED', snapshots.error.message, 500);
   const trend = new Map<string, number[]>();
-  for (const row of needsMigration ? [] : records(snapshots)) {
+  for (const row of records(snapshots)) {
     const id = text(row.supplier_id);
     const value = Number(row.balance_usdt);
     if (!id || !Number.isFinite(value)) continue;
@@ -122,9 +120,7 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
       };
     }),
     pendingOrders: pending.length,
-    needsMigration,
-    note: needsMigration
-      ? 'Only the latest supplier balance is available right now.'
-      : 'Balance history updates automatically with each check and sync.',
+    needsMigration: false,
+    note: 'Balance history updates automatically with each check and sync.',
   };
 }

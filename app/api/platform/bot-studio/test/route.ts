@@ -11,6 +11,7 @@ import { assertRateLimit } from '@/lib/request-rate-limit';
 import { telegramSendHtml, telegramSendPhoto } from '@/integrations/telegram/api';
 import { decryptBotToken } from '@/integrations/telegram/webhook';
 import { getDecryptedOwnerBotToken } from '@/modules/platform';
+import { sanitizeBotHtml } from '@/modules/store-config/sanitize';
 import { isAllowedBotUrl } from '@/modules/store-config/urls';
 import { getTenantByUserId } from '@/modules/tenants';
 
@@ -62,7 +63,8 @@ export async function POST(request: Request): Promise<Response> {
     const saved = await db.from('profiles').update({ telegram_chat_id: body.chatId }).eq('id', session.user.id);
     if (saved.error) throw new AppError('TEST_CHAT_FAILED', saved.error.message, 500);
     const token = await tokenFor(db, role, session.user.id);
-    const text = body.imageUrl ? body.text.slice(0, 1024) : body.text;
+    const sanitized = sanitizeBotHtml(body.text);
+    const text = body.imageUrl ? sanitized.slice(0, 1024) : sanitized;
     if (body.imageUrl) await telegramSendPhoto(token, body.chatId, body.imageUrl, text);
     else await telegramSendHtml(token, body.chatId, text);
     await db.from('audit_log').insert({

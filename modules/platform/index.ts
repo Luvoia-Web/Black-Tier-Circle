@@ -397,7 +397,10 @@ export async function readOwnerBotPaused(supabase: DbClient): Promise<boolean> {
     .select('owner_bot_paused')
     .limit(1)
     .maybeSingle();
-  if (res.error || !res.data || typeof res.data !== 'object') {
+  if (res.error) {
+    throw new AppError('PLATFORM_SETTINGS_LOOKUP_FAILED', res.error.message, 500);
+  }
+  if (!res.data || typeof res.data !== 'object') {
     return false;
   }
   return (res.data as Record<string, unknown>).owner_bot_paused === true;

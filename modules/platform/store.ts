@@ -4,7 +4,7 @@
  * Store editor data. Preview products are the ones the bot can sell.
  */
 
-import { ValidationError } from '@/lib/errors';
+import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { listProducts } from '@/modules/catalog';
 import { getBotConnection } from '@/modules/bots';
@@ -29,12 +29,6 @@ export type PreviewProduct = {
   readonly sample: boolean;
   readonly imageUrl: string | null;
 };
-
-function missing(error: { message: string; code?: string } | null): boolean {
-  if (!error) return false;
-  const message = error.message.toLowerCase();
-  return error.code === '42703' || error.code === '42P01' || message.includes('does not exist') || message.includes('schema cache');
-}
 
 const SAMPLE: PreviewProduct = {
   id: 'sample',
@@ -71,10 +65,7 @@ export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller',
   const scope = tenantIdForStudio(role, tenantId);
   const query = db.from('store_config_versions').select('version, config, saved_at').eq('version', version).limit(1);
   const result = (await (scope === null ? query.is('tenant_id', null) : query.eq('tenant_id', scope))) as QueryResult<unknown>;
-  if (missing(result.error)) {
-    throw new ValidationError('STORE_HISTORY_FAILED', 'Needs migration 0034 before a version can be restored.');
-  }
-  if (result.error) throw new ValidationError('STORE_HISTORY_FAILED', result.error.message);
+  if (result.error) throw new AppError('STORE_HISTORY_FAILED', result.error.message, 500);
   const row = Array.isArray(result.data) ? result.data[0] : null;
   if (!row || typeof row !== 'object') {
     throw new ValidationError('STORE_VERSION_MISSING', 'That version was not found.');
@@ -156,8 +147,11 @@ async function previewProducts(db: DbClient, role: 'owner' | 'reseller', tenantI
 
 async function ownerStatus(db: DbClient): Promise<{ readonly storeStatus: 'open' | 'maintenance'; readonly maintenanceMessage: string; readonly statusNeedsMigration: boolean }> {
   const result = (await db.from('platform_settings').select('store_status, maintenance_msg').limit(1).maybeSingle()) as QueryResult<unknown>;
-  if (missing(result.error) || !result.data || typeof result.data !== 'object') {
-    return { storeStatus: 'open', maintenanceMessage: '', statusNeedsMigration: missing(result.error) };
+  if (result.error) {
+    throw new AppError('STORE_STATUS_FAILED', result.error.message, 500);
+  }
+  if (!result.data || typeof result.data !== 'object') {
+    return { storeStatus: 'open', maintenanceMessage: '', statusNeedsMigration: false };
   }
   const row = result.data as Record<string, unknown>;
   return {
@@ -202,8 +196,7 @@ async function resellerBot(db: DbClient, tenantId: string | null) {
 async function versions(db: DbClient, tenantId: string | null): Promise<readonly { readonly version: number; readonly savedAt: string }[]> {
   const query = db.from('store_config_versions').select('version, saved_at').order('version', { ascending: false }).limit(12);
   const result = (await (tenantId === null ? query.is('tenant_id', null) : query.eq('tenant_id', tenantId))) as QueryResult<unknown>;
-  if (missing(result.error)) return [];
-  if (result.error) throw new ValidationError('STORE_HISTORY_FAILED', result.error.message);
+  if (result.error) throw new AppError('STORE_HISTORY_FAILED', result.error.message, 500);
   if (!Array.isArray(result.data)) return [];
   return result.data.flatMap((row) => {
     if (!row || typeof row !== 'object') return [];
@@ -223,11 +216,8 @@ export async function saveOwnerStoreStatus(db: DbClient, status: 'open' | 'maint
     throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing, so the store status cannot be saved.');
   }
   const saved = await db.from('platform_settings').update({ store_status: status, maintenance_msg: message.slice(0, 500) }).eq('id', id);
-  if (missing(saved.error)) {
-    return { needsMigration: true };
-  }
   if (saved.error) {
-    throw new ValidationError('STORE_STATUS_FAILED', saved.error.message);
+    throw new AppError('STORE_STATUS_FAILED', saved.error.message, 500);
   }
   return { needsMigration: false };
 }

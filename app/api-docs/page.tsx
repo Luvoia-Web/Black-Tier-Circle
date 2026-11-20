@@ -172,8 +172,8 @@ export default function ApiDocsPage(): JSX.Element {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold">7. SDKs</h2>
-          <p className="text-sm text-[var(--text-2)]">Official SDKs coming soon. Use any HTTP client with the headers above.</p>
+          <h2 className="text-xl font-semibold">7. HTTP Clients</h2>
+          <p className="text-sm text-[var(--text-2)]">Use any HTTP client (curl, fetch, Python requests, etc.) with the API key headers above.</p>
         </section>
       </div>
     </div>

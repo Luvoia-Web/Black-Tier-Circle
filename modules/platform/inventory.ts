@@ -1,6 +1,6 @@
 /**
  * Stock for the Inventory tab.
- * A null reorder_point uses REORDER_POINT. A missing column means 0034 is not applied.
+ * A null products.reorder_point uses REORDER_POINT (10).
  */
 
 import { AppError } from '@/lib/errors';
@@ -39,12 +39,6 @@ export function reorderPointOf(value: unknown): number {
   return REORDER_POINT;
 }
 
-function missingColumn(error: { message: string; code?: string } | null): boolean {
-  if (!error) return false;
-  const message = error.message.toLowerCase();
-  return error.code === '42703' || error.code === '42P01' || message.includes('does not exist') || message.includes('schema cache');
-}
-
 function records(result: QueryResult<unknown>): Record<string, unknown>[] {
   if (result.error) throw new AppError('INVENTORY_READ_FAILED', result.error.message, 500);
   if (!Array.isArray(result.data)) return [];
@@ -73,11 +67,7 @@ export async function readInventory(
     allowed = new Set(listings.map((row) => text(row.product_id)).filter(Boolean));
   }
   const wide = (await db.from('products').select('id, title, status, stock_unlimited, stock_count, supplier_id, delivery_type, wholesale_price, reorder_point').limit(1000)) as QueryResult<unknown>;
-  const needsMigration = missingColumn(wide.error);
-  const products = records(needsMigration
-    ? (await db.from('products').select('id, title, status, stock_unlimited, stock_count, supplier_id, delivery_type, wholesale_price').limit(1000)) as QueryResult<unknown>
-    : wide);
-  if (!needsMigration && wide.error) throw new AppError('INVENTORY_READ_FAILED', wide.error.message, 500);
+  const products = records(wide);
   const ids = products.map((row) => text(row.id)).filter((id) => id && (!allowed || allowed.has(id)));
   const suppliers =
     scope.role === 'owner'
@@ -111,7 +101,7 @@ export async function readInventory(
     const delivery = text(product.delivery_type);
     const mode = modeOf(delivery, text(product.supplier_id));
     const onHand = mode === 'supplier' ? supplierCount : unlimited ? null : ownCount;
-    const reorderPoint = needsMigration ? REORDER_POINT : reorderPointOf(product.reorder_point);
+    const reorderPoint = reorderPointOf(product.reorder_point);
     const attention = supplierOut || (!unlimited && (onHand ?? 0) <= reorderPoint);
     const sold30 = sold.get(id) ?? 0;
     const daysLeft = onHand !== null && sold30 > 0 ? Math.floor((onHand * 30) / sold30) : null;
@@ -152,7 +142,7 @@ export async function readInventory(
     unitsOnHand: units,
     attentionCount: rows.filter((row) => row.attention).length,
     role: scope.role,
-    needsMigration,
+    needsMigration: false,
   };
 }
 
@@ -161,7 +151,6 @@ export async function saveReorderPoint(db: DbClient, productId: string, point: n
     throw new AppError('INVALID_REORDER_POINT', 'The reorder point must be zero or more.', 400);
   }
   const saved = (await db.from('products').update({ reorder_point: point, updated_at: new Date().toISOString() }).eq('id', productId)) as QueryResult<unknown>;
-  if (missingColumn(saved.error)) return { needsMigration: true };
   if (saved.error) throw new AppError('INVENTORY_SAVE_FAILED', saved.error.message, 500);
   return { needsMigration: false };
 }

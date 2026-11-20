@@ -9,6 +9,7 @@
 import { asDbClient, requireReseller } from '@/lib/auth/session';
 import { AppError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
+import { assertRateLimit } from '@/lib/request-rate-limit';
 import { updateProfile } from '@/modules/identity';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,7 @@ const TYPES: Record<string, string> = {
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireReseller();
+    await assertRateLimit(`reseller-avatar:${session.user.id}`, 10);
     const form = await request.formData();
     const file = form.get('file');
     if (!(file instanceof File)) {
@@ -47,7 +49,16 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { data } = session.admin.storage.from('avatars').getPublicUrl(path);
     const avatarUrl = `${data.publicUrl}?v=${Date.now()}`;
-    const profile = await updateProfile(asDbClient(session.admin), session.user.id, { avatarUrl });
+    const db = asDbClient(session.admin);
+    const profile = await updateProfile(db, session.user.id, { avatarUrl });
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      tenant_id: session.tenant.id,
+      action: 'reseller.avatar.update',
+      target_type: 'profile',
+      target_id: session.user.id,
+      reason: 'Updated reseller avatar',
+    });
     return jsonSuccess({ avatarUrl: profile.avatarUrl });
   } catch (error: unknown) {
     return handleRouteError(error);
