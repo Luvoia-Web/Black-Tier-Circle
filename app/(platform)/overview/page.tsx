@@ -34,11 +34,31 @@ export default function OverviewPage(): JSX.Element {
 
   return (
     <section className="space-y-4">
-      <header>
-        <h1 className="text-display font-light text-ink">{hello}{data ? `, ${data.firstName}` : ''}</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          {data ? `${data.dateLabel} · ${data.summary}` : 'Loading the day.'}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-display font-light text-ink">{hello}{data ? `, ${data.firstName}` : ''}</h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            {data ? `${data.dateLabel} · ${data.summary}` : 'Loading the day.'}
+          </p>
+        </div>
+        {data ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={ROUTES.platform.analytics}
+              className="inline-flex h-9 items-center rounded-xl border border-white/12 bg-white/[0.06] px-3.5 text-xs font-medium text-ink transition hover:bg-white/10"
+            >
+              Full report
+            </Link>
+            {data.role === 'owner' ? (
+              <Link
+                href={`${ROUTES.platform.catalog}?section=suppliers&panel=import`}
+                className="inline-flex h-9 items-center rounded-xl bg-rose px-3.5 text-xs font-medium text-white shadow-[0_8px_22px_rgba(255,95,143,0.3)] transition hover:opacity-95"
+              >
+                + Import products
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </header>
       {state.loading && !data ? <p className="text-sm text-ink-soft">Loading…</p> : null}
       {state.error ? <ErrorState message={state.error.message} requestId={state.error.requestId} detail={state.error.detail} onRetry={state.refetch} /> : null}
@@ -128,7 +148,7 @@ export default function OverviewPage(): JSX.Element {
                   {data.resellers.length === 0 ? <li className="text-sm text-ink-soft">No reseller sales in this range.</li> : null}
                   {data.resellers.map((reseller, index) => (
                     <li key={reseller.id}>
-                      <Link href={`${ROUTES.platform.people}?type=reseller&person=${encodeURIComponent(reseller.id)}`} className="flex items-center justify-between gap-3 text-sm text-ink">
+                      <Link href={`${ROUTES.platform.resellers}?reseller=${encodeURIComponent(reseller.id)}`} className="flex items-center justify-between gap-3 text-sm text-ink">
                         <span>{index + 1}. {reseller.name}</span>
                         <span className="tabular-nums text-ink-soft">{reseller.revenue} · {reseller.orders}</span>
                       </Link>

@@ -359,7 +359,7 @@ export type RecallOptions = {
 const TIMEOUT_SENTINEL = Symbol('hindsight-recall-timeout');
 
 const NOISE_MEMORY_PATTERN =
-  /\bplatform\s+lacks?\b.*\binfrastructure\b|\b(?:lacks?|lacking|insufficient)\s+(?:the\s+|sufficient\s+|necessary\s+)?infrastructure\b|\bno\s+infrastructure\s+(?:to|for|exists)\b/i;
+  /\bplatform\s+lacks?\b.*\b(?:infrastructure|foundational\s+capabilities|operational\s+patterns|reporting\s+structures)\b|\b(?:lack|lacks?|lacking|insufficient)\s+(?:of\s+)?(?:the\s+|sufficient\s+|necessary\s+|foundational\s+|defined\s+)?(?:infrastructure|capabilities|operational\s+patterns|reporting\s+structures)\b|\bno\s+infrastructure\s+(?:to|for|exists)\b|\bplatform\s+(?:has\s+limited\s+capabilities|cannot\s+monitor\s+operational\s+patterns)\b/i;
 
 const MEMORY_MARKER_PATTERN = /\n?(?:MEMORY_DECISION_V1|MEMORY_OUTCOME_V1)\s+[\s\S]*$/;
 

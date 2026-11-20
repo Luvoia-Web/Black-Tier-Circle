@@ -112,7 +112,10 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
         status: text(row.status),
         lastSyncAt: text(row.last_sync_at) || null,
         lastSyncError: text(row.last_sync_error) || null,
-        balance: text(row.balance_usdt) || '0',
+        balance:
+          typeof row.balance_usdt === 'number' && Number.isFinite(row.balance_usdt)
+            ? String(row.balance_usdt)
+            : text(row.balance_usdt) || '0',
         errorRate: stats.errorRate,
         averageMinutes: stats.averageMinutes,
         balanceTrend: trend.get(text(row.id)) ?? [],

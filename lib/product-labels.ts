@@ -40,11 +40,13 @@ export function productInitials(title: string): string {
     .split(/\s+/)
     .map((word) => word.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, ''))
     .filter((word) => word.length > 0);
-  if (words.length >= 2) {
-    return `${words[0]![0]}${words[1]![0]}`.toUpperCase();
+  const alphaWords = words.filter((word) => /^[a-zA-Z]/.test(word));
+  const pool = alphaWords.length >= 2 ? alphaWords : words;
+  if (pool.length >= 2) {
+    return `${pool[0]![0]}${pool[1]![0]}`.toUpperCase();
   }
-  if (words.length === 1) {
-    return words[0]!.slice(0, 2).toUpperCase();
+  if (pool.length === 1) {
+    return pool[0]!.slice(0, 2).toUpperCase();
   }
   const fallback = title.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase();
   return fallback || 'PR';

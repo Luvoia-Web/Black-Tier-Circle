@@ -938,13 +938,15 @@ export function CustomersView(): JSX.Element {
       ) : (
         <div className="min-w-0 space-y-4">
           <FilterBar>
-            <TextField
-              id="customers-search"
-              label="Search buyers"
-              placeholder="Username, name, or Telegram ID"
-              value={q}
-              onChange={(event) => updateParams({ q: event.target.value || null, page: null })}
-            />
+            <div className="w-64 max-w-full">
+              <TextField
+                id="customers-search"
+                label="Search buyers"
+                placeholder="Username, name, or Telegram ID"
+                value={q}
+                onChange={(event) => updateParams({ q: event.target.value || null, page: null })}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
               {STATE_CHIPS.map((chip) => {
                 const active = stateFilter === chip.id;

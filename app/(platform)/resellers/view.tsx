@@ -712,21 +712,21 @@ export function ResellersView(): JSX.Element {
                             {store.statusLabel}
                           </StatusPill>
                         </td>
-                        <td className="px-2 py-2.5 text-right">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right">
                           <div className="inline-flex items-center justify-end gap-2">
                             <MiniSparkline values={store.sparkline} color={sparkColor} />
                             <span className="font-num tabular-nums text-ink">{store.revenue}</span>
                           </div>
                         </td>
-                        <td className="px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.orders}</td>
-                        <td className="px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.buyers}</td>
-                        <td className="px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.wallet}</td>
-                        <td className="px-2 py-2.5 text-right font-num tabular-nums">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.orders}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.buyers}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-num tabular-nums text-ink">{store.wallet}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-num tabular-nums">
                           <span className={BigInt(store.owesYouMinor) > 0n ? 'text-amber' : 'text-ink-soft'}>
                             {store.owesYou}
                           </span>
                         </td>
-                        <td className="pl-2 py-2.5 text-right">
+                        <td className="whitespace-nowrap pl-2 py-2.5 text-right">
                           <span className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
                             <span
                               className={`h-1.5 w-1.5 rounded-pill ${

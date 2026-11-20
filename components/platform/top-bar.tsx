@@ -23,12 +23,22 @@ type TopBarProps = {
 };
 
 const NEW_LINKS = [
-  { href: ROUTES.platform.catalog, label: 'New product' },
-  { href: `${ROUTES.platform.catalog}?stage=not_imported`, label: 'Import from supplier' },
-  { href: `${ROUTES.platform.people}?type=reseller`, label: 'Invite reseller' },
-  { href: ROUTES.platform.growth, label: 'New discount code' },
-  { href: ROUTES.platform.growth, label: 'New broadcast' },
+  { href: `${ROUTES.platform.catalog}?create=1`, label: 'New product', ownerOnly: true },
+  { href: `${ROUTES.platform.catalog}?section=suppliers&panel=import`, label: 'Import from supplier', ownerOnly: true },
+  { href: ROUTES.platform.resellers, label: 'Invite reseller', ownerOnly: true },
+  { href: ROUTES.platform.discounts, label: 'New discount code', ownerOnly: false },
+  { href: ROUTES.platform.broadcasts, label: 'New broadcast', ownerOnly: false },
 ] as const;
+
+function accountInitials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter((part) => /^[a-zA-Z0-9]/.test(part));
+  if (parts.length >= 2) return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return 'BT';
+}
 
 export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPalette }: TopBarProps): JSX.Element {
   const pathname = usePathname();
@@ -85,12 +95,14 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
       </p>
       <button
         type="button"
-        aria-label="Search orders, products, resellers"
+        aria-label={role === 'owner' ? 'Search orders, products, resellers' : 'Search orders, products, customers'}
         className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-pill border border-stroke px-0 text-sm text-ink-faint sm:w-auto sm:min-w-0 sm:flex-1 sm:max-w-sm sm:justify-start sm:gap-2 sm:px-3"
         onClick={onOpenPalette}
       >
         <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="hidden truncate sm:inline">Search orders, products, resellers...</span>
+        <span className="hidden truncate sm:inline">
+          {role === 'owner' ? 'Search orders, products, resellers...' : 'Search orders, products, customers...'}
+        </span>
         <span className="ml-auto hidden rounded-md border border-stroke px-1.5 text-[11px] sm:inline">{mac ? '⌘K' : 'Ctrl K'}</span>
       </button>
       <p className="hidden items-center gap-2 rounded-pill border border-stroke px-3 py-2 text-xs text-ink-soft lg:flex">
@@ -114,7 +126,7 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
         </button>
         {createOpen ? (
           <div role="menu" className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-stroke bg-raised p-1 shadow-glass">
-            {NEW_LINKS.filter((item) => role === 'owner' || item.label !== 'Invite reseller').map((item) => (
+            {NEW_LINKS.filter((item) => role === 'owner' || !item.ownerOnly).map((item) => (
               <Link key={item.label} href={item.href} role="menuitem" className="block rounded-md px-3 py-2 text-sm text-ink hover:bg-rose/10" onClick={() => setCreateOpen(false)}>
                 {item.label}
               </Link>
@@ -128,10 +140,10 @@ export function PlatformTopBar({ displayName, role, counts, onOpenRail, onOpenPa
           aria-expanded={menuOpen}
           aria-haspopup="menu"
           aria-label="Account"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-pill bg-rose/20 text-rose"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-pill border border-white/15 bg-white/90 text-xs font-semibold tracking-tight text-[#1a0d14] transition hover:opacity-95"
           onClick={() => setMenuOpen((currentOpen) => !currentOpen)}
         >
-          <UserRound className="h-4 w-4" aria-hidden="true" />
+          {displayName ? accountInitials(displayName) : <UserRound className="h-4 w-4" aria-hidden="true" />}
         </button>
         {menuOpen ? (
           <div role="menu" className="absolute right-0 z-20 mt-2 w-52 rounded-lg border border-stroke bg-raised p-1 shadow-glass">

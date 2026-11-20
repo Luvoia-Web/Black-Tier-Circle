@@ -301,7 +301,7 @@ export function CatalogView(): JSX.Element {
         <>
           <div className="flex flex-wrap items-center gap-2">
             <div className="w-[340px] max-w-full [&_label]:sr-only [&_input]:h-8 [&_input]:min-h-8 [&_input]:rounded-xl">
-              <TextField id="catalog-search" label="Search" placeholder="Search by name, SKU or supplier" defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
+              <TextField id="catalog-search" label="Search" placeholder={role === 'owner' ? 'Search by name, SKU or supplier' : 'Search by name or SKU'} defaultValue={params.get('search') ?? ''} onBlur={(event) => setParam('search', event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') setParam('search', event.currentTarget.value); }} />
             </div>
             <div className="ml-auto inline-flex rounded-xl border border-white/10 bg-black/25 p-1">
               {visibleStages.map((stage) => (
@@ -322,7 +322,11 @@ export function CatalogView(): JSX.Element {
           {notice ? <p className="text-sm text-ink">{notice}</p> : null}
           {list.loading && !list.data ? <Skeleton className="h-40 w-full" /> : null}
           {list.error && !list.data ? <ErrorState message={list.error.message} onRetry={list.refetch} /> : null}
-          {list.data && rows.length === 0 ? <Card title="No products match"><p>Clear a filter, or import from a supplier.</p></Card> : null}
+          {list.data && rows.length === 0 ? (
+            <Card title="No products match">
+              <p>{role === 'owner' ? 'Clear a filter, or import from a supplier.' : 'Clear a filter, or check another stage.'}</p>
+            </Card>
+          ) : null}
           {layout === 'grid' && rows.length > 0 ? (
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
               {rows.map((row) => (

@@ -313,8 +313,9 @@ describe('Phase A-fix — Payments guard, verifier reason, initials, bot status 
     expect(offline).not.toContain(secretKey);
   });
 
-  it('strips brackets and symbols when computing product initials', () => {
+  it('strips brackets and symbols and skips numeric words when computing product initials', () => {
     expect(productInitials('[KEY] HMA VPN')).toBe('HV');
+    expect(productInitials('Gemini 18 Months')).toBe('GM');
     expect(productInitials('ChatGPT Plus')).toBe('CP');
     expect(productInitials('(1M) Netflix')).toBe('NE');
     expect(productInitials('***')).toBe('PR');

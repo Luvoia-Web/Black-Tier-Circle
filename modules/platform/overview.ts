@@ -230,7 +230,7 @@ export async function readOverview(
     kpis: [
       { id: 'orders', label: 'Orders', value: String(paid.length), delta: `${orderDelta > 0 ? '+' : ''}${orderDelta}%`, tone: orderDelta > 0 ? 'up' : orderDelta < 0 ? 'down' : 'flat' },
       { id: 'average', label: 'Average order', value: formatUsdt(average), delta: '', tone: 'flat' },
-      { id: 'conversion', label: 'Checkout to paid', value: `${conversion}%`, delta: '', tone: 'flat' },
+      { id: 'conversion', label: 'Checkout → paid', value: `${conversion}%`, delta: '', tone: 'flat' },
       { id: 'repeat', label: 'Repeat buyers', value: `${repeatRate}%`, delta: '', tone: 'flat' },
       { id: 'pending', label: 'Pending fulfillment', value: String(pending), delta: '', tone: pending > 0 ? 'down' : 'flat' },
       { id: 'supplier', label: 'Supplier balance', value: supplierBalance, delta: '', tone: 'flat' },
