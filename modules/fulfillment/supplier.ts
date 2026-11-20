@@ -17,6 +17,7 @@ import {
   saveDeliveryContent,
 } from '@/modules/fulfillment/customer-message';
 import type { SupplierOrderResult, SupplierStatusResult } from '@/integrations/supplier/types';
+import { CRON_BATCH_LIMITS, createCronBudget } from '@/lib/cron-budget';
 import { decrypt } from '@/lib/encryption';
 import { AppError, FulfillmentError } from '@/lib/errors';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
@@ -702,6 +703,8 @@ export type SupplierReconcileCounts = {
   readonly failed: number;
   readonly stillUnknown: number;
   readonly escalated: number;
+  readonly truncated?: boolean;
+  readonly durationMs?: number;
 };
 
 async function applyStatusResult(
@@ -851,23 +854,36 @@ export async function reconcileSupplierOrder(
 }
 
 /**
- * Polls supplier status for all outcome_unknown orders.
+ * Polls supplier status for outcome_unknown orders in a bounded batch and time budget.
  */
-export async function reconcileUnknownSupplierOrders(supabase: DbClient): Promise<SupplierReconcileCounts> {
+export async function reconcileUnknownSupplierOrders(
+  supabase: DbClient,
+  options: { readonly batchLimit?: number; readonly timeBudgetMs?: number } = {},
+): Promise<SupplierReconcileCounts> {
+  const batchLimit = Math.max(1, options.batchLimit ?? CRON_BATCH_LIMITS.reconcileUnknownOrders);
+  const budget = createCronBudget(options.timeBudgetMs ?? 8_000);
   const { listOrders } = await import('@/modules/orders');
-  const unknown = await listOrders(supabase, { fulfillmentStatus: 'outcome_unknown', limit: 100 });
+  const unknown = await listOrders(supabase, { fulfillmentStatus: 'outcome_unknown', limit: batchLimit + 1 });
+  const batch = unknown.slice(0, batchLimit);
+  let truncated = unknown.length > batchLimit;
+  let reconciled = 0;
   let completed = 0;
   let failed = 0;
   let stillUnknown = 0;
   let escalated = 0;
   const beforeNotes = new Map<string, number>();
-  for (const order of unknown) {
+  for (const order of batch) {
+    if (!budget.hasTime(500)) {
+      truncated = true;
+      break;
+    }
     const events = await getOrderEvents(supabase, order.id);
     beforeNotes.set(
       order.id,
       events.filter((event) => (event.note ?? '').includes(ESCALATION_NOTE_MARKER)).length,
     );
     const outcome = await reconcileSupplierOrder(supabase, order.id);
+    reconciled += 1;
     if (outcome === 'completed') {
       completed += 1;
     } else if (outcome === 'failed') {
@@ -882,11 +898,13 @@ export async function reconcileUnknownSupplierOrders(supabase: DbClient): Promis
     }
   }
   return {
-    reconciled: unknown.length,
+    reconciled,
     completed,
     failed,
     stillUnknown,
     escalated,
+    truncated,
+    durationMs: budget.elapsedMs(),
   };
 }
 

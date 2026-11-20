@@ -5,6 +5,7 @@
  */
 
 import { telegramSendHtml, telegramSendPhoto } from '@/integrations/telegram/api';
+import { CRON_BATCH_LIMITS, createCronBudget } from '@/lib/cron-budget';
 import { decrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
@@ -468,10 +469,16 @@ async function deliverToRecipients(
   links: { readonly store: string; readonly channel: string; readonly group: string; readonly website: string },
   recipients: readonly EligibleRecipient[],
   pauseMs: number = BATCH_PAUSE_MS,
-): Promise<{ readonly sent: number; readonly failed: number }> {
+  deadlineMs?: number,
+): Promise<{ readonly sent: number; readonly failed: number; readonly truncated: boolean }> {
   let sent = 0;
   let failed = 0;
+  let truncated = false;
   for (let index = 0; index < recipients.length; index += 1) {
+    if (deadlineMs !== undefined && Date.now() + 500 >= deadlineMs) {
+      truncated = true;
+      break;
+    }
     const person = recipients[index]!;
     const rendered = renderBroadcastText(template, links, person);
     try {
@@ -485,10 +492,14 @@ async function deliverToRecipients(
       failed += 1;
     }
     if (pauseMs > 0 && (index + 1) % BATCH_SIZE === 0 && index + 1 < recipients.length) {
+      if (deadlineMs !== undefined && Date.now() + pauseMs + 500 >= deadlineMs) {
+        truncated = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
   }
-  return { sent, failed };
+  return { sent, failed, truncated };
 }
 
 export async function broadcastBuyers(
@@ -694,20 +705,41 @@ export async function cancelScheduledBroadcast(
   });
 }
 
-export async function processDueBroadcasts(db: DbClient, now: Date = new Date(), batchPauseMs: number = BATCH_PAUSE_MS) {
+export type ProcessBroadcastOptions = {
+  readonly maxJobs?: number;
+  readonly maxRecipients?: number;
+  readonly timeBudgetMs?: number;
+};
+
+export async function processDueBroadcasts(
+  db: DbClient,
+  now: Date = new Date(),
+  batchPauseMs: number = BATCH_PAUSE_MS,
+  options: ProcessBroadcastOptions = {},
+) {
+  const maxJobs = Math.max(1, options.maxJobs ?? CRON_BATCH_LIMITS.broadcastJobs);
+  const maxRecipients = Math.max(1, options.maxRecipients ?? CRON_BATCH_LIMITS.broadcastRecipients);
+  const budget = createCronBudget(options.timeBudgetMs ?? 18_000);
+
   const due = (await db
     .from('broadcasts')
     .select('id, tenant_id, body, image_url, audience, status, scheduled_for')
     .eq('status', 'scheduled')
     .lte('scheduled_for', now.toISOString())
     .order('scheduled_for', { ascending: true })
-    .limit(10)) as QueryResult<unknown>;
+    .limit(maxJobs + 1)) as QueryResult<unknown>;
   if (due.error) {
     throw new AppError('BROADCASTS_DUE_READ_FAILED', due.error.message, 500);
   }
-  const rows = records(due);
+  const allRows = records(due);
+  const rows = allRows.slice(0, maxJobs);
+  let truncated = allRows.length > maxJobs;
   const results = [];
   for (const row of rows) {
+    if (!budget.hasTime(1_000)) {
+      truncated = true;
+      break;
+    }
     const id = text(row.id);
     const tenantId = text(row.tenant_id) || null;
     const role: 'owner' | 'reseller' = tenantId ? 'reseller' : 'owner';
@@ -730,25 +762,39 @@ export async function processDueBroadcasts(db: DbClient, now: Date = new Date(),
     const token = await tokenFor(db, role, tenantId);
     if (!token) {
       await db.from('broadcasts').update({ status: 'failed', finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id);
-      results.push({ id, status: 'failed', sent: 0, failed: 0 });
+      results.push({ id, status: 'failed', sent: 0, failed: 0, truncated: false });
       continue;
     }
     const { pool } = await loadAudiencePool(db, role, tenantId, botId);
-    const recipients = filterAudience(pool, audience);
+    const allRecipients = filterAudience(pool, audience);
+    const recipients = allRecipients.slice(0, maxRecipients);
+    const batchCapped = allRecipients.length > maxRecipients;
     const links = await storeLinksFor(db, role, tenantId);
-    const { sent, failed } = await deliverToRecipients(token, text(row.body), text(row.image_url), links, recipients, batchPauseMs);
+    const delivery = await deliverToRecipients(
+      token,
+      text(row.body),
+      text(row.image_url),
+      links,
+      recipients,
+      batchPauseMs,
+      budget.deadlineMs,
+    );
+    const jobTruncated = batchCapped || delivery.truncated;
+    if (jobTruncated) {
+      truncated = true;
+    }
     await db
       .from('broadcasts')
       .update({
         status: 'sent',
-        recipients: recipients.length,
-        sent,
-        failed,
+        recipients: allRecipients.length,
+        sent: delivery.sent,
+        failed: delivery.failed,
         finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
-    results.push({ id, status: 'sent', sent, failed });
+    results.push({ id, status: 'sent', sent: delivery.sent, failed: delivery.failed, truncated: jobTruncated });
   }
-  return { needsMigration: false, processed: results.length, results };
+  return { needsMigration: false, processed: results.length, truncated, durationMs: budget.elapsedMs(), results };
 }

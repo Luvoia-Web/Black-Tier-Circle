@@ -26,6 +26,7 @@ import {
   fulfillSupplier as fulfillSupplierOrder,
   retrySupplierDelivery,
 } from './supplier';
+import { CRON_BATCH_LIMITS, createCronBudget } from '@/lib/cron-budget';
 import { FULFILLMENT_CONFIG } from '@/lib/fulfillment-config';
 import { AppError, FulfillmentError, NotFoundError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -1047,21 +1048,38 @@ export async function getOrderFulfillmentStatus(
   };
 }
 
+export type ProcessFulfillmentsOptions = {
+  readonly batchLimit?: number;
+  readonly readyBatchLimit?: number;
+  readonly timeBudgetMs?: number;
+};
+
 /**
  * Safety-net processor for queued fulfillments (cron).
+ * Bounded by batch limit and time budget so cron calls finish well under 25 s.
  *
  * @param supabase - Service-role database client
  */
 export async function processQueuedFulfillments(
   supabase: DbClient,
-): Promise<{ processed: number; failed: number }> {
+  options: ProcessFulfillmentsOptions = {},
+): Promise<{ processed: number; failed: number; truncated: boolean; durationMs: number }> {
+  const batchLimit = Math.max(1, options.batchLimit ?? CRON_BATCH_LIMITS.fulfillmentQueuedOrders);
+  const readyBatchLimit = Math.max(1, options.readyBatchLimit ?? CRON_BATCH_LIMITS.fulfillmentReadyOrders);
+  const budget = createCronBudget(options.timeBudgetMs ?? 16_000);
   const { expireOpenCheckouts } = await import('@/modules/orders/checkout');
   await expireOpenCheckouts(supabase);
-  const queued = await listOrders(supabase, { fulfillmentStatus: 'queued', limit: 50 });
+  const queued = await listOrders(supabase, { fulfillmentStatus: 'queued', limit: batchLimit + 1 });
+  const queuedBatch = queued.slice(0, batchLimit);
+  let truncated = queued.length > batchLimit;
   const timeoutMs = FULFILLMENT_CONFIG.fulfillmentTimeoutMinutes * 60 * 1000;
   let processed = 0;
   let failed = 0;
-  for (const order of queued) {
+  for (const order of queuedBatch) {
+    if (!budget.hasTime(1_000)) {
+      truncated = true;
+      break;
+    }
     const stuck = Date.now() - order.updatedAt.getTime() > timeoutMs;
     if (stuck) {
       logger.warn('fulfillment queue item exceeded timeout', { orderId: order.id });
@@ -1072,17 +1090,29 @@ export async function processQueuedFulfillments(
       failed += 1;
     }
   }
-  const ready = await listOrders(supabase, { fulfillmentStatus: 'ready', limit: 30 });
-  for (const order of ready) {
-    if (order.deliveryStatus === 'sent' || order.deliveryStatus === 'sending') {
-      continue;
+  if (budget.hasTime(1_500)) {
+    const ready = await listOrders(supabase, { fulfillmentStatus: 'ready', limit: readyBatchLimit + 1 });
+    const readyBatch = ready.slice(0, readyBatchLimit);
+    if (ready.length > readyBatchLimit) {
+      truncated = true;
     }
-    const sent = await deliverSavedContent(supabase, order);
-    if (sent) {
-      processed += 1;
+    for (const order of readyBatch) {
+      if (!budget.hasTime(1_000)) {
+        truncated = true;
+        break;
+      }
+      if (order.deliveryStatus === 'sent' || order.deliveryStatus === 'sending') {
+        continue;
+      }
+      const sent = await deliverSavedContent(supabase, order);
+      if (sent) {
+        processed += 1;
+      }
     }
+  } else {
+    truncated = true;
   }
-  return { processed, failed };
+  return { processed, failed, truncated, durationMs: budget.elapsedMs() };
 }
 
 async function deliverSavedContent(supabase: DbClient, order: Order): Promise<boolean> {

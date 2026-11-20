@@ -75,7 +75,8 @@ export type SystemHealthCronJobId =
   | 'fulfillment'
   | 'supplier_reconcile'
   | 'supplier_sync'
-  | 'bot_health';
+  | 'bot_health'
+  | 'broadcasts';
 
 export type SystemHealthCronRow = {
   readonly id: SystemHealthCronJobId;
@@ -133,8 +134,7 @@ export type SystemHealthPayload = {
   readonly migrationNote: string;
 };
 
-const SYNC_INTERVAL_MS = 30 * 60 * 1000;
-const SYNC_OVERDUE_MS = 35 * 60 * 1000;
+const SUPPLIER_SYNC_TICK_MINUTES = 10;
 
 const ERROR_AUDIT_ACTIONS = [
   'support_reply_failed',
@@ -153,6 +153,7 @@ const CRON_ACTIONS = [
   'cron.supplier_reconcile',
   'cron.supplier_sync',
   'cron.bot_health',
+  'cron.broadcasts',
 ] as const;
 
 function records(result: QueryResult<unknown>, code: string): Record<string, unknown>[] {
@@ -162,17 +163,6 @@ function records(result: QueryResult<unknown>, code: string): Record<string, unk
   if (!Array.isArray(result.data)) return [];
   return result.data.filter(
     (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
-  );
-}
-
-function isMissingRelation(error: { readonly message: string; readonly code?: string } | null): boolean {
-  if (!error) return false;
-  const msg = error.message.toLowerCase();
-  return (
-    error.code === '42P01' ||
-    error.code === '42703' ||
-    msg.includes('does not exist') ||
-    msg.includes('schema cache')
   );
 }
 
@@ -245,15 +235,25 @@ function describeAfterVal(action: string, afterVal: unknown): string {
     return `${reconciled} reconciled, ${polled} polled`;
   }
   if (action === 'cron.supplier_sync') {
+    const supplierName = typeof obj.supplierName === 'string' && obj.supplierName.trim() ? obj.supplierName.trim() : null;
+    const durationMs = typeof obj.durationMs === 'number' && Number.isFinite(obj.durationMs) ? obj.durationMs : null;
     const suppliers = Number(obj.suppliers ?? 0);
     const ok = Number(obj.ok ?? 0);
     const failed = Number(obj.failed ?? 0);
+    if (supplierName) {
+      const dur = durationMs !== null ? ` (${(durationMs / 1000).toFixed(1)}s)` : '';
+      return failed > 0 ? `${supplierName} failed${dur}` : `${supplierName} synced${dur}`;
+    }
     return `${ok}/${suppliers} suppliers synced${failed > 0 ? `, ${failed} failed` : ''}`;
   }
   if (action === 'cron.bot_health') {
     const checked = Number(obj.checked ?? 0);
     const errors = Number(obj.errors ?? 0);
     return `${checked} bots checked${errors > 0 ? `, ${errors} errors` : ''}`;
+  }
+  if (action === 'cron.broadcasts') {
+    const processed = Number(obj.processed ?? 0);
+    return `${processed} scheduled broadcast${processed === 1 ? '' : 's'} processed`;
   }
   return '';
 }
@@ -351,6 +351,13 @@ export async function readSystemHealth(
     countsBySupplier.set(sid, slot);
   }
 
+  const activeSupplierCount = desk.health.filter(
+    (row) => row.status === 'active' || row.status === 'connected',
+  ).length;
+  const supplierCycleMinutes = Math.max(1, activeSupplierCount) * SUPPLIER_SYNC_TICK_MINUTES;
+  const supplierIntervalMs = supplierCycleMinutes * 60 * 1000;
+  const supplierOverdueMs = Math.max(25, Math.ceil(supplierCycleMinutes * 1.5)) * 60 * 1000;
+
   let totalBalance = 0;
   let healthySuppliers = 0;
   const suppliers: SystemHealthSupplierRow[] = desk.health.map((row) => {
@@ -363,8 +370,8 @@ export async function readSystemHealth(
 
     const lastMs = row.lastSyncAt ? Date.parse(row.lastSyncAt) : NaN;
     const hasLast = Number.isFinite(lastMs);
-    const nextSyncMs = hasLast ? Math.max(now.getTime(), lastMs + SYNC_INTERVAL_MS) : now.getTime();
-    const syncOverdue = !hasLast || now.getTime() - lastMs > SYNC_OVERDUE_MS;
+    const nextSyncMs = hasLast ? Math.max(now.getTime(), lastMs + supplierIntervalMs) : now.getTime();
+    const syncOverdue = !hasLast || now.getTime() - lastMs > supplierOverdueMs;
     const cleanError = row.lastSyncError ? sanitizeCopy(row.lastSyncError) : null;
     const isActive = row.status === 'active' || row.status === 'connected';
     const isHealthy = isActive && !cleanError && !syncOverdue;
@@ -517,6 +524,8 @@ export async function readSystemHealth(
     settings.ownerBotLastHealthAt ? settings.ownerBotLastHealthAt.toISOString() : null,
   );
 
+  const broadcastsLast = latestCronAudit.get('cron.broadcasts')?.at ?? null;
+
   const crons: SystemHealthCronRow[] = [
     cronSpecFor(
       'fulfillment',
@@ -530,29 +539,38 @@ export async function readSystemHealth(
     cronSpecFor(
       'supplier_reconcile',
       'Supplier order reconciliation',
-      'Every 15 minutes',
-      15,
+      'Every 5 minutes',
+      5,
       reconcileLast,
       now,
-      latestCronAudit.get('cron.supplier_reconcile')?.summary || 'Polls pending supplier activations and triggers due catalog syncs.',
+      latestCronAudit.get('cron.supplier_reconcile')?.summary || 'Polls pending supplier activations in bounded batches.',
     ),
     cronSpecFor(
       'supplier_sync',
       'Supplier catalog sync',
-      'Every 30 minutes',
-      30,
+      `Every ${SUPPLIER_SYNC_TICK_MINUTES} minutes (1 supplier / call)`,
+      SUPPLIER_SYNC_TICK_MINUTES,
       supplierSyncLast,
       now,
-      latestCronAudit.get('cron.supplier_sync')?.summary || 'Refreshes supplier stock, prices, and balance snapshots.',
+      latestCronAudit.get('cron.supplier_sync')?.summary || 'Rotates through suppliers oldest-first to refresh stock, prices, and balances.',
     ),
     cronSpecFor(
       'bot_health',
       'Bot webhook health',
-      'Every 30 minutes',
-      30,
+      'Every 15 minutes',
+      15,
       botHealthLast,
       now,
-      latestCronAudit.get('cron.bot_health')?.summary || 'Verifies Telegram webhook connectivity across active bots.',
+      latestCronAudit.get('cron.bot_health')?.summary || 'Verifies Telegram webhook connectivity across connected bots.',
+    ),
+    cronSpecFor(
+      'broadcasts',
+      'Scheduled broadcasts',
+      'Every 5 minutes',
+      5,
+      broadcastsLast,
+      now,
+      latestCronAudit.get('cron.broadcasts')?.summary || 'Sends due scheduled buyer broadcasts within safe rate limits.',
     ),
   ];
 
@@ -622,44 +640,42 @@ export async function readSystemHealth(
     }
   }
 
-  // Optional scheduled / sending / failed broadcasts (migration 0037 may be unapplied)
-  if (!isMissingRelation(broadcastsRes.error)) {
-    const broadcasts = records(broadcastsRes as QueryResult<unknown>, 'SYSTEM_HEALTH_BROADCASTS_FAILED');
-    for (const row of broadcasts) {
-      const id = str(row.id);
-      const status = str(row.status);
-      const storeName = row.tenant_id
-        ? (tenantNames.get(str(row.tenant_id)) ?? 'Reseller store')
-        : 'Owner store';
-      const preview = sanitizeCopy(str(row.body), 'Buyer broadcast').slice(0, 64);
-      const recipients = Number(row.recipients ?? 0);
-      const sent = Number(row.sent ?? 0);
-      const failed = Number(row.failed ?? 0);
-      if (status === 'failed') {
-        failedJobs.push({
-          id: `broadcast-${id}`,
-          kind: 'Broadcast',
-          target: preview,
-          reason: `${failed} recipient deliveries failed (${sent} sent).`,
-          at: str(row.updated_at) || str(row.created_at) || now.toISOString(),
-          href: '/broadcasts',
-        });
-      } else {
-        jobQueue.push({
-          id: `broadcast-${id}`,
-          kind: 'Scheduled broadcast',
-          target: preview,
-          statusLabel: status === 'sending' ? 'Sending' : 'Scheduled',
-          tone: status === 'sending' ? 'info' : 'neutral',
-          storeName,
-          detail:
-            status === 'sending'
-              ? `${sent}/${recipients} delivered`
-              : `${recipients || 'Targeted'} audience`,
-          at: str(row.scheduled_for) || str(row.created_at) || now.toISOString(),
-          href: '/broadcasts',
-        });
-      }
+  // Scheduled / sending / failed broadcasts (migration 0037 applied)
+  const broadcasts = records(broadcastsRes as QueryResult<unknown>, 'SYSTEM_HEALTH_BROADCASTS_FAILED');
+  for (const row of broadcasts) {
+    const id = str(row.id);
+    const status = str(row.status);
+    const storeName = row.tenant_id
+      ? (tenantNames.get(str(row.tenant_id)) ?? 'Reseller store')
+      : 'Owner store';
+    const preview = sanitizeCopy(str(row.body), 'Buyer broadcast').slice(0, 64);
+    const recipients = Number(row.recipients ?? 0);
+    const sent = Number(row.sent ?? 0);
+    const failed = Number(row.failed ?? 0);
+    if (status === 'failed') {
+      failedJobs.push({
+        id: `broadcast-${id}`,
+        kind: 'Broadcast',
+        target: preview,
+        reason: `${failed} recipient deliveries failed (${sent} sent).`,
+        at: str(row.updated_at) || str(row.created_at) || now.toISOString(),
+        href: '/broadcasts',
+      });
+    } else {
+      jobQueue.push({
+        id: `broadcast-${id}`,
+        kind: 'Scheduled broadcast',
+        target: preview,
+        statusLabel: status === 'sending' ? 'Sending' : 'Scheduled',
+        tone: status === 'sending' ? 'info' : 'neutral',
+        storeName,
+        detail:
+          status === 'sending'
+            ? `${sent}/${recipients} delivered`
+            : `${recipients || 'Targeted'} audience`,
+        at: str(row.scheduled_for) || str(row.created_at) || now.toISOString(),
+        href: '/broadcasts',
+      });
     }
   }
 

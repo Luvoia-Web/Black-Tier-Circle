@@ -10,7 +10,8 @@ export type CronAction =
   | 'cron.fulfillment'
   | 'cron.supplier_reconcile'
   | 'cron.supplier_sync'
-  | 'cron.bot_health';
+  | 'cron.bot_health'
+  | 'cron.broadcasts';
 
 /**
  * Records a lightweight cron execution marker in audit_log.

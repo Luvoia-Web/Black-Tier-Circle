@@ -17,6 +17,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { limitApiRequest } from '@/lib/api-rate-limit';
+import { getVerifiedUser } from '@/lib/auth/verify-user';
 import { legacyDestination } from '@/lib/legacy-redirects';
 import {
   dashboardHomeForRole,
@@ -134,10 +135,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     },
   });
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const { user, error: userError } = await getVerifiedUser(supabase);
 
   const needsAuth =
     isOwnerRoute(pathname) || isResellerRoute(pathname) || isOnboardingRoute(pathname) || isPlatformRoute(pathname);

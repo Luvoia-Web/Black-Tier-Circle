@@ -330,14 +330,14 @@ describe('Phase K — readSystemHealth & API route RBAC', () => {
           name: 'ProdSeller',
           status: 'active',
           balance_usdt: 50.25,
-          last_sync_at: '2026-10-10T11:45:00.000Z',
+          last_sync_at: '2026-10-10T11:55:00.000Z',
           last_sync_error: null,
           product_count: 10,
         },
       ],
       supplier_balance_snapshots: [
         { id: 's-1', supplier_id: 'sup-1', balance_usdt: 40.0, checked_at: '2026-10-09T12:00:00.000Z' },
-        { id: 's-2', supplier_id: 'sup-1', balance_usdt: 50.25, checked_at: '2026-10-10T11:45:00.000Z' },
+        { id: 's-2', supplier_id: 'sup-1', balance_usdt: 50.25, checked_at: '2026-10-10T11:55:00.000Z' },
       ],
       supplier_products: [
         { id: 'sp-1', supplier_id: 'sup-1', in_stock: true },
@@ -417,8 +417,8 @@ describe('Phase K — readSystemHealth & API route RBAC', () => {
           id: 'log-1',
           action: 'cron.supplier_sync',
           reason: 'Supplier catalog sync',
-          after_val: { suppliers: 1, ok: 1, failed: 0 },
-          created_at: '2026-10-10T11:45:00.000Z',
+          after_val: { suppliers: 1, ok: 1, failed: 0, supplierName: 'ProdSeller', durationMs: 1200 },
+          created_at: '2026-10-10T11:55:00.000Z',
         },
         {
           id: 'log-2',
@@ -432,17 +432,17 @@ describe('Phase K — readSystemHealth & API route RBAC', () => {
 
     const payload = await readSystemHealth(db, now);
 
-    // Supplier sync timing & trend
+    // Supplier sync timing & trend (10 min cadence for 1 active supplier)
     expect(payload.suppliers).toHaveLength(1);
     expect(payload.suppliers[0]?.balanceTrend).toEqual([40, 50.25]);
-    expect(payload.suppliers[0]?.lastSyncAt).toBe('2026-10-10T11:45:00.000Z');
-    expect(payload.suppliers[0]?.nextSyncAt).toBe('2026-10-10T12:15:00.000Z');
+    expect(payload.suppliers[0]?.lastSyncAt).toBe('2026-10-10T11:55:00.000Z');
+    expect(payload.suppliers[0]?.nextSyncAt).toBe('2026-10-10T12:05:00.000Z');
     expect(payload.suppliers[0]?.statusLabel).toBe('Healthy');
 
     // Crons
     const syncCron = payload.crons.find((c) => c.id === 'supplier_sync');
-    expect(syncCron?.lastRunAt).toBe('2026-10-10T11:45:00.000Z');
-    expect(syncCron?.nextRunAt).toBe('2026-10-10T12:15:00.000Z');
+    expect(syncCron?.lastRunAt).toBe('2026-10-10T11:55:00.000Z');
+    expect(syncCron?.nextRunAt).toBe('2026-10-10T12:05:00.000Z');
     expect(syncCron?.overdue).toBe(false);
 
     // Delivered order 8C668888 is never in failedJobs or jobQueue

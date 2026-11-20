@@ -6,6 +6,7 @@
  * @module Bots
  */
 
+import { CRON_BATCH_LIMITS, createCronBudget } from '@/lib/cron-budget';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, NotFoundError, TenantError, ValidationError, WalletError } from '@/lib/errors';
 import { getAppUrl } from '@/lib/env';
@@ -351,21 +352,52 @@ export async function markBotError(supabase: DbClient, botConnectionId: string):
 }
 
 /**
- * Runs Telegram getWebhookInfo for every connected bot and refreshes last_health_at.
+ * Runs Telegram getWebhookInfo for connected bots in a bounded oldest-checked-first batch
+ * within a strict time budget, refreshing last_health_at.
  *
  * @param supabase - Service-role database client
  */
-export async function runBotHealthChecks(supabase: DbClient): Promise<{ checked: number; errors: number }> {
+export async function runBotHealthChecks(
+  supabase: DbClient,
+  options: { readonly batchLimit?: number; readonly timeBudgetMs?: number } = {},
+): Promise<{
+  checked: number;
+  errors: number;
+  totalConnected: number;
+  remaining: number;
+  truncated: boolean;
+  durationMs: number;
+}> {
+  const batchLimit = Math.max(1, options.batchLimit ?? CRON_BATCH_LIMITS.botHealthChecks);
+  const budget = createCronBudget(options.timeBudgetMs ?? 18_000);
   const result = (await supabase.from('bot_connections').select('*').eq('status', 'connected')) as QueryResult<
     unknown[] | null
   >;
   if (result.error) {
     throw new AppError('BOT_LIST_FAILED', result.error.message, 500);
   }
-  const rows = Array.isArray(result.data) ? result.data : [];
+  const allRows = (Array.isArray(result.data) ? result.data : []).map((row) => asConnectionRow(row));
+  const sorted = [...allRows].sort((left, right) => {
+    const leftMs = left.last_health_at ? Date.parse(left.last_health_at) : Number.NEGATIVE_INFINITY;
+    const rightMs = right.last_health_at ? Date.parse(right.last_health_at) : Number.NEGATIVE_INFINITY;
+    const safeLeft = Number.isFinite(leftMs) ? leftMs : Number.NEGATIVE_INFINITY;
+    const safeRight = Number.isFinite(rightMs) ? rightMs : Number.NEGATIVE_INFINITY;
+    if (safeLeft !== safeRight) {
+      return safeLeft - safeRight;
+    }
+    return left.id.localeCompare(right.id);
+  });
+
+  const batch = sorted.slice(0, batchLimit);
+  let truncated = sorted.length > batchLimit;
+  let checked = 0;
   let errors = 0;
-  for (const row of rows) {
-    const connection = mapBotConnectionWithToken(asConnectionRow(row));
+  for (const row of batch) {
+    if (!budget.hasTime(1_000)) {
+      truncated = true;
+      break;
+    }
+    const connection = mapBotConnectionWithToken(row);
     try {
       const info = await telegramGetWebhookInfo(decrypt(connection.encryptedToken));
       if (info.last_error_message) {
@@ -377,8 +409,16 @@ export async function runBotHealthChecks(supabase: DbClient): Promise<{ checked:
       await markBotError(supabase, connection.id);
       errors += 1;
     }
+    checked += 1;
   }
-  return { checked: rows.length, errors };
+  return {
+    checked,
+    errors,
+    totalConnected: sorted.length,
+    remaining: Math.max(0, sorted.length - checked),
+    truncated,
+    durationMs: budget.elapsedMs(),
+  };
 }
 
 function isOwnerStoreBot(botId: string): boolean {

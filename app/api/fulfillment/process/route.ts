@@ -1,15 +1,16 @@
 /**
  * @file app/api/fulfillment/process/route.ts
  *
- * Processes queued fulfillments. Called by an external cron (GET or POST)
- * or by an owner from the dashboard.
- * Auth: Authorization Bearer CRON_SECRET, ?secret=, or owner session.
+ * Processes queued fulfillments in bounded batches within a 20 s time budget.
+ * Called by an external cron (GET or POST) or by an owner from the dashboard.
+ * Auth: Authorization Bearer CRON_SECRET (constant-time), ?secret=, or owner session.
  *
  * @module Api
  */
 
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
+import { CRON_BATCH_LIMITS, CRON_TIME_BUDGET_MS, createCronBudget } from '@/lib/cron-budget';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { recordCronHeartbeat } from '@/lib/cron-heartbeat';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
@@ -31,40 +32,71 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (authError) {
       return authError;
     }
+    const budget = createCronBudget(CRON_TIME_BUDGET_MS);
     const db = asDbClient(createAdminSupabaseClient());
-    const result = await processQueuedFulfillments(db);
-    try {
-      await qualifyPendingReferrals(db, new Date(), {
-        qualified: async (input) => {
-          const config = (await getStoreConfig(db, input.tenantId)).config.referrals;
-          await deliverReferralNotice(db, input.referrerCustomerId, qualifiedText(config.templates.qualified, input.points));
-        },
-        joined: async (input) => {
-          const config = (await getStoreConfig(db, input.tenantId)).config.referrals;
-          await deliverReferralNotice(db, input.referrerCustomerId, friendJoinedText(config.templates.friendJoined, input.name));
-        },
-      });
-    } catch (error: unknown) {
-      logger.error('referral sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+    const result = await processQueuedFulfillments(db, {
+      batchLimit: CRON_BATCH_LIMITS.fulfillmentQueuedOrders,
+      readyBatchLimit: CRON_BATCH_LIMITS.fulfillmentReadyOrders,
+      timeBudgetMs: Math.max(4_000, budget.remainingMs() - 4_000),
+    });
+    let truncated = result.truncated;
+
+    if (budget.hasTime(2_500)) {
+      try {
+        await qualifyPendingReferrals(db, new Date(), {
+          qualified: async (input) => {
+            const config = (await getStoreConfig(db, input.tenantId)).config.referrals;
+            await deliverReferralNotice(
+              db,
+              input.referrerCustomerId,
+              qualifiedText(config.templates.qualified, input.points),
+            );
+          },
+          joined: async (input) => {
+            const config = (await getStoreConfig(db, input.tenantId)).config.referrals;
+            await deliverReferralNotice(
+              db,
+              input.referrerCustomerId,
+              friendJoinedText(config.templates.friendJoined, input.name),
+            );
+          },
+        });
+      } catch (error: unknown) {
+        logger.error('referral sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+      }
+    } else {
+      truncated = true;
     }
+
     let expiredTopups = 0;
-    try {
-      expiredTopups = await expirePendingTopups(db);
-    } catch (error: unknown) {
-      logger.error('top-up sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+    if (budget.hasTime(1_500)) {
+      try {
+        expiredTopups = await expirePendingTopups(db);
+      } catch (error: unknown) {
+        logger.error('top-up sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+      }
+    } else {
+      truncated = true;
     }
-    try {
-      await sweepRateLimitHits(db);
-    } catch (error: unknown) {
-      logger.error('rate limit sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+
+    if (budget.hasTime(1_000)) {
+      try {
+        await sweepRateLimitHits(db);
+      } catch (error: unknown) {
+        logger.error('rate limit sweep failed', { message: error instanceof Error ? error.message : 'unknown' });
+      }
+    } else {
+      truncated = true;
     }
+
+    const durationMs = budget.elapsedMs();
     await recordCronHeartbeat(
       db,
       'cron.fulfillment',
-      { processed: result.processed, failed: result.failed, expiredTopups },
+      { processed: result.processed, failed: result.failed, expiredTopups, truncated, durationMs },
       'Order fulfillment cron',
     );
-    return jsonSuccess(result);
+    return jsonSuccess({ ...result, expiredTopups, truncated, durationMs });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

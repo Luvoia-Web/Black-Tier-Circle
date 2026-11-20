@@ -7,6 +7,7 @@
  * @module Auth
  */
 
+import { getVerifiedUser } from '@/lib/auth/verify-user';
 import { AuthError } from '@/lib/errors';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -42,10 +43,7 @@ export { asDbClient };
  */
 export async function requireUser(): Promise<AuthenticatedSession> {
   const supabase = createServerSupabaseClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const { user, error } = await getVerifiedUser(supabase);
   if (error || user === null) {
     throw new AuthError('UNAUTHENTICATED', 'Authentication required');
   }

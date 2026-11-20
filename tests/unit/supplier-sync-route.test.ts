@@ -1,7 +1,8 @@
 /**
  * @file tests/unit/supplier-sync-route.test.ts
  *
- * One failing supplier must not stop the rest of the sync run.
+ * POST /api/supplier/sync processes ONE supplier per call (oldest last-synced first),
+ * sanitizes errors so API keys are never stored or returned, and rotates past failures.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,14 +27,19 @@ vi.mock('@/lib/supabase/admin', () => ({
           return { data: null, error: null };
         },
       }),
+      insert: async () => ({ data: null, error: null }),
     }),
   }),
 }));
 
-vi.mock('@/modules/supplier', () => ({
-  listSuppliers,
-  syncSupplierProducts,
-}));
+vi.mock('@/modules/supplier', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/modules/supplier')>();
+  return {
+    ...actual,
+    listSuppliers,
+    syncSupplierProducts,
+  };
+});
 
 import { POST } from '@/app/api/supplier/sync/route';
 
@@ -44,52 +50,100 @@ beforeEach(() => {
 });
 
 describe('POST /api/supplier/sync', () => {
-  it('keeps going when one supplier fails and does not store the API key', async () => {
-    listSuppliers.mockResolvedValue([
-      { id: 'bad', name: 'Bad Co', status: 'active', hasApiKey: true },
-      { id: 'good', name: 'Good Co', status: 'active', hasApiKey: true },
-    ]);
+  it('syncs ONE supplier (oldest first), scrubs secrets on failure, and rotates to the next on the following call', async () => {
+    const bad = {
+      id: 'bad',
+      name: 'Bad Co',
+      status: 'active',
+      hasApiKey: true,
+      lastSyncAt: '2026-10-01T00:00:00.000Z',
+      lastSyncError: null as string | null,
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    };
+    const good = {
+      id: 'good',
+      name: 'Good Co',
+      status: 'active',
+      hasApiKey: true,
+      lastSyncAt: '2026-10-02T00:00:00.000Z',
+      lastSyncError: null as string | null,
+      updatedAt: '2026-10-02T00:00:00.000Z',
+    };
+    listSuppliers.mockImplementation(async () => [good, bad]);
     syncSupplierProducts.mockImplementation(async (_db: unknown, id: string) => {
       if (id === 'bad') {
         throw new Error('GET https://canboso.com/api/v2/telegram-buyer/products?key=tgb_SECRET {"products":[]}');
       }
-      return { synced: 2, newProducts: 1, updatedProducts: 1, outOfStock: 0, errors: [] };
+      return {
+        synced: 2,
+        newProducts: 1,
+        updatedProducts: 1,
+        outOfStock: 0,
+        stockChanged: 0,
+        repriced: 0,
+        autoPaused: 0,
+        truncated: false,
+        durationMs: 12,
+        errors: [],
+      };
     });
 
-    const response = await POST(new NextRequest('http://localhost/api/supplier/sync', { method: 'POST' }));
-    const json = (await response.json()) as {
+    // First call picks 'bad' (oldest lastSyncAt)
+    const firstRes = await POST(new NextRequest('http://localhost/api/supplier/sync', { method: 'POST' }));
+    const firstJson = (await firstRes.json()) as {
       success: boolean;
-      data: { results: Array<Record<string, unknown>> };
+      data: {
+        supplierId: string;
+        supplierName: string;
+        durationMs: number;
+        totalActiveSuppliers: number;
+        remainingSuppliers: number;
+        results: Array<Record<string, unknown>>;
+      };
     };
 
-    expect(response.status).toBe(200);
-    expect(json.success).toBe(true);
-    expect(syncSupplierProducts).toHaveBeenCalledTimes(2);
-    const [failed, synced] = json.data.results;
-    expect(failed).toMatchObject({
+    expect(firstRes.status).toBe(200);
+    expect(firstJson.success).toBe(true);
+    expect(syncSupplierProducts).toHaveBeenCalledTimes(1);
+    expect(firstJson.data.supplierId).toBe('bad');
+    expect(firstJson.data.supplierName).toBe('Bad Co');
+    expect(typeof firstJson.data.durationMs).toBe('number');
+    expect(firstJson.data.totalActiveSuppliers).toBe(2);
+    expect(firstJson.data.remainingSuppliers).toBe(1);
+    expect(firstJson.data.results[0]).toMatchObject({
       supplierId: 'bad',
       name: 'Bad Co',
       ok: false,
       synced: 0,
-      newProducts: 0,
-      updatedProducts: 0,
-      outOfStock: 0,
       errors: ['Supplier sync failed'],
     });
-    expect(synced).toMatchObject({
+    expect(JSON.stringify(firstJson)).not.toContain('tgb_SECRET');
+    expect(JSON.stringify(firstJson)).not.toContain('key=');
+    expect(JSON.stringify(firstJson)).not.toContain('canboso.com');
+    expect(updates[0]?.last_sync_error).toBe('Supplier sync failed');
+
+    // Simulate DB persisting the error & updated_at on 'bad' — next call must rotate to 'good'
+    bad.lastSyncError = String(updates[0]?.last_sync_error);
+    bad.updatedAt = String(updates[0]?.updated_at);
+
+    const secondRes = await POST(new NextRequest('http://localhost/api/supplier/sync', { method: 'POST' }));
+    const secondJson = (await secondRes.json()) as {
+      success: boolean;
+      data: { supplierId: string; supplierName: string; results: Array<Record<string, unknown>> };
+    };
+
+    expect(secondRes.status).toBe(200);
+    expect(syncSupplierProducts).toHaveBeenCalledTimes(2);
+    expect(secondJson.data.supplierId).toBe('good');
+    expect(secondJson.data.supplierName).toBe('Good Co');
+    expect(secondJson.data.results[0]).toMatchObject({
       supplierId: 'good',
       name: 'Good Co',
       ok: true,
       synced: 2,
       newProducts: 1,
       updatedProducts: 1,
-      outOfStock: 0,
       errors: [],
     });
-    expect(typeof failed?.durationMs).toBe('number');
-    expect(JSON.stringify(json)).not.toContain('tgb_SECRET');
-    expect(JSON.stringify(json)).not.toContain('key=');
-    expect(JSON.stringify(json)).not.toContain('canboso.com');
-    expect(updates[0]?.last_sync_error).toBe('Supplier sync failed');
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { CRON_BATCH_LIMITS, createCronBudget } from '@/lib/cron-budget';
 import { decrypt, encrypt } from '@/lib/encryption';
 import { AppError, ValidationError } from '@/lib/errors';
 import type { DbClient } from '@/lib/supabase/query';
@@ -42,6 +43,7 @@ export type SupplierRecord = {
   readonly membershipTier: string | null;
   readonly lastSyncAt: string | null;
   readonly lastSyncError: string | null;
+  readonly updatedAt?: string | null;
   readonly productCount: number;
   readonly hasApiKey: boolean;
 };
@@ -59,6 +61,7 @@ type SupplierDbRow = {
   readonly membership_tier: string | null;
   readonly last_sync_at: string | null;
   readonly last_sync_error: string | null;
+  readonly updated_at?: string | null;
   readonly product_count: number | null;
 };
 
@@ -126,6 +129,7 @@ function mapSupplier(row: SupplierDbRow): SupplierRecord {
     membershipTier: row.membership_tier,
     lastSyncAt: row.last_sync_at,
     lastSyncError: row.last_sync_error,
+    updatedAt: row.updated_at ?? null,
     productCount: row.product_count ?? 0,
     hasApiKey: Boolean(row.api_key_encrypted),
   };
@@ -319,6 +323,21 @@ type ExistingSupplierProduct = {
   readonly in_stock: boolean;
   readonly product_id: string | null;
   readonly supplier_price: string | number | null;
+  readonly name?: string | null;
+  readonly description?: string | null;
+  readonly image_url?: string | null;
+  readonly supplier_public_price?: string | number | null;
+  readonly delivery_type?: string | null;
+  readonly requires_email_activation?: boolean | null;
+  readonly sold_count?: number | null;
+  readonly duration_text?: string | null;
+  readonly warranty_text?: string | null;
+  readonly type_label?: string | null;
+};
+
+export type SyncSupplierOptions = {
+  readonly timeBudgetMs?: number;
+  readonly maxUpdates?: number;
 };
 
 type SyncSummary = {
@@ -329,11 +348,47 @@ type SyncSummary = {
   stockChanged: number;
   repriced: number;
   autoPaused: number;
+  truncated: boolean;
+  durationMs: number;
   errors: string[];
 };
 
-function emptySync(partial: Omit<SyncSummary, 'stockChanged' | 'repriced' | 'autoPaused'>): SyncSummary {
-  return { ...partial, stockChanged: 0, repriced: 0, autoPaused: 0 };
+function emptySync(
+  partial: Omit<SyncSummary, 'stockChanged' | 'repriced' | 'autoPaused' | 'truncated' | 'durationMs'>,
+  durationMs = 0,
+): SyncSummary {
+  return { ...partial, stockChanged: 0, repriced: 0, autoPaused: 0, truncated: false, durationMs };
+}
+
+function sameNullableStr(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? '') === (b ?? '');
+}
+
+function sameNumber(a: string | number | null | undefined, b: number): boolean {
+  if (a === null || a === undefined || a === '') {
+    return false;
+  }
+  return Number(a) === b;
+}
+
+function isCatalogRowUnchanged(row: ExistingSupplierProduct, item: RemoteCatalogItem): boolean {
+  if (row.name === undefined) {
+    return false;
+  }
+  return (
+    sameNullableStr(row.name, item.name) &&
+    sameNullableStr(row.description, item.description) &&
+    sameNullableStr(row.image_url, item.imageUrl) &&
+    sameNumber(row.supplier_price, item.price) &&
+    sameNumber(row.supplier_public_price, item.publicPrice) &&
+    (row.delivery_type ?? '') === catalogDelivery(item) &&
+    row.requires_email_activation === item.requiresEmailActivation &&
+    row.in_stock === item.inStock &&
+    Number(row.sold_count ?? 0) === item.sold &&
+    (!item.durationText || sameNullableStr(row.duration_text, item.durationText)) &&
+    (!item.warrantyText || sameNullableStr(row.warranty_text, item.warrantyText)) &&
+    (!item.typeLabel || sameNullableStr(row.type_label, item.typeLabel))
+  );
 }
 
 function chunkList<T>(items: readonly T[], size: number): T[][] {
@@ -527,7 +582,9 @@ async function loadExistingProducts(
     const page = asRows<ExistingSupplierProduct>(
       await supabase
         .from('supplier_products')
-        .select('id, supplier_sku, review_status, in_stock, product_id, supplier_price')
+        .select(
+          'id, supplier_sku, review_status, in_stock, product_id, supplier_price, name, description, image_url, supplier_public_price, delivery_type, requires_email_activation, sold_count, duration_text, warranty_text, type_label',
+        )
         .eq('supplier_id', supplierId)
         .order('id')
         .range(offset, offset + EXISTING_PAGE - 1),
@@ -576,7 +633,12 @@ async function rememberDetectedAdapter(
 export async function syncSupplierProducts(
   supabase: DbClient,
   supplierId: string,
+  options: SyncSupplierOptions = {},
 ): Promise<SyncSummary> {
+  const startedAt = Date.now();
+  const timeBudgetMs = options.timeBudgetMs;
+  const budget = timeBudgetMs !== undefined ? createCronBudget(timeBudgetMs) : null;
+  const maxUpdates = options.maxUpdates;
   const supplier = await getSupplierRow(supabase, supplierId);
   if (!supplier.api_key_encrypted) {
     throw new AppError('SUPPLIER_NOT_CONFIGURED', 'Save an API key before syncing', 400);
@@ -603,28 +665,40 @@ export async function syncSupplierProducts(
     } catch {
       // The empty catalog is still reported below. Nothing is marked out of stock.
     }
-    return emptySync({ synced: 0, newProducts: 0, updatedProducts: 0, outOfStock: 0, errors: [EMPTY_CATALOG_ERROR] });
+    return emptySync(
+      { synced: 0, newProducts: 0, updatedProducts: 0, outOfStock: 0, errors: [EMPTY_CATALOG_ERROR] },
+      Date.now() - startedAt,
+    );
   }
 
   const existing = await loadExistingProducts(supabase, supplierId);
   const toInsert: RemoteCatalogItem[] = [];
-  const toUpdate: RemoteCatalogItem[] = [];
+  const toUpdateChanged: RemoteCatalogItem[] = [];
+  const unchangedItems: Array<{ readonly id: string; readonly item: RemoteCatalogItem }> = [];
   for (const item of remote) {
-    if (existing.has(item.id)) {
-      toUpdate.push(item);
-    } else {
+    const row = existing.get(item.id);
+    if (!row) {
       toInsert.push(item);
+    } else if (isCatalogRowUnchanged(row, item)) {
+      unchangedItems.push({ id: row.id, item });
+    } else {
+      toUpdateChanged.push(item);
     }
   }
 
   let newProducts = 0;
   let updatedProducts = 0;
+  let truncated = false;
   const errors: string[] = [];
   const updatedItems: RemoteCatalogItem[] = [];
 
   // The table has unique (supplier_id, supplier_sku). Upsert is not used:
   // a payload that sets review_status for new rows would also reset it on existing rows.
   for (const chunk of chunkList(toInsert, INSERT_CHUNK)) {
+    if (budget && !budget.hasTime(1_500)) {
+      truncated = true;
+      break;
+    }
     try {
       const inserted = await insertSupplierChunk(
         supabase,
@@ -646,7 +720,17 @@ export async function syncSupplierProducts(
     }
   }
 
-  for (const batch of chunkList(toUpdate, UPDATE_BATCH)) {
+  let changedProcessed = 0;
+  const changedSlice =
+    maxUpdates !== undefined && toUpdateChanged.length > maxUpdates
+      ? ((truncated = true), toUpdateChanged.slice(0, maxUpdates))
+      : toUpdateChanged;
+
+  for (const batch of chunkList(changedSlice, UPDATE_BATCH)) {
+    if (budget && !budget.hasTime(1_500)) {
+      truncated = true;
+      break;
+    }
     const outcomes = await Promise.all(
       batch.map(async (item) => {
         const row = existing.get(item.id);
@@ -660,6 +744,7 @@ export async function syncSupplierProducts(
         }
       }),
     );
+    changedProcessed += batch.length;
     outcomes.forEach((outcome, index) => {
       if (outcome) {
         errors.push(outcome);
@@ -671,6 +756,41 @@ export async function syncSupplierProducts(
         }
       }
     });
+    if (maxUpdates !== undefined && changedProcessed >= maxUpdates) {
+      if (changedProcessed < toUpdateChanged.length) {
+        truncated = true;
+      }
+      break;
+    }
+  }
+
+  // Bulk-touch unchanged rows so 100s of identical products cost 1–3 queries instead of 100s.
+  for (const chunk of chunkList(unchangedItems, OUT_OF_STOCK_CHUNK)) {
+    if (budget && !budget.hasTime(1_500)) {
+      truncated = true;
+      break;
+    }
+    try {
+      const touched = asWrite(
+        await supabase
+          .from('supplier_products')
+          .update({ last_seen_at: now, last_synced_at: now })
+          .in(
+            'id',
+            chunk.map((entry) => entry.id),
+          ),
+      );
+      if (touched.error) {
+        errors.push(safeSupplierSyncMessage(touched.error.message));
+      } else {
+        updatedProducts += chunk.length;
+        for (const entry of chunk) {
+          updatedItems.push(entry.item);
+        }
+      }
+    } catch (error: unknown) {
+      errors.push(safeSupplierSyncMessage(error));
+    }
   }
 
   const staleIds: string[] = [];
@@ -687,6 +807,10 @@ export async function syncSupplierProducts(
   let outOfStock = 0;
   const hiddenIds: string[] = [];
   for (const chunk of chunkList(staleIds, OUT_OF_STOCK_CHUNK)) {
+    if (budget && !budget.hasTime(1_000)) {
+      truncated = true;
+      break;
+    }
     try {
       const hidden = asWrite(
         await supabase
@@ -704,7 +828,7 @@ export async function syncSupplierProducts(
       errors.push(safeSupplierSyncMessage(error));
     }
   }
-  if (alreadyOutIds.length > 0) {
+  if (alreadyOutIds.length > 0 && (!budget || budget.hasTime(1_000))) {
     try {
       const touched = asWrite(
         await supabase
@@ -721,7 +845,7 @@ export async function syncSupplierProducts(
     }
   }
 
-  if (loaded.detectedName) {
+  if (loaded.detectedName && (!budget || budget.hasTime(500))) {
     await rememberDetectedAdapter(supabase, supplierId, loaded.detectedName, now, errors);
   }
 
@@ -739,7 +863,7 @@ export async function syncSupplierProducts(
     errors.push(safeSupplierSyncMessage(error));
   }
 
-  if (loaded.readBalance) {
+  if (loaded.readBalance && (!budget || budget.hasTime(1_500))) {
     try {
       const balance = await loaded.readBalance();
       if (balance !== null && Number.isFinite(balance)) {
@@ -767,6 +891,8 @@ export async function syncSupplierProducts(
     stockChanged: catalog.stockChanged,
     repriced: catalog.repriced,
     autoPaused: catalog.autoPaused,
+    truncated,
+    durationMs: Date.now() - startedAt,
     errors,
   };
 }
@@ -776,35 +902,90 @@ export type SupplierSyncJobItem = {
   readonly name: string;
   readonly ok: boolean;
   readonly synced: number;
+  readonly durationMs: number;
+  readonly truncated: boolean;
   readonly errors: readonly string[];
 };
 
+function supplierRotationScore(supplier: SupplierRecord): number {
+  const lastSyncMs = supplier.lastSyncAt ? Date.parse(supplier.lastSyncAt) : NaN;
+  const hasLastSync = Number.isFinite(lastSyncMs);
+  if (supplier.lastSyncError && supplier.updatedAt) {
+    const updatedMs = Date.parse(supplier.updatedAt);
+    if (Number.isFinite(updatedMs)) {
+      return hasLastSync ? Math.max(lastSyncMs, updatedMs) : updatedMs;
+    }
+  }
+  return hasLastSync ? lastSyncMs : Number.NEGATIVE_INFINITY;
+}
+
+export function sortSuppliersOldestFirst(suppliers: readonly SupplierRecord[]): SupplierRecord[] {
+  return [...suppliers].sort((left, right) => {
+    const diff = supplierRotationScore(left) - supplierRotationScore(right);
+    if (diff !== 0) {
+      return diff;
+    }
+    const nameDiff = left.name.localeCompare(right.name);
+    return nameDiff !== 0 ? nameDiff : left.id.localeCompare(right.id);
+  });
+}
+
+export function pickOldestSupplier(suppliers: readonly SupplierRecord[]): {
+  readonly supplier: SupplierRecord | null;
+  readonly totalActive: number;
+} {
+  const active = suppliers.filter(
+    (supplier) =>
+      (supplier.status === 'active' || supplier.status === 'connected') && supplier.hasApiKey,
+  );
+  const ordered = sortSuppliersOldestFirst(active);
+  return { supplier: ordered[0] ?? null, totalActive: active.length };
+}
+
 /**
- * Syncs every active supplier whose last sync is missing or older than minAgeMs.
- * Used by cron jobs (including reconcile piggyback) and manual System health triggers.
+ * Syncs active suppliers whose last sync is missing or older than minAgeMs,
+ * ordered oldest-synced first and bounded by maxSuppliers and timeBudgetMs.
  */
 export async function syncDueSuppliers(
   supabase: DbClient,
   minAgeMs: number = 30 * 60 * 1000,
-): Promise<{ readonly results: readonly SupplierSyncJobItem[] }> {
+  options: { readonly maxSuppliers?: number; readonly timeBudgetMs?: number } = {},
+): Promise<{ readonly results: readonly SupplierSyncJobItem[]; readonly truncated: boolean; readonly durationMs: number }> {
+  const maxSuppliers = options.maxSuppliers ?? CRON_BATCH_LIMITS.supplierSyncMaxSuppliers;
+  const budget = createCronBudget(options.timeBudgetMs ?? 18_000);
   const suppliers = await listSuppliers(supabase);
   const nowMs = Date.now();
-  const due = suppliers.filter((supplier) => {
-    if (!(supplier.status === 'active' || supplier.status === 'connected') || !supplier.hasApiKey) {
-      return false;
-    }
-    if (minAgeMs <= 0 || !supplier.lastSyncAt) {
-      return true;
-    }
-    const lastMs = Date.parse(supplier.lastSyncAt);
-    return !Number.isFinite(lastMs) || nowMs - lastMs >= minAgeMs;
-  });
+  const due = sortSuppliersOldestFirst(
+    suppliers.filter((supplier) => {
+      if (!(supplier.status === 'active' || supplier.status === 'connected') || !supplier.hasApiKey) {
+        return false;
+      }
+      if (minAgeMs <= 0 || !supplier.lastSyncAt) {
+        return true;
+      }
+      const lastMs = Date.parse(supplier.lastSyncAt);
+      return !Number.isFinite(lastMs) || nowMs - lastMs >= minAgeMs;
+    }),
+  );
 
+  const selected = due.slice(0, Math.max(0, maxSuppliers));
+  let truncated = due.length > selected.length;
   const results: SupplierSyncJobItem[] = [];
-  for (const supplier of due) {
+  for (const supplier of selected) {
+    if (!budget.hasTime(1_000)) {
+      truncated = true;
+      break;
+    }
+    const started = Date.now();
     try {
-      const summary = await syncSupplierProducts(supabase, supplier.id);
-      if (minAgeMs === 0) {
+      const summary = await syncSupplierProducts(supabase, supplier.id, {
+        timeBudgetMs: Math.max(2_000, budget.remainingMs() - 1_000),
+        maxUpdates: CRON_BATCH_LIMITS.supplierSyncMaxUpdates,
+      });
+      if (summary.truncated) {
+        truncated = true;
+      }
+      if (minAgeMs === 0 && budget.hasTime(2_000)) {
         try {
           await refreshSupplierBalance(supabase, supplier.id);
         } catch {
@@ -816,6 +997,8 @@ export async function syncDueSuppliers(
         name: supplier.name,
         ok: summary.errors.length === 0,
         synced: summary.synced,
+        durationMs: Date.now() - started,
+        truncated: summary.truncated,
         errors: summary.errors,
       });
     } catch (error: unknown) {
@@ -836,11 +1019,13 @@ export async function syncDueSuppliers(
         name: supplier.name,
         ok: false,
         synced: 0,
+        durationMs: Date.now() - started,
+        truncated: false,
         errors: [message],
       });
     }
   }
-  return { results };
+  return { results, truncated, durationMs: budget.elapsedMs() };
 }
 
 const LINKED_COLUMNS =

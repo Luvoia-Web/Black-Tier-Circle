@@ -1,18 +1,21 @@
 /**
  * @file app/api/supplier/sync/route.ts
  *
- * Syncs active suppliers. Cron secret or an owner session.
- * One supplier failing does not stop the others.
+ * Syncs ONE active supplier per call (the one with the oldest last-synced time,
+ * or the explicitly requested supplierId) within a strict 20 s time budget so
+ * external cron runners (30 s ceiling) never time out.
+ * Auth: Authorization: Bearer CRON_SECRET (constant-time), ?secret=, or owner session.
  */
 
 import { NextRequest } from 'next/server';
 import { asDbClient } from '@/lib/auth/session';
+import { CRON_BATCH_LIMITS, CRON_TIME_BUDGET_MS, createCronBudget } from '@/lib/cron-budget';
 import { authorizeCronOrOwner } from '@/lib/cron-auth';
 import { recordCronHeartbeat } from '@/lib/cron-heartbeat';
 import { handleRouteError, jsonSuccess, readJsonBody } from '@/lib/http';
 import { safeSupplierSyncMessage } from '@/lib/supplier-errors';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
-import { listSuppliers, syncSupplierProducts } from '@/modules/supplier';
+import { listSuppliers, pickOldestSupplier, syncSupplierProducts } from '@/modules/supplier';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +25,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (authError) {
       return authError;
     }
+    const budget = createCronBudget(CRON_TIME_BUDGET_MS);
     const db = asDbClient(createAdminSupabaseClient());
     let supplierId: string | undefined = new URL(req.url).searchParams.get('supplierId') ?? undefined;
     if (req.headers.get('content-type')?.includes('application/json')) {
@@ -34,21 +38,42 @@ export async function POST(req: NextRequest): Promise<Response> {
         // Cron callers often send Content-Type: application/json with an empty body.
       }
     }
+
     const suppliers = await listSuppliers(db);
-    const targets = suppliers.filter(
+    const active = suppliers.filter(
       (supplier) =>
-        (supplier.status === 'active' || supplier.status === 'connected') &&
-        supplier.hasApiKey &&
-        (!supplierId || supplier.id === supplierId),
+        (supplier.status === 'active' || supplier.status === 'connected') && supplier.hasApiKey,
     );
-    const results = [];
-    for (const supplier of targets) {
+    const picked = supplierId
+      ? active.find((supplier) => supplier.id === supplierId) ?? null
+      : pickOldestSupplier(active).supplier;
+
+    const results: Array<{
+      readonly supplierId: string;
+      readonly name: string;
+      readonly ok: boolean;
+      readonly synced: number;
+      readonly newProducts: number;
+      readonly updatedProducts: number;
+      readonly outOfStock: number;
+      readonly stockChanged: number;
+      readonly repriced: number;
+      readonly autoPaused: number;
+      readonly truncated: boolean;
+      readonly errors: readonly string[];
+      readonly durationMs: number;
+    }> = [];
+
+    if (picked) {
       const started = Date.now();
       try {
-        const summary = await syncSupplierProducts(db, supplier.id);
+        const summary = await syncSupplierProducts(db, picked.id, {
+          timeBudgetMs: Math.max(2_000, budget.remainingMs() - 1_000),
+          maxUpdates: CRON_BATCH_LIMITS.supplierSyncMaxUpdates,
+        });
         results.push({
-          supplierId: supplier.id,
-          name: supplier.name,
+          supplierId: picked.id,
+          name: picked.name,
           ok: summary.errors.length === 0,
           synced: summary.synced,
           newProducts: summary.newProducts,
@@ -57,6 +82,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           stockChanged: summary.stockChanged,
           repriced: summary.repriced,
           autoPaused: summary.autoPaused,
+          truncated: summary.truncated ?? false,
           errors: summary.errors,
           durationMs: Date.now() - started,
         });
@@ -69,13 +95,13 @@ export async function POST(req: NextRequest): Promise<Response> {
               last_sync_error: message,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', supplier.id);
+            .eq('id', picked.id);
         } catch {
-          // Keep going so the next supplier still syncs.
+          // Keep returning a clean JSON status even if the error stamp fails.
         }
         results.push({
-          supplierId: supplier.id,
-          name: supplier.name,
+          supplierId: picked.id,
+          name: picked.name,
           ok: false,
           synced: 0,
           newProducts: 0,
@@ -84,11 +110,16 @@ export async function POST(req: NextRequest): Promise<Response> {
           stockChanged: 0,
           repriced: 0,
           autoPaused: 0,
+          truncated: false,
           errors: [message],
           durationMs: Date.now() - started,
         });
       }
     }
+
+    const totalDurationMs = budget.elapsedMs();
+    const single = results[0] ?? null;
+
     await recordCronHeartbeat(
       db,
       'cron.supplier_sync',
@@ -96,10 +127,24 @@ export async function POST(req: NextRequest): Promise<Response> {
         suppliers: results.length,
         ok: results.filter((row) => row.ok).length,
         failed: results.filter((row) => !row.ok).length,
+        supplierId: single?.supplierId ?? null,
+        supplierName: single?.name ?? null,
+        durationMs: totalDurationMs,
+        truncated: single?.truncated ?? false,
       },
-      'Supplier catalog sync',
+      single ? `Synced ${single.name}` : 'Supplier catalog sync (no active suppliers)',
     );
-    return jsonSuccess({ results });
+
+    return jsonSuccess({
+      supplier: single,
+      supplierId: single?.supplierId ?? null,
+      supplierName: single?.name ?? null,
+      durationMs: totalDurationMs,
+      totalActiveSuppliers: active.length,
+      remainingSuppliers: Math.max(0, active.length - results.length),
+      truncated: single?.truncated ?? false,
+      results,
+    });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { PlatformShell } from '@/components/platform/shell';
 import { asDbClient } from '@/lib/auth/session';
+import { getVerifiedUser } from '@/lib/auth/verify-user';
 import { NotFoundError } from '@/lib/errors';
 import { ROUTES } from '@/lib/navigation';
 import { createAdminSupabaseClient } from '@/lib/supabase/admin';
@@ -20,9 +21,7 @@ type PlatformLayoutProps = {
 
 export default async function PlatformLayout({ children }: PlatformLayoutProps): Promise<JSX.Element> {
   const supabase = createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user } = await getVerifiedUser(supabase);
   if (user === null) {
     redirect(ROUTES.login);
   }
