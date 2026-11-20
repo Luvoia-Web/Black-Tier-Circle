@@ -464,11 +464,6 @@ export function BroadcastsView(): JSX.Element {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {data.broadcastsNeedsMigration ? (
-                      <p className="text-xs text-amber">
-                        Scheduled broadcasts require migration 0037 to be applied before scheduling. Send now works immediately.
-                      </p>
-                    ) : null}
                     <div className="flex flex-wrap items-end gap-3">
                       <div className="min-w-[220px] flex-1">
                         <TextField
@@ -481,7 +476,7 @@ export function BroadcastsView(): JSX.Element {
                       </div>
                       <Button
                         loading={sending}
-                        disabled={data.broadcastsNeedsMigration || body.trim().length === 0 || selectedCount === 0}
+                        disabled={body.trim().length === 0 || selectedCount === 0}
                         onClick={() => void submitSchedule()}
                       >
                         <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
@@ -494,11 +489,7 @@ export function BroadcastsView(): JSX.Element {
             </Card>
 
             <Card title="Recent and scheduled broadcasts">
-              {data.broadcastsNeedsMigration ? (
-                <p className="text-sm text-ink-soft">
-                  Broadcast history and schedules will appear here once migration 0037 is applied.
-                </p>
-              ) : data.broadcasts.length === 0 ? (
+              {data.broadcasts.length === 0 ? (
                 <EmptyState
                   title="No broadcasts sent yet"
                   message="Compose a message above, send a test to yourself, and deliver or schedule it."

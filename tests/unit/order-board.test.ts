@@ -108,7 +108,7 @@ describe('owner replacement', () => {
     const database = db();
     const placed = placeOk();
     const delivered: string[] = [];
-    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'manual', content: 'fresh-key' }, {
+    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'manual', content: 'fresh-key', reason: 'Warranty replacement' }, {
       place: placed.place,
       deliver: async (_db, item) => {
         delivered.push(item.content);
@@ -124,7 +124,7 @@ describe('owner replacement', () => {
     const database = db();
     if (database.tables.products?.[0]) database.tables.products[0].supplier_id = null;
     const placed = placeOk();
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, { place: placed.place, deliver: async () => undefined })).rejects.toBeInstanceOf(ValidationError);
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, { place: placed.place, deliver: async () => undefined })).rejects.toBeInstanceOf(ValidationError);
     expect(placed.keys).toEqual([]);
   });
 
@@ -137,14 +137,14 @@ describe('owner replacement', () => {
   it('reuses the purchase when delivery fails after the supplier sold the item', async () => {
     const database = db();
     const placed = placeOk('bought-key');
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: placed.place,
       deliver: async () => {
         throw new ValidationError('REPLACEMENT_DELIVERY_FAILED', 'The replacement could not be sent to the buyer.');
       },
     })).rejects.toBeInstanceOf(ValidationError);
     const second: string[] = [];
-    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: placed.place,
       deliver: async (_db, item) => {
         second.push(item.content);
@@ -158,13 +158,13 @@ describe('owner replacement', () => {
   it('advances the replacement number after a definitive supplier failure', async () => {
     const database = db();
     const placed = placeOk();
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: async () => {
         throw new AppError('SUPPLIER_ORDER_FAILED', 'The supplier could not place this order.');
       },
       deliver: async () => undefined,
     })).rejects.toThrow(/could not place/);
-    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: placed.place,
       deliver: async () => undefined,
     });
@@ -174,13 +174,13 @@ describe('owner replacement', () => {
   it('blocks a second purchase when the supplier outcome is unknown', async () => {
     const database = db();
     const placed = placeOk();
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: async () => {
         throw new Error('socket hang up');
       },
       deliver: async () => undefined,
     })).rejects.toThrow(/Reconcile/);
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: placed.place,
       deliver: async () => undefined,
     })).rejects.toThrow(/Reconcile/);
@@ -189,7 +189,7 @@ describe('owner replacement', () => {
 
   it('refuses a short supplier balance before another purchase', async () => {
     const database = db();
-    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier' }, {
+    await expect(ownerReplace(database, { orderId: ORDER, actorId: ACTOR, mode: 'supplier', reason: 'Warranty replacement' }, {
       place: async () => {
         throw new ValidationError('INSUFFICIENT_SUPPLIER_BALANCE', 'Supplier balance is 0.4 USDT. A replacement needs 1 USDT. The buyer was not charged.');
       },

@@ -46,6 +46,7 @@ type TopupHealthResponse = {
     readonly cryptoEnabled: boolean;
     readonly notice: string | null;
     readonly provider: 'ok' | 'down';
+    readonly providerDetail?: string;
     readonly confirmations: number;
     readonly expiryMinutes: number;
     readonly overrideActive: boolean;
@@ -234,6 +235,7 @@ export function PaymentsView(): JSX.Element {
               <StatTile
                 label="BEP20 verifier"
                 value={health.provider === 'ok' ? 'Online' : 'Offline'}
+                {...(health.providerDetail ? { hint: health.providerDetail } : {})}
                 icon={Wifi}
                 tone={health.provider === 'ok' ? 'mint' : 'danger'}
               />

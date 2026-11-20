@@ -2,7 +2,8 @@
  * @file app/api/intelligence/platform/route.ts
  *
  * Owner-only platform memory. Reflects and recalls the platform bank with
- * short-TTL caching, low-signal noise filtering, deduplication, and <2s recall timeout.
+ * a 5 minute cache, low-signal noise filtering, deduplication, and an 8 s first-load timeout.
+ * A slow bank is reported as loading; only a real error is reported as unavailable.
  * Customer banks are never read here.
  *
  * @module Api
@@ -16,6 +17,7 @@ import { AppError } from '@/lib/errors';
 import {
   isNoiseMemoryText,
   recallTenantExperience,
+  recallWithOutcome,
   reflectStoreIntelligence,
   resolvePlatformMemoryBank,
   runMemoryObservation,
@@ -28,6 +30,7 @@ import {
   cleanAndDedupeMemories,
   paginateMemories,
   parseMemoryCategory,
+  payloadForFailure,
   readFreshPlatformCache,
   readStalePlatformCache,
   writePlatformCache,
@@ -37,37 +40,15 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const GET_TIMEOUT_MS = 1500;
-const POST_TIMEOUT_MS = 3000;
+/** First load waits up to 8 s (the bank is slow on a cold start); later loads use the cache. */
+const GET_TIMEOUT_MS = 8000;
+const POST_TIMEOUT_MS = 8000;
 
 const PlatformQuerySchema = z.object({
   query: z.string().trim().min(1).max(2000).optional(),
 });
 
 const DEFAULT_QUERY = 'What operational patterns should the platform watch across stores?';
-
-const EMPTY_COUNTS: Readonly<Record<MemoryCategory, number>> = {
-  all: 0,
-  decision: 0,
-  experience: 0,
-  observation: 0,
-  fact: 0,
-};
-
-const DEGRADED: PlatformIntelligencePayload = {
-  memoryCount: 0,
-  rawCount: 0,
-  hiddenNoiseCount: 0,
-  duplicateCount: 0,
-  status: 'degraded',
-  degraded: true,
-  timedOut: false,
-  platformIntelligence: null,
-  recentEvents: [],
-  evidence: [],
-  pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
-  typeCounts: EMPTY_COUNTS,
-};
 
 function buildPayloadFromRaw(
   raw: readonly PublicMemory[],
@@ -97,6 +78,7 @@ function buildPayloadFromRaw(
     status: 'operational',
     degraded: false,
     timedOut: opts.timedOut === true,
+    bankState: 'ready',
     platformIntelligence: opts.platformIntelligence,
     recentEvents: paged.items,
     evidence: cleanedEvidence,
@@ -150,7 +132,7 @@ export async function POST(request: Request): Promise<Response> {
     });
 
     if (observed.degraded || observed.result === null) {
-      return jsonSuccess({ ...DEGRADED, timedOut: true }, 200, { cache: 'none' });
+      return jsonSuccess(payloadForFailure('timeout'), 200, { cache: 'none' });
     }
 
     const rawRecent = observed.result.recent.map(toPublicMemory);
@@ -179,7 +161,7 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof AppError || error instanceof ZodError) {
       return handleRouteError(error);
     }
-    return jsonSuccess(DEGRADED, 200, { cache: 'none' });
+    return jsonSuccess(payloadForFailure('error'), 200, { cache: 'none' });
   }
 }
 
@@ -194,70 +176,38 @@ export async function GET(request: Request): Promise<Response> {
     const refresh = params.get('refresh') === '1';
 
     const bankId = resolvePlatformMemoryBank();
+    const view = { page, pageSize, category, q, platformIntelligence: null, evidence: [] as const };
     if (!refresh) {
       const fresh = readFreshPlatformCache(bankId);
       if (fresh) {
-        return jsonSuccess(
-          buildPayloadFromRaw(fresh, {
-            page,
-            pageSize,
-            category,
-            q,
-            platformIntelligence: null,
-            evidence: [],
-          }),
-          200,
-          { cache: 'none' },
-        );
+        return jsonSuccess(buildPayloadFromRaw(fresh, view), 200, { cache: 'none' });
       }
     }
 
-    const observed = await runMemoryObservation(async () =>
-      recallTenantExperience(bankId, 'platform activity', {
-        budget: 'low',
-        timeoutMs: GET_TIMEOUT_MS,
-      }),
-    );
+    const outcome = await recallWithOutcome(bankId, 'platform activity', {
+      budget: 'mid',
+      timeoutMs: GET_TIMEOUT_MS,
+    });
 
-    if (observed.degraded || observed.result === null) {
-      const stale = readStalePlatformCache(bankId);
-      if (stale) {
-        return jsonSuccess(
-          buildPayloadFromRaw(stale, {
-            page,
-            pageSize,
-            category,
-            q,
-            platformIntelligence: null,
-            evidence: [],
-            timedOut: true,
-          }),
-          200,
-          { cache: 'none' },
-        );
-      }
-      return jsonSuccess({ ...DEGRADED, timedOut: true }, 200, { cache: 'none' });
+    if (outcome.kind === 'ok') {
+      const raw = outcome.rows.map(toPublicMemory);
+      writePlatformCache(bankId, raw);
+      return jsonSuccess(buildPayloadFromRaw(raw, view), 200, { cache: 'none' });
     }
 
-    const raw = observed.result.map(toPublicMemory);
-    writePlatformCache(bankId, raw);
-
-    return jsonSuccess(
-      buildPayloadFromRaw(raw, {
-        page,
-        pageSize,
-        category,
-        q,
-        platformIntelligence: null,
-        evidence: [],
-      }),
-      200,
-      { cache: 'none' },
-    );
+    const stale = readStalePlatformCache(bankId);
+    if (stale) {
+      return jsonSuccess(
+        buildPayloadFromRaw(stale, { ...view, timedOut: outcome.kind === 'timeout' }),
+        200,
+        { cache: 'none' },
+      );
+    }
+    return jsonSuccess(payloadForFailure(outcome.kind), 200, { cache: 'none' });
   } catch (error: unknown) {
     if (error instanceof AppError) {
       return handleRouteError(error);
     }
-    return jsonSuccess(DEGRADED, 200, { cache: 'none' });
+    return jsonSuccess(payloadForFailure('error'), 200, { cache: 'none' });
   }
 }

@@ -410,7 +410,7 @@ export async function readOwnerBotPaused(supabase: DbClient): Promise<boolean> {
 export async function setOwnerBotPaused(supabase: DbClient, paused: boolean): Promise<void> {
   const row = await loadPlatformSettingsRow(supabase);
   const now = new Date().toISOString();
-  const pausedAttempt = await supabase
+  const saved = await supabase
     .from('platform_settings')
     .update({
       owner_bot_paused: paused,
@@ -418,21 +418,8 @@ export async function setOwnerBotPaused(supabase: DbClient, paused: boolean): Pr
       updated_at: now,
     })
     .eq('id', row.id);
-  if (pausedAttempt.error && missingBotColumn(pausedAttempt.error)) {
-    const nextStatus: OwnerBotStatus = paused
-      ? 'disconnected'
-      : row.owner_bot_token_encrypted
-        ? 'connected'
-        : 'disconnected';
-    const fallback = await supabase
-      .from('platform_settings')
-      .update({ owner_bot_status: nextStatus, updated_at: now })
-      .eq('id', row.id);
-    if (fallback.error) {
-      throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', fallback.error.message, 500);
-    }
-  } else if (pausedAttempt.error) {
-    throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', pausedAttempt.error.message, 500);
+  if (saved.error) {
+    throw new AppError('PLATFORM_SETTINGS_UPDATE_FAILED', saved.error.message, 500);
   }
   invalidateCache('platform_settings');
 }

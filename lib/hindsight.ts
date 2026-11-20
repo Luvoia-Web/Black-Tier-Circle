@@ -131,7 +131,7 @@ function getClient(): HindsightClient | null {
     return null;
   }
   const apiKey = process.env.HINDSIGHT_API_KEY;
-  const baseUrl = process.env.HINDSIGHT_API_URL;
+  const baseUrl = process.env.HINDSIGHT_API_URL || process.env.HINDSIGHT_BASE_URL;
   if (!apiKey || !baseUrl) {
     return null;
   }
@@ -413,6 +413,74 @@ async function recallExperience(
     logFailure('recall', error);
     markMemoryDegraded();
     return [];
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+export type RecallOutcome =
+  | { readonly kind: 'ok'; readonly rows: readonly MemoryEvidence[] }
+  | { readonly kind: 'timeout'; readonly timeoutMs: number }
+  | { readonly kind: 'not_configured' }
+  | { readonly kind: 'error'; readonly statusCode: number | null };
+
+type RecallFn = (
+  bankId: string,
+  query: string,
+  opts: { budget: 'low' | 'mid' | 'high' },
+) => Promise<{ results: readonly Parameters<typeof toEvidence>[0][] }>;
+
+/**
+ * Recall that tells a slow bank apart from a broken one. A timeout is not a
+ * failure: the caller keeps the skeleton or the cached snapshot and says the
+ * bank is still loading. Only a thrown error (or missing config) is reported
+ * as unavailable.
+ */
+export async function recallWithOutcome(
+  bankId: string,
+  query: string,
+  options: RecallOptions & { readonly recall?: RecallFn } = {},
+): Promise<RecallOutcome> {
+  let recall: RecallFn | null = options.recall ?? null;
+  if (recall === null) {
+    const client = getClient();
+    if (client === null) {
+      return { kind: 'not_configured' };
+    }
+    recall = (b, q, o) => client.recall(b, q, o) as ReturnType<RecallFn>;
+  }
+  if (bankId.trim().length === 0 || query.trim().length === 0) {
+    return { kind: 'ok', rows: [] };
+  }
+  const timeoutMs = options.timeoutMs ?? 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const work = recall(bankId, query, { budget: options.budget ?? 'mid' });
+    const outcome = timeoutMs > 0
+      ? await Promise.race([
+          work,
+          new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+            timer = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+          }),
+        ])
+      : await work;
+    if (outcome === TIMEOUT_SENTINEL) {
+      void work.catch(() => undefined);
+      logFailure('recall', new Error(`recall timed out after ${timeoutMs}ms`));
+      return { kind: 'timeout', timeoutMs };
+    }
+    return { kind: 'ok', rows: outcome.results.map(toEvidence) };
+  } catch (error) {
+    if (error instanceof HindsightError && error.statusCode === 404) {
+      return { kind: 'ok', rows: [] };
+    }
+    logFailure('recall', error);
+    return {
+      kind: 'error',
+      statusCode: error instanceof HindsightError ? (error.statusCode ?? null) : null,
+    };
   } finally {
     if (timer !== undefined) {
       clearTimeout(timer);

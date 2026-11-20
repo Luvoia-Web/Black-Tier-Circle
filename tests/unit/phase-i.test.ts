@@ -155,7 +155,7 @@ describe('Phase I — Analytics readAnalytics', () => {
     });
 
     const fixedNow = new Date('2026-10-10T18:30:00.000Z');
-    const payload = await readAnalytics(db, { role: 'owner', tenantId: null }, '7d', fixedNow);
+    const payload = await readAnalytics(db, { role: 'owner', tenantId: null, timezone: 'UTC' }, '7d', fixedNow);
 
     expect(parseAnalyticsRange('30d')).toBe('30d');
     expect(parseAnalyticsRange('bogus')).toBe('7d');
@@ -312,7 +312,7 @@ describe('Phase I — Intelligence deduping, noise filter, cache, timeout, and a
     mockHindsightRecall.mockImplementation(() => new Promise(() => {}));
 
     const pending = intelligenceGet(new Request('http://localhost/api/intelligence/platform'));
-    await vi.advanceTimersByTimeAsync(1600);
+    await vi.advanceTimersByTimeAsync(8100);
     const res = await pending;
     const json = (await res.json()) as {
       success: boolean;
@@ -320,7 +320,7 @@ describe('Phase I — Intelligence deduping, noise filter, cache, timeout, and a
     };
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data.degraded).toBe(true);
+    expect(json.data.degraded).toBe(false);
     expect(json.data.timedOut).toBe(true);
     expect(json.data.recentEvents).toEqual([]);
   });

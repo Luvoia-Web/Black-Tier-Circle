@@ -19,7 +19,7 @@ const ReplaceSchema = z.object({
   orderId: z.string().uuid(),
   mode: z.enum(['supplier', 'manual']),
   content: z.string().max(3500).optional(),
-  note: z.string().max(1000).optional(),
+  note: z.string().trim().min(5, 'Enter a reason of at least 5 characters before replacing.').max(1000),
   threadId: z.string().uuid().optional(),
 });
 
@@ -58,7 +58,16 @@ export async function POST(request: Request): Promise<Response> {
     if (!rate.allowed) {
       throw new ValidationError('RATE_LIMITED', 'Too many replacement requests. Please wait a minute.');
     }
-    const parsed = PostSchema.parse(await readJsonBody(request));
+    const rawBody = await readJsonBody(request);
+    if (
+      rawBody &&
+      typeof rawBody === 'object' &&
+      (rawBody as Record<string, unknown>).decision === 'replace' &&
+      !current.owner
+    ) {
+      throw new AuthError('FORBIDDEN', 'Only the owner can replace a delivered order', 403);
+    }
+    const parsed = PostSchema.parse(rawBody);
     if (parsed.decision === 'replace') {
       if (!current.owner) {
         throw new AuthError('FORBIDDEN', 'Only the owner can replace a delivered order', 403);

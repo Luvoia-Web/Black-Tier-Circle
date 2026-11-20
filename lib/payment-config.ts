@@ -95,10 +95,28 @@ export function getPaymentModeLabel(live: boolean): string {
 }
 
 /**
- * Local demo payments. Never true when NODE_ENV is production, even if the flag is set.
+ * True only when Demo mode is permitted by the runtime environment.
+ * In production (NODE_ENV=production), Demo mode is impossible unless
+ * PAYMENT_DEMO_ALLOW_PROD=true is explicitly set.
  */
-export function paymentSandboxEnabled(): boolean {
-  return process.env.NODE_ENV !== 'production' && process.env.PAYMENT_SANDBOX === 'true';
+export function isProductionDemoAllowed(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.PAYMENT_DEMO_ALLOW_PROD === 'true';
+}
+
+/**
+ * Local demo payments. Never true when NODE_ENV is production unless
+ * PAYMENT_DEMO_ALLOW_PROD=true is explicitly set.
+ * When dbDemoMode is provided (boolean), it overrides PAYMENT_SANDBOX;
+ * when omitted/null, falls back to PAYMENT_SANDBOX === 'true'.
+ */
+export function paymentSandboxEnabled(dbDemoMode?: boolean | null): boolean {
+  if (!isProductionDemoAllowed()) {
+    return false;
+  }
+  if (typeof dbDemoMode === 'boolean') {
+    return dbDemoMode;
+  }
+  return process.env.PAYMENT_SANDBOX === 'true';
 }
 
 /**

@@ -3,7 +3,8 @@
  */
 
 import { AppError } from '@/lib/errors';
-import { formatUsdt } from '@/lib/money';
+import { formatUsdt, usdtToMinor } from '@/lib/money';
+import { buildZonedRange, zonedBucketKey } from '@/lib/period';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { readToday, type TodayItem } from '@/modules/platform/today';
 
@@ -48,34 +49,9 @@ function minor(value: unknown): bigint {
   }
 }
 
-function startFor(range: OverviewRange, now: Date): Date {
-  const start = new Date(now);
-  if (range === 'today') {
-    start.setUTCHours(0, 0, 0, 0);
-  } else if (range === '7d') {
-    start.setUTCDate(start.getUTCDate() - 6);
-    start.setUTCHours(0, 0, 0, 0);
-  } else if (range === '30d') {
-    start.setUTCDate(start.getUTCDate() - 29);
-    start.setUTCHours(0, 0, 0, 0);
-  } else {
-    start.setUTCMonth(start.getUTCMonth() - 11);
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
-  }
-  return start;
-}
-
-function previousStart(range: OverviewRange, start: Date, now: Date): Date {
+function previousStart(start: Date, now: Date): Date {
   const span = Math.max(86_400_000, now.getTime() - start.getTime());
   return new Date(start.getTime() - span);
-}
-
-function bucketKey(range: OverviewRange, iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  if (range === '12m') return date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
-  return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function usdtNumber(value: bigint): number {
@@ -84,15 +60,22 @@ function usdtNumber(value: bigint): number {
 
 export async function readOverview(
   db: DbClient,
-  scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null; readonly botId: string | null; readonly firstName: string },
+  scope: {
+    readonly role: 'owner' | 'reseller';
+    readonly tenantId: string | null;
+    readonly botId: string | null;
+    readonly firstName: string;
+    readonly timezone?: string | null;
+  },
   range: OverviewRange,
   now: Date = new Date(),
 ): Promise<OverviewPayload> {
   if (scope.role === 'reseller' && !scope.tenantId) {
     throw new AppError('TENANT_REQUIRED', 'Reseller account is not active', 403);
   }
-  const start = startFor(range, now);
-  const prior = previousStart(range, start, now);
+  const zoned = buildZonedRange(range, now, scope.timezone);
+  const start = zoned.start;
+  const prior = previousStart(start, now);
   let query = db.from('orders').select('id, tenant_id, channel, payment_status, fulfillment_status, quoted_retail_price, quantity, created_at, customer_id, product_id').gte('created_at', prior.toISOString()).order('created_at', { ascending: false }).limit(1000);
   if (scope.tenantId) query = query.eq('tenant_id', scope.tenantId);
   const rows = records((await query) as QueryResult<unknown>);
@@ -104,24 +87,26 @@ export async function readOverview(
   const previousMinor = paidBefore.reduce((sum, row) => sum + minor(row.quoted_retail_price), 0n);
   const deltaPercent = previousMinor === 0n ? (revenueMinor > 0n ? 100 : 0) : Number(((revenueMinor - previousMinor) * 100n) / previousMinor);
 
-  const buckets = new Map<string, { owner: bigint; reseller: bigint; api: bigint }>();
+  const buckets = new Map<string, { readonly label: string; owner: bigint; reseller: bigint; api: bigint }>();
+  for (const spec of zoned.buckets) {
+    buckets.set(spec.key, { label: spec.label, owner: 0n, reseller: 0n, api: 0n });
+  }
   for (const row of paid) {
-    const key = bucketKey(range, text(row.created_at));
-    if (!key) continue;
-    const slot = buckets.get(key) ?? { owner: 0n, reseller: 0n, api: 0n };
+    const key = zonedBucketKey(range, text(row.created_at), zoned.timeZone);
+    const slot = key ? buckets.get(key) : undefined;
+    if (!slot) continue;
     const amount = minor(row.quoted_retail_price);
     const channel = text(row.channel);
     if (channel === 'api') slot.api += amount;
     else if (channel === 'reseller_bot' || text(row.tenant_id)) slot.reseller += amount;
     else slot.owner += amount;
-    buckets.set(key, slot);
   }
-  const series = [...buckets.entries()].map(([label, slot]) => ({
-    label,
+  const series = [...buckets.values()].map((slot) => ({
+    label: slot.label,
     owner: usdtNumber(slot.owner),
     reseller: usdtNumber(slot.reseller),
     api: usdtNumber(slot.api),
-  })).reverse();
+  }));
   const ownerTotal = paid.filter((row) => text(row.channel) !== 'api' && !text(row.tenant_id)).reduce((sum, row) => sum + minor(row.quoted_retail_price), 0n);
   const apiTotal = paid.filter((row) => text(row.channel) === 'api').reduce((sum, row) => sum + minor(row.quoted_retail_price), 0n);
   const resellerTotal = revenueMinor - ownerTotal - apiTotal;
@@ -201,14 +186,21 @@ export async function readOverview(
   let supplierBalance = formatUsdt(0n);
   if (scope.role === 'owner') {
     const suppliers = records((await db.from('suppliers').select('balance_usdt').limit(20)) as QueryResult<unknown>);
-    const total = suppliers.reduce((sum, row) => sum + minor(Math.round(Number(row.balance_usdt || 0) * 1_000_000)), 0n);
+    const total = suppliers.reduce((sum, row) => {
+      try {
+        const raw = row.balance_usdt;
+        return sum + (raw === null || raw === undefined || raw === '' ? 0n : usdtToMinor(String(raw)));
+      } catch {
+        return sum;
+      }
+    }, 0n);
     supplierBalance = formatUsdt(total);
   }
 
   return {
     role: scope.role,
     firstName: scope.firstName,
-    dateLabel: now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' }),
+    dateLabel: now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', timeZone: zoned.timeZone }),
     summary,
     range,
     revenue: formatUsdt(revenueMinor),

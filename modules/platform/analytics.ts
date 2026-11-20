@@ -10,6 +10,7 @@ import { displayPaymentMethod } from '@/lib/display-labels';
 import { AppError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
 import { isOrderDelivered, orderNeedsAttention } from '@/lib/order-state';
+import { buildZonedRange, zonedBucketKey, type RangeBucketSpec } from '@/lib/period';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { CHART_COLORS } from '@/components/platform/ui/charts';
 import type { OverviewRange } from '@/modules/platform/overview';
@@ -137,24 +138,6 @@ function toUsdtNumber(value: bigint): number {
   return Number(value) / 1_000_000;
 }
 
-function startFor(range: OverviewRange, now: Date): Date {
-  const start = new Date(now);
-  if (range === 'today') {
-    start.setUTCHours(0, 0, 0, 0);
-  } else if (range === '7d') {
-    start.setUTCDate(start.getUTCDate() - 6);
-    start.setUTCHours(0, 0, 0, 0);
-  } else if (range === '30d') {
-    start.setUTCDate(start.getUTCDate() - 29);
-    start.setUTCHours(0, 0, 0, 0);
-  } else {
-    start.setUTCMonth(start.getUTCMonth() - 11);
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
-  }
-  return start;
-}
-
 function previousStart(start: Date, now: Date): Date {
   const span = Math.max(86_400_000, now.getTime() - start.getTime());
   return new Date(start.getTime() - span);
@@ -172,73 +155,18 @@ type TimelineBucket = {
   total: number;
 };
 
-function buildTimeline(range: OverviewRange, start: Date): TimelineBucket[] {
-  const buckets: TimelineBucket[] = [];
-  if (range === 'today') {
-    for (let hour = 0; hour < 24; hour += 3) {
-      buckets.push({
-        key: String(hour),
-        label: `${String(hour).padStart(2, '0')}:00`,
-        ownerMinor: 0n,
-        resellerMinor: 0n,
-        apiMinor: 0n,
-        delivered: 0,
-        attention: 0,
-        unpaid: 0,
-        total: 0,
-      });
-    }
-    return buckets;
-  }
-  if (range === '12m') {
-    for (let i = 0; i < 12; i += 1) {
-      const dt = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
-      const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
-      const label = dt.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
-      buckets.push({
-        key,
-        label,
-        ownerMinor: 0n,
-        resellerMinor: 0n,
-        apiMinor: 0n,
-        delivered: 0,
-        attention: 0,
-        unpaid: 0,
-        total: 0,
-      });
-    }
-    return buckets;
-  }
-  const days = range === '7d' ? 7 : 30;
-  for (let i = 0; i < days; i += 1) {
-    const dt = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + i));
-    const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
-    const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    buckets.push({
-      key,
-      label,
-      ownerMinor: 0n,
-      resellerMinor: 0n,
-      apiMinor: 0n,
-      delivered: 0,
-      attention: 0,
-      unpaid: 0,
-      total: 0,
-    });
-  }
-  return buckets;
-}
-
-function bucketKeyForDate(range: OverviewRange, iso: string): string {
-  const dt = new Date(iso);
-  if (Number.isNaN(dt.getTime())) return '';
-  if (range === 'today') {
-    return String(Math.floor(dt.getUTCHours() / 3) * 3);
-  }
-  if (range === '12m') {
-    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
-  }
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+function buildTimeline(specs: readonly RangeBucketSpec[]): TimelineBucket[] {
+  return specs.map((spec) => ({
+    key: spec.key,
+    label: spec.label,
+    ownerMinor: 0n,
+    resellerMinor: 0n,
+    apiMinor: 0n,
+    delivered: 0,
+    attention: 0,
+    unpaid: 0,
+    total: 0,
+  }));
 }
 
 function deltaPct(current: bigint, previous: bigint): { readonly pct: number; readonly label: string; readonly tone: 'up' | 'down' | 'flat' } {
@@ -254,8 +182,8 @@ function deltaPct(current: bigint, previous: bigint): { readonly pct: number; re
   };
 }
 
-function emptyPayload(role: 'owner' | 'reseller', range: OverviewRange, start: Date): AnalyticsPayload {
-  const buckets = buildTimeline(range, start);
+function emptyPayload(role: 'owner' | 'reseller', range: OverviewRange, specs: readonly RangeBucketSpec[]): AnalyticsPayload {
+  const buckets = buildTimeline(specs);
   const zero = formatUsdt(0n);
   return {
     role,
@@ -292,13 +220,14 @@ function emptyPayload(role: 'owner' | 'reseller', range: OverviewRange, start: D
 
 export async function readAnalytics(
   db: DbClient,
-  scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null },
+  scope: { readonly role: 'owner' | 'reseller'; readonly tenantId: string | null; readonly timezone?: string | null },
   range: OverviewRange,
   now: Date = new Date(),
 ): Promise<AnalyticsPayload> {
-  const start = startFor(range, now);
+  const zoned = buildZonedRange(range, now, scope.timezone);
+  const start = zoned.start;
   if (scope.role === 'reseller' && !scope.tenantId) {
-    return emptyPayload('reseller', range, start);
+    return emptyPayload('reseller', range, zoned.buckets);
   }
   const prior = previousStart(start, now);
   let query = db
@@ -332,7 +261,7 @@ export async function readAnalytics(
   const revenueDelta = deltaPct(revenueMinor, previousMinor);
   const orderDelta = deltaPct(BigInt(paid.length), BigInt(paidBefore.length));
 
-  const timeline = buildTimeline(range, start);
+  const timeline = buildTimeline(zoned.buckets);
   const bucketMap = new Map(timeline.map((bucket) => [bucket.key, bucket]));
 
   let ownerTotalMinor = 0n;
@@ -342,7 +271,7 @@ export async function readAnalytics(
   for (const row of paid) {
     const amount = minor(row.quoted_retail_price);
     const channel = text(row.channel);
-    const key = bucketKeyForDate(range, text(row.created_at));
+    const key = zonedBucketKey(range, text(row.created_at), zoned.timeZone);
     const slot = bucketMap.get(key);
     if (channel === 'api') {
       apiTotalMinor += amount;
@@ -375,7 +304,7 @@ export async function readAnalytics(
     if (attention) attentionCount += 1;
     if (!isPaid) unpaidCount += 1;
 
-    const slot = bucketMap.get(bucketKeyForDate(range, text(row.created_at)));
+    const slot = bucketMap.get(zonedBucketKey(range, text(row.created_at), zoned.timeZone));
     if (slot) {
       slot.total += 1;
       if (delivered) slot.delivered += 1;

@@ -35,7 +35,17 @@ type Payload = {
   };
   readonly business: { readonly platformName: string; readonly supportContact: string; readonly logoUrl: string } | null;
   readonly legal: { readonly terms: string; readonly refund: string; readonly privacy: string; readonly version: number; readonly updatedAt: string | null } | null;
-  readonly payments: { readonly bep20Enabled: boolean; readonly addressMasked: string; readonly confirmations: number; readonly expiryMinutes: number; readonly minUsdt: string; readonly maxUsdt: string } | null;
+  readonly payments: {
+    readonly bep20Enabled: boolean;
+    readonly hasSavedAddress?: boolean;
+    readonly addressMasked: string;
+    readonly confirmations: number;
+    readonly expiryMinutes: number;
+    readonly minUsdt: string;
+    readonly maxUsdt: string;
+    readonly paymentMode?: 'live' | 'demo';
+    readonly demoAllowed?: boolean;
+  } | null;
   readonly notifications: { readonly failedOrder: boolean; readonly lowBalance: boolean; readonly newReseller: boolean; readonly largeTopup: boolean; readonly quietStart: string; readonly quietEnd: string } | null;
   readonly store: { readonly storeStatus: 'open' | 'maintenance'; readonly maintenanceMessage: string; readonly botShowResellerSignup: boolean; readonly botShowMyApi: boolean } | null;
   readonly goal: { readonly goalUsdt?: string; readonly needsMigration?: boolean } | null;
@@ -103,18 +113,37 @@ function SettingsBody(): JSX.Element {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <div>
-        <h1 className="text-[30px] font-medium tracking-tight text-ink">Settings</h1>
-        <p className="mt-1 text-sm text-ink-soft">{loaded.displayName}{loaded.tenantName ? ` · ${loaded.tenantName}` : ''}</p>
-        <nav className="mt-4 space-y-1" aria-label="Settings sections">
+    <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-[30px] font-medium tracking-tight text-ink">Settings</h1>
+          <p className="mt-1 text-sm text-ink-soft">{loaded.displayName}{loaded.tenantName ? ` · ${loaded.tenantName}` : ''}</p>
+        </div>
+        <nav className="glass-card rounded-2xl p-2.5 space-y-1" aria-label="Settings sections">
           {sections.map((item) => (
-            <button key={item.id} type="button" role="tab" aria-selected={section === item.id} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${section === item.id ? 'bg-white/12 text-ink' : 'text-ink-soft'}`} onClick={() => open(item.id)}>{item.label}</button>
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={section === item.id}
+              className={`block w-full rounded-xl px-3 py-2 text-left text-sm transition ${
+                section === item.id
+                  ? 'border border-rose/35 bg-rose/15 font-medium text-ink'
+                  : 'border border-transparent text-ink-soft hover:bg-white/[0.06] hover:text-ink'
+              }`}
+              onClick={() => open(item.id)}
+            >
+              {item.label}
+            </button>
           ))}
         </nav>
       </div>
       <div className="min-w-0 space-y-4">
-        {note ? <p className="text-sm text-ink">{note}</p> : null}
+        {note ? (
+          <p className="glass-card rounded-xl border border-mint/30 bg-mint/10 px-4 py-2.5 text-sm text-ink" role="status">
+            {note}
+          </p>
+        ) : null}
         {section === 'business' && loaded.business ? <BusinessForm initial={loaded.business} timezone={loaded.timezone} onDone={savedNote} /> : null}
         {section === 'legal' ? <LegalForm initial={loaded.legal} onDone={savedNote} /> : null}
         {section === 'policy' ? <PolicyForm fields={loaded.fields} stores={loaded.stores ?? []} owner={loaded.role === 'owner'} onDone={savedNote} /> : null}
@@ -124,8 +153,8 @@ function SettingsBody(): JSX.Element {
         {section === 'payments' && loaded.payments ? <PaymentsForm initial={loaded.payments} onDone={savedNote} /> : null}
         {section === 'store' ? <StoreForm initial={loaded.store} goal={loaded.goal?.goalUsdt ?? ''} onDone={savedNote} /> : null}
         {section === 'integrations' && loaded.integrations ? (
-          <article className="glass-card space-y-2 rounded-lg p-4">
-            <h2 className="text-sm text-ink">Integrations</h2>
+          <article className="glass-card space-y-3 rounded-2xl p-5 sm:p-6">
+            <h2 className="text-base font-medium text-ink">Integrations</h2>
             <p className="text-sm text-ink-soft">Suppliers: {loaded.integrations.suppliers}</p>
             <p className="text-sm text-ink-soft">Groq: {loaded.integrations.groq}</p>
             <p className="text-sm text-ink-soft">Hindsight: {loaded.integrations.hindsight}</p>
@@ -155,12 +184,12 @@ function BusinessForm({ initial, timezone, onDone }: { readonly initial: NonNull
     setLogo(initial.logoUrl);
   }, [initial.platformName, initial.supportContact, initial.logoUrl, timezone]);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'business', platformName: name, supportContact: support, timezone: zone, logoUrl: logo } }).then((result) => onDone(result.ok ? 'Business saved.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Business</h2>
-      <label className="block text-xs text-ink-faint">Brand name<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Logo URL<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={logo} onChange={(event) => setLogo(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Support contact<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={support} onChange={(event) => setSupport(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Timezone<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={zone} onChange={(event) => setZone(event.target.value)} /></label>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'business', platformName: name, supportContact: support, timezone: zone, logoUrl: logo } }).then((result) => onDone(result.ok ? 'Business saved.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Business</h2>
+      <label className="block text-xs text-ink-faint">Brand name<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Logo URL<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={logo} onChange={(event) => setLogo(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Support contact<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={support} onChange={(event) => setSupport(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Timezone<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={zone} onChange={(event) => setZone(event.target.value)} /></label>
       <Button type="submit">Save business</Button>
     </form>
   );
@@ -176,13 +205,13 @@ function LegalForm({ initial, onDone }: { readonly initial: Payload['legal']; re
     setPrivacy(initial?.privacy ?? '');
   }, [initial?.terms, initial?.refund, initial?.privacy]);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'legal', terms, refund, privacy } }).then((result) => onDone(result.ok ? 'Legal text saved. Every bot shows this copy.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Legal</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'legal', terms, refund, privacy } }).then((result) => onDone(result.ok ? 'Legal text saved. Every bot shows this copy.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Legal</h2>
       <p className="text-sm text-ink-soft">Terms, the refund policy, and the privacy policy are mandatory and platform-wide. Resellers cannot edit or hide them. Every bot shows this copy.</p>
       {initial ? <p className="text-xs text-ink-faint">Version {initial.version}{initial.updatedAt ? <> · <RelativeTime value={initial.updatedAt} /></> : null}</p> : null}
-      <label className="block text-xs text-ink-faint">Terms<textarea className="mt-1 min-h-24 w-full rounded-md border border-white/10 bg-black/25 px-2 py-1 text-sm text-ink" value={terms} onChange={(event) => setTerms(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Refund policy<textarea className="mt-1 min-h-24 w-full rounded-md border border-white/10 bg-black/25 px-2 py-1 text-sm text-ink" value={refund} onChange={(event) => setRefund(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Privacy policy<textarea className="mt-1 min-h-24 w-full rounded-md border border-white/10 bg-black/25 px-2 py-1 text-sm text-ink" value={privacy} onChange={(event) => setPrivacy(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Terms<textarea className="mt-1 min-h-24 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 py-1 text-sm text-ink" value={terms} onChange={(event) => setTerms(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Refund policy<textarea className="mt-1 min-h-24 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 py-1 text-sm text-ink" value={refund} onChange={(event) => setRefund(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Privacy policy<textarea className="mt-1 min-h-24 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 py-1 text-sm text-ink" value={privacy} onChange={(event) => setPrivacy(event.target.value)} /></label>
       <Button type="submit">Save legal</Button>
     </form>
   );
@@ -208,8 +237,8 @@ function PolicyForm({ fields, stores, owner, onDone }: { readonly fields: readon
   }, [fields, stores, selectedStoreId]);
 
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'policy', policy: values } }).then((result) => onDone(result.ok ? 'Reseller policy saved.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Reseller policy</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'policy', policy: values } }).then((result) => onDone(result.ok ? 'Reseller policy saved.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Reseller policy</h2>
       <p className="text-sm text-ink-soft">Terms, refunds, and privacy are not on this list. A reseller cannot change those. Each switch below is a field a reseller may change unless you turn it off.</p>
       <ul className="space-y-2">
         {fields.map((field) => (
@@ -240,7 +269,7 @@ function PolicyForm({ fields, stores, owner, onDone }: { readonly fields: readon
             </div>
             <select
               aria-label="Select store for policy override"
-              className="h-9 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink"
+              className="h-9 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink"
               value={selectedStore.id}
               onChange={(event) => {
                 const nextId = event.target.value;
@@ -321,16 +350,16 @@ function PricingForm({ onDone }: { readonly onDone: (note: string) => void }): J
     setHydrated(true);
   }, [loaded, hydrated]);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/pricing', { method: 'PUT', body: { wholesaleKind, wholesaleValue, retailKind, retailValue } }).then((result) => { if (result.ok) pricing.refetch(); onDone(result.ok ? 'Pricing defaults saved.' : result.error.message); }); }}>
-      <h2 className="text-sm text-ink">Pricing defaults</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/pricing', { method: 'PUT', body: { wholesaleKind, wholesaleValue, retailKind, retailValue } }).then((result) => { if (result.ok) pricing.refetch(); onDone(result.ok ? 'Pricing defaults saved.' : result.error.message); }); }}>
+      <h2 className="text-base font-medium text-ink">Pricing defaults</h2>
       <p className="text-sm text-ink-soft">Wholesale and retail markup. The minimum margin is enforced when a reseller sets a retail price. Auto-reprice and stock sync stay on the product pricing screen.</p>
       {loaded && loaded.wholesaleKind && loaded.wholesaleValue !== undefined && loaded.retailKind && loaded.retailValue !== undefined ? (
         <p className="text-xs text-ink-faint">Current wholesale {displayMarkup(loaded.wholesaleKind, loaded.wholesaleValue)}, retail {displayMarkup(loaded.retailKind, loaded.retailValue)}.</p>
       ) : null}
-      <label className="block text-xs text-ink-faint">Wholesale kind<select className="mt-1 h-9 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={wholesaleKind} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}><option value="percent">Percent</option><option value="fixed">Fixed USDT</option></select></label>
-      <label className="block text-xs text-ink-faint">Wholesale value<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Retail kind<select className="mt-1 h-9 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={retailKind} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}><option value="percent">Percent</option><option value="fixed">Fixed USDT</option></select></label>
-      <label className="block text-xs text-ink-faint">Retail value<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Wholesale kind<select className="mt-1 h-9 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={wholesaleKind} onChange={(event) => setWholesaleKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}><option value="percent">Percent</option><option value="fixed">Fixed USDT</option></select></label>
+      <label className="block text-xs text-ink-faint">Wholesale value<input className="mt-1 h-9 w-32 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={wholesaleValue} onChange={(event) => setWholesaleValue(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Retail kind<select className="mt-1 h-9 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={retailKind} onChange={(event) => setRetailKind(event.target.value === 'fixed' ? 'fixed' : 'percent')}><option value="percent">Percent</option><option value="fixed">Fixed USDT</option></select></label>
+      <label className="block text-xs text-ink-faint">Retail value<input className="mt-1 h-9 w-32 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={retailValue} onChange={(event) => setRetailValue(event.target.value)} /></label>
       <Button type="submit">Save pricing</Button>
     </form>
   );
@@ -352,15 +381,15 @@ function NotificationsForm({ initial, onDone }: { readonly initial: NonNullable<
     setEnd(initial.quietEnd);
   }, [initial.failedOrder, initial.lowBalance, initial.newReseller, initial.largeTopup, initial.quietStart, initial.quietEnd]);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'notifications', failedOrder, lowBalance, newReseller, largeTopup, quietStart, quietEnd } }).then((result) => onDone(result.ok ? 'Notification settings saved.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Notifications</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'notifications', failedOrder, lowBalance, newReseller, largeTopup, quietStart, quietEnd } }).then((result) => onDone(result.ok ? 'Notification settings saved.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Notifications</h2>
       <p className="text-sm text-ink-soft">Owner Telegram alerts. Quiet hours use 24-hour HH:MM and pause alerts during that window.</p>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={failedOrder} onChange={(event) => setFailed(event.target.checked)} /> Failed order</label>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={lowBalance} onChange={(event) => setLow(event.target.checked)} /> Low supplier balance</label>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={newReseller} onChange={(event) => setNew(event.target.checked)} /> New reseller</label>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={largeTopup} onChange={(event) => setLarge(event.target.checked)} /> Large top-up</label>
-      <label className="block text-xs text-ink-faint">Quiet from (HH:MM)<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" placeholder="23:00" value={quietStart} onChange={(event) => setStart(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Quiet until (HH:MM)<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" placeholder="07:00" value={quietEnd} onChange={(event) => setEnd(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Quiet from (HH:MM)<input className="mt-1 h-9 w-32 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" placeholder="23:00" value={quietStart} onChange={(event) => setStart(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Quiet until (HH:MM)<input className="mt-1 h-9 w-32 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" placeholder="07:00" value={quietEnd} onChange={(event) => setEnd(event.target.value)} /></label>
       <Button type="submit">Save notifications</Button>
     </form>
   );
@@ -373,13 +402,13 @@ function FraudForm({ fraud, owner, onDone }: { readonly fraud: Payload['fraud'];
   }, [fraud]);
   const rows = Object.entries(FRAUD_HELP);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'fraud', ...values } }).then((result) => onDone(result.ok ? 'Fraud thresholds saved. A paid order is never blocked.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Fraud and abuse</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'fraud', ...values } }).then((result) => onDone(result.ok ? 'Fraud thresholds saved. A paid order is never blocked.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Fraud and abuse</h2>
       <p className="text-sm text-ink-soft">A paid order is never blocked. Real limits sit on unpaid floods, referrals, freebies, and discounts.</p>
       {rows.map(([key, help]) => (
         <label key={key} className="block text-xs text-ink-faint">
           {help}
-          <input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" type="number" value={values[key as keyof typeof values]} onChange={(event) => setValues({ ...values, [key]: Number(event.target.value) })} />
+          <input className="mt-1 h-9 w-32 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="number" value={values[key as keyof typeof values]} onChange={(event) => setValues({ ...values, [key]: Number(event.target.value) })} />
         </label>
       ))}
       {owner ? <Button type="submit">Save fraud</Button> : null}
@@ -394,6 +423,8 @@ function PaymentsForm({ initial, onDone }: { readonly initial: NonNullable<Paylo
   const [minUsdt, setMinUsdt] = useState(initial.minUsdt);
   const [maxUsdt, setMaxUsdt] = useState(initial.maxUsdt);
   const [expiry, setExpiry] = useState(initial.expiryMinutes);
+  const [modeBusy, setModeBusy] = useState(false);
+
   useEffect(() => {
     setEnabled(initial.bep20Enabled);
     setConfirmations(initial.confirmations);
@@ -401,18 +432,130 @@ function PaymentsForm({ initial, onDone }: { readonly initial: NonNullable<Paylo
     setMaxUsdt(initial.maxUsdt);
     setExpiry(initial.expiryMinutes);
   }, [initial.bep20Enabled, initial.confirmations, initial.minUsdt, initial.maxUsdt, initial.expiryMinutes]);
+
+  const typedAddressValid = /^0x[a-fA-F0-9]{40}$/.test(address.trim());
+  const canEnableBep20 = Boolean(initial.hasSavedAddress || typedAddressValid);
+  const currentMode = initial.paymentMode ?? 'live';
+  const demoAllowed = initial.demoAllowed === true;
+
+  async function switchMode(nextMode: 'live' | 'demo'): Promise<void> {
+    setModeBusy(true);
+    const result = await runAction('/api/platform/settings', {
+      method: 'PATCH',
+      body: {
+        section: 'payment_mode',
+        mode: nextMode,
+        reason: nextMode === 'demo' ? 'Owner enabled demo payment mode for testing' : 'Owner switched to live payment mode',
+      },
+    });
+    setModeBusy(false);
+    onDone(result.ok ? `Payment mode switched to ${nextMode === 'demo' ? 'Demo' : 'Live'}.` : result.error.message);
+  }
+
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'payments', bep20Enabled: enabled, address, confirmations, minUsdt, maxUsdt, expiryMinutes: expiry } }).then((result) => onDone(result.ok ? 'Payments saved. The address stays masked.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Payments</h2>
-      <p className="text-sm text-ink-soft">BEP20 address on file: {initial.addressMasked || 'none'}. Leave the field empty to keep it.</p>
-      <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> BEP20 enabled</label>
-      <label className="block text-xs text-ink-faint">New address<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={address} onChange={(event) => setAddress(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Confirmations<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" type="number" value={confirmations} onChange={(event) => setConfirmations(Number(event.target.value))} /></label>
-      <label className="block text-xs text-ink-faint">Minimum top-up USDT<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" inputMode="decimal" value={minUsdt} onChange={(event) => setMinUsdt(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Maximum top-up USDT<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" inputMode="decimal" value={maxUsdt} onChange={(event) => setMaxUsdt(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Top-up expiry minutes<input className="mt-1 h-9 w-32 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" type="number" value={expiry} onChange={(event) => setExpiry(Number(event.target.value))} /></label>
-      <Button type="submit">Save payments</Button>
-    </form>
+    <div className="space-y-4">
+      <section className="glass-card space-y-3 rounded-2xl p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-medium text-ink">Payment mode</h2>
+            <p className="mt-0.5 text-sm text-ink-soft">
+              Current mode: <strong className="text-ink">{currentMode === 'demo' ? 'Demo' : 'Live'}</strong>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={currentMode === 'live' ? 'primary' : 'secondary'}
+              disabled={modeBusy || currentMode === 'live'}
+              onClick={() => void switchMode('live')}
+            >
+              Live payments
+            </Button>
+            <Button
+              type="button"
+              variant={currentMode === 'demo' ? 'primary' : 'secondary'}
+              disabled={modeBusy || currentMode === 'demo' || !demoAllowed}
+              onClick={() => void switchMode('demo')}
+            >
+              Demo mode
+            </Button>
+          </div>
+        </div>
+        {currentMode === 'demo' ? (
+          <p className="rounded-xl border border-amber/35 bg-amber/10 px-3.5 py-2.5 text-xs text-ink" role="alert">
+            Warning: Demo mode allows simulated test payments without real chain or Binance verification. Switch back to Live before accepting real buyers.
+          </p>
+        ) : !demoAllowed ? (
+          <p className="text-xs text-ink-faint">
+            Demo mode is locked off in production. Set PAYMENT_DEMO_ALLOW_PROD=true on the server only if you explicitly need to test in production.
+          </p>
+        ) : (
+          <p className="text-xs text-ink-faint">
+            Demo mode is available in this non-production environment. Every mode switch is recorded in the audit log.
+          </p>
+        )}
+      </section>
+
+      <form
+        className="glass-card space-y-4 rounded-2xl p-5 sm:p-6"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void runAction('/api/platform/settings', {
+            method: 'PATCH',
+            body: { section: 'payments', bep20Enabled: enabled, address, confirmations, minUsdt, maxUsdt, expiryMinutes: expiry },
+          }).then((result) => onDone(result.ok ? 'Payments saved. The address stays masked.' : result.error.message));
+        }}
+      >
+        <h2 className="text-base font-medium text-ink">BEP20 USDT settings</h2>
+        <p className="text-sm text-ink-soft">
+          BEP20 address on file: {initial.addressMasked || 'none'}. Leave the field empty to keep it.
+        </p>
+        <div className="space-y-1">
+          <label className={`flex items-center gap-2 text-sm ${canEnableBep20 ? 'text-ink' : 'text-ink-faint'}`}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={!enabled && !canEnableBep20}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
+            BEP20 enabled
+          </label>
+          {!canEnableBep20 ? (
+            <p className="text-xs text-amber">
+              Enter and save a valid BEP20 address (0x followed by 40 hex characters) before enabling BEP20.
+            </p>
+          ) : null}
+        </div>
+        <label className="block text-xs text-ink-faint">
+          New address
+          <input
+            className="mt-1 h-10 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink"
+            placeholder="0x..."
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+          />
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-xs text-ink-faint">
+            Confirmations
+            <input className="mt-1 h-10 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="number" value={confirmations} onChange={(event) => setConfirmations(Number(event.target.value))} />
+          </label>
+          <label className="block text-xs text-ink-faint">
+            Top-up expiry minutes
+            <input className="mt-1 h-10 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="number" value={expiry} onChange={(event) => setExpiry(Number(event.target.value))} />
+          </label>
+          <label className="block text-xs text-ink-faint">
+            Minimum top-up USDT
+            <input className="mt-1 h-10 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" inputMode="decimal" value={minUsdt} onChange={(event) => setMinUsdt(event.target.value)} />
+          </label>
+          <label className="block text-xs text-ink-faint">
+            Maximum top-up USDT
+            <input className="mt-1 h-10 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" inputMode="decimal" value={maxUsdt} onChange={(event) => setMaxUsdt(event.target.value)} />
+          </label>
+        </div>
+        <Button type="submit">Save payments</Button>
+      </form>
+    </div>
   );
 }
 
@@ -432,12 +575,12 @@ function StoreForm({ initial, goal, onDone }: { readonly initial: Payload['store
     setGoal(goal);
   }, [initial, goal]);
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'store', storeStatus: status, maintenanceMessage: message, goalUsdt, botShowResellerSignup: showResellerSignup, botShowMyApi: showMyApi } }).then((result) => onDone(result.ok ? 'Store status saved.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Store status and revenue goal</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'store', storeStatus: status, maintenanceMessage: message, goalUsdt, botShowResellerSignup: showResellerSignup, botShowMyApi: showMyApi } }).then((result) => onDone(result.ok ? 'Store status saved.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Store status and revenue goal</h2>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="radio" checked={status === 'open'} onChange={() => setStatus('open')} /> Open</label>
       <label className="flex items-center gap-2 text-sm text-ink"><input type="radio" checked={status === 'maintenance'} onChange={() => setStatus('maintenance')} /> Maintenance</label>
-      <label className="block text-xs text-ink-faint">Maintenance message<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={message} onChange={(event) => setMessage(event.target.value)} /></label>
-      <label className="block text-xs text-ink-faint">Revenue goal USDT<input className="mt-1 h-9 w-40 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" inputMode="decimal" value={goalUsdt} onChange={(event) => setGoal(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Maintenance message<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={message} onChange={(event) => setMessage(event.target.value)} /></label>
+      <label className="block text-xs text-ink-faint">Revenue goal USDT<input className="mt-1 h-9 w-40 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" inputMode="decimal" value={goalUsdt} onChange={(event) => setGoal(event.target.value)} /></label>
       <div className="space-y-2 border-t border-white/10 pt-3">
         <p className="text-xs text-ink-faint">Buyer bot menu controls (owner-only, off by default)</p>
         <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={showResellerSignup} onChange={(event) => setShowResellerSignup(event.target.checked)} /> Show Become a Reseller in buyer bot</label>
@@ -450,8 +593,8 @@ function StoreForm({ initial, goal, onDone }: { readonly initial: Payload['store
 
 function DangerForm({ onDone }: { readonly onDone: (note: string) => void }): JSX.Element {
   return (
-    <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'store', storeStatus: 'maintenance', maintenanceMessage: 'The platform is in maintenance.' } }).then((result) => onDone(result.ok ? 'Every owner-store buyer now sees maintenance.' : result.error.message)); }}>
-      <h2 className="text-sm text-ink">Danger zone</h2>
+    <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction('/api/platform/settings', { method: 'PATCH', body: { section: 'store', storeStatus: 'maintenance', maintenanceMessage: 'The platform is in maintenance.' } }).then((result) => onDone(result.ok ? 'Every owner-store buyer now sees maintenance.' : result.error.message)); }}>
+      <h2 className="text-base font-medium text-ink">Danger zone</h2>
       <p className="text-sm text-ink-soft">Puts the owner store into maintenance without changing your revenue goal. Reseller stores keep their own open or closed switch.</p>
       <Button type="submit">Save maintenance</Button>
     </form>
@@ -460,8 +603,8 @@ function DangerForm({ onDone }: { readonly onDone: (note: string) => void }): JS
 
 function SecurityForm({ rows, onDone }: { readonly rows: readonly { readonly id: string; readonly action: string; readonly at: string }[]; readonly onDone: (note: string) => void }): JSX.Element {
   return (
-    <article className="glass-card space-y-3 rounded-lg p-4">
-      <h2 className="text-sm text-ink">Security</h2>
+    <article className="glass-card space-y-4 rounded-2xl p-5 sm:p-6">
+      <h2 className="text-base font-medium text-ink">Security</h2>
       <p className="text-sm text-ink-soft">This browser stays signed in. Other sessions for this account are ended.</p>
       <Button variant="secondary" onClick={() => { void runAction('/api/platform/settings', { method: 'POST' }).then((result) => onDone(result.ok ? 'Other sessions were signed out.' : result.error.message)); }}>Sign out of other sessions</Button>
       {rows.length === 0 ? <p className="text-sm text-ink-soft">No audit rows yet.</p> : null}
@@ -480,15 +623,15 @@ function AccountForm({ name, email, onDone }: { readonly name: string; readonly 
   const [password, setPassword] = useState('');
   return (
     <div className="space-y-4">
-      <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfile, { method: 'PATCH', body: { displayName } }).then((result) => onDone(result.ok ? 'Profile saved.' : result.error.message)); }}>
-        <h2 className="text-sm text-ink">Account</h2>
+      <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfile, { method: 'PATCH', body: { displayName } }).then((result) => onDone(result.ok ? 'Profile saved.' : result.error.message)); }}>
+        <h2 className="text-base font-medium text-ink">Account</h2>
         <p className="text-sm text-ink-soft">{email}</p>
-        <label className="block text-xs text-ink-faint">Display name<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" value={displayName} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="block text-xs text-ink-faint">Display name<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={displayName} onChange={(event) => setName(event.target.value)} /></label>
         <Button type="submit">Save profile</Button>
       </form>
-      <form className="glass-card space-y-3 rounded-lg p-4" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfilePassword, { method: 'PATCH', body: { currentPassword, newPassword: password, confirmPassword: password } }).then((result) => onDone(result.ok ? 'Password changed.' : result.error.message)); }}>
-        <label className="block text-xs text-ink-faint">Current password<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" type="password" value={currentPassword} onChange={(event) => setCurrent(event.target.value)} /></label>
-        <label className="block text-xs text-ink-faint">New password<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+      <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfilePassword, { method: 'PATCH', body: { currentPassword, newPassword: password, confirmPassword: password } }).then((result) => onDone(result.ok ? 'Password changed.' : result.error.message)); }}>
+        <label className="block text-xs text-ink-faint">Current password<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="password" value={currentPassword} onChange={(event) => setCurrent(event.target.value)} /></label>
+        <label className="block text-xs text-ink-faint">New password<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         <Button type="submit" disabled={password.length < 8 || currentPassword.length < 1}>Change password</Button>
       </form>
     </div>
@@ -500,8 +643,8 @@ function KeysForm({ onDone }: { readonly onDone: (note: string) => void }): JSX.
   const [label, setLabel] = useState('');
   const [shown, setShown] = useState('');
   return (
-    <article className="glass-card space-y-3 rounded-lg p-4">
-      <h2 className="text-sm text-ink">API keys</h2>
+    <article className="glass-card space-y-4 rounded-2xl p-5 sm:p-6">
+      <h2 className="text-base font-medium text-ink">API keys</h2>
       {keys.error ? <ErrorState message={keys.error.message} onRetry={keys.refetch} /> : null}
       <ul className="space-y-1">
         {(keys.data?.keys ?? []).map((key) => (
@@ -513,7 +656,7 @@ function KeysForm({ onDone }: { readonly onDone: (note: string) => void }): JSX.
       </ul>
       {shown ? <p className="text-sm text-ink">Copy this key now. It is shown once: {shown}</p> : null}
       <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); void runAction<{ rawKey?: string }>(API_ROUTES.resellerApiKeys, { body: { label, environment: 'live' } }).then((result) => { if (!result.ok) { onDone(result.error.message); return; } setShown(result.data.rawKey ?? ''); setLabel(''); keys.refetch(); }); }}>
-        <input className="h-9 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" aria-label="Key label" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <input className="h-9 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" aria-label="Key label" value={label} onChange={(event) => setLabel(event.target.value)} />
         <Button type="submit" disabled={label.trim().length < 2}>Create key</Button>
       </form>
     </article>
@@ -524,8 +667,8 @@ function WebhooksForm({ onDone }: { readonly onDone: (note: string) => void }): 
   const hooks = useData<{ readonly webhooks: readonly { readonly id: string; readonly url: string }[] }>(API_ROUTES.resellerWebhooks);
   const [url, setUrl] = useState('');
   return (
-    <article className="glass-card space-y-3 rounded-lg p-4">
-      <h2 className="text-sm text-ink">Webhooks</h2>
+    <article className="glass-card space-y-4 rounded-2xl p-5 sm:p-6">
+      <h2 className="text-base font-medium text-ink">Webhooks</h2>
       {hooks.error ? <ErrorState message={hooks.error.message} onRetry={hooks.refetch} /> : null}
       <ul className="space-y-1">
         {(hooks.data?.webhooks ?? []).map((hook) => (
@@ -536,7 +679,7 @@ function WebhooksForm({ onDone }: { readonly onDone: (note: string) => void }): 
         ))}
       </ul>
       <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerWebhooks, { body: { url, events: ['order.paid'] } }).then((result) => { onDone(result.ok ? 'Webhook created. The secret was returned once by the API.' : result.error.message); if (result.ok) { setUrl(''); hooks.refetch(); } }); }}>
-        <input className="h-9 min-w-[220px] flex-1 rounded-md border border-white/10 bg-black/25 px-2 text-sm text-ink" aria-label="Webhook url" value={url} onChange={(event) => setUrl(event.target.value)} />
+        <input className="h-9 min-w-[220px] flex-1 rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" aria-label="Webhook url" value={url} onChange={(event) => setUrl(event.target.value)} />
         <Button type="submit" disabled={!url.startsWith('https://')}>Create webhook</Button>
       </form>
     </article>

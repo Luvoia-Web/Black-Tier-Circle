@@ -27,6 +27,7 @@ export async function GET(request: Request): Promise<Response> {
       tenantId: tenant?.id ?? null,
       botId: bot?.id ?? null,
       firstName: first,
+      timezone: session.profile.timezone,
     }, parseOverviewRange(new URL(request.url).searchParams.get('range')));
     return jsonSuccess(payload, 200, { cache: 'none' });
   } catch (error: unknown) {

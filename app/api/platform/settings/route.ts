@@ -12,10 +12,14 @@ import { loadFraudThresholds } from '@/modules/platform/fraud';
 import { getPlatformSettings, updatePlatformInfo } from '@/modules/platform';
 import { readEffectiveResellerPolicy, RESELLER_POLICY_FIELDS, saveResellerPolicy } from '@/modules/platform/policy';
 import { readRevenueGoal, writeRevenueGoal, parseGoalUsdt } from '@/modules/platform/goal';
+import { normalizeEthAddress } from '@/integrations/bsc/verify';
+import { isProductionDemoAllowed, paymentSandboxEnabled } from '@/lib/payment-config';
 import {
   listStoresWithOverrides,
+  readPaymentDemoMode,
   readPlatformExtraSettings,
   saveBotMenuToggles,
+  savePaymentDemoMode,
   savePaymentsSection,
 } from '@/modules/platform/settings-extra';
 import { saveOwnerStoreStatus } from '@/modules/platform/store';
@@ -94,7 +98,13 @@ const OverrideBody = z.object({
   policy: z.record(z.boolean()).nullable(),
 });
 
-const Body = z.discriminatedUnion('section', [PolicyBody, BusinessBody, LegalBody, FraudBody, PaymentsBody, StoreBody, NotifyBody, OverrideBody]);
+const PaymentModeBody = z.object({
+  section: z.literal('payment_mode'),
+  mode: z.enum(['live', 'demo']),
+  reason: z.string().trim().min(3, 'Enter a short reason for changing payment mode.').max(200).optional().default('Owner switched payment mode'),
+});
+
+const Body = z.discriminatedUnion('section', [PolicyBody, BusinessBody, LegalBody, FraudBody, PaymentsBody, PaymentModeBody, StoreBody, NotifyBody, OverrideBody]);
 
 function maskAddress(value: string | null): string {
   if (!value) return '';
@@ -141,6 +151,7 @@ export async function GET(): Promise<Response> {
     const platform = current.role === 'owner' ? await getPlatformSettings(current.db) : null;
     const goal = await readRevenueGoal(current.db, { role: current.role, tenantId: current.tenantId });
     const extra = current.role === 'owner' ? await readPlatformExtraSettings(current.db) : null;
+    const dbDemoMode = current.role === 'owner' ? await readPaymentDemoMode(current.db) : null;
     const stores = current.role === 'owner' ? await listStoresWithOverrides(current.db) : [];
     return jsonSuccess({
       role: current.role,
@@ -163,11 +174,14 @@ export async function GET(): Promise<Response> {
       payments: platform && extra
         ? {
             bep20Enabled: platform.bep20Enabled,
+            hasSavedAddress: Boolean(platform.platformUsdtWalletBep20 && normalizeEthAddress(platform.platformUsdtWalletBep20)),
             addressMasked: maskAddress(platform.platformUsdtWalletBep20),
             confirmations: extra.confirmations,
             expiryMinutes: extra.expiryMinutes,
             minUsdt: extra.minUsdt,
             maxUsdt: extra.maxUsdt,
+            paymentMode: paymentSandboxEnabled(dbDemoMode) ? 'demo' : 'live',
+            demoAllowed: isProductionDemoAllowed(),
           }
         : null,
       notifications: extra?.notifications ?? null,
@@ -186,7 +200,7 @@ function integrationStatus(): { readonly suppliers: string; readonly groq: strin
   return {
     suppliers: 'Read from the supplier desk. Keys stay on the server.',
     groq: process.env.GROQ_API_KEY ? 'Configured' : 'Not configured',
-    hindsight: process.env.HINDSIGHT_API_KEY && process.env.HINDSIGHT_API_URL ? 'Configured' : 'Not configured',
+    hindsight: process.env.HINDSIGHT_API_KEY && (process.env.HINDSIGHT_API_URL || process.env.HINDSIGHT_BASE_URL) ? 'Configured' : 'Not configured',
   };
 }
 
@@ -296,6 +310,19 @@ export async function PATCH(request: Request): Promise<Response> {
       });
       await audit(current.db, current.userId, 'settings.payments', null);
       return jsonSuccess({ ok: true });
+    }
+    if (body.section === 'payment_mode') {
+      const saved = await savePaymentDemoMode(current.db, body.mode === 'demo');
+      await current.db.from('audit_log').insert({
+        actor_id: current.userId,
+        tenant_id: null,
+        action: 'settings.payment_mode',
+        target_type: 'settings',
+        target_id: 'payment_mode',
+        reason: body.reason,
+        after_val: { paymentMode: saved.paymentMode },
+      });
+      return jsonSuccess(saved);
     }
     if (body.section === 'notifications') {
       const row = (await current.db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;

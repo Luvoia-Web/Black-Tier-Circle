@@ -6,9 +6,11 @@
  * (bot_show_reseller_signup, bot_show_my_api) degrade safely until applied.
  */
 
+import { normalizeEthAddress } from '@/integrations/bsc/verify';
 import { AppError, ValidationError } from '@/lib/errors';
 import { prepareBep20Address } from '@/lib/eth-address';
 import { minorToUsdt, usdtToMinor } from '@/lib/money';
+import { isProductionDemoAllowed, paymentSandboxEnabled } from '@/lib/payment-config';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { updatePaymentSettings } from '@/modules/platform';
 import { loadTopupPolicy, TOPUP_DEFAULT_MAX_MINOR, TOPUP_FLOOR_MINOR } from '@/modules/topups';
@@ -96,13 +98,60 @@ export async function saveBotMenuToggles(
   if (!id) throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing.');
   patch.updated_at = new Date().toISOString();
   const saved = await db.from('platform_settings').update(patch).eq('id', id);
-  if (missingColumn(saved.error)) {
-    return { applied: false };
-  }
   if (saved.error) {
     throw new AppError('SETTINGS_UPDATE_FAILED', saved.error.message, 500);
   }
   return { applied: true };
+}
+
+/**
+ * Reads platform_settings.payment_demo_mode (added in migration 0038).
+ * Returns null if the column has not been added yet, letting paymentSandboxEnabled()
+ * fall back to PAYMENT_SANDBOX.
+ */
+export async function readPaymentDemoMode(db: DbClient): Promise<boolean | null> {
+  const res = (await db
+    .from('platform_settings')
+    .select('payment_demo_mode')
+    .limit(1)
+    .maybeSingle()) as QueryResult<{ payment_demo_mode?: unknown } | null>;
+  if (res.error) {
+    if (missingColumn(res.error)) return null;
+    throw new AppError('PLATFORM_SETTINGS_LOOKUP_FAILED', res.error.message, 500);
+  }
+  if (!res.data || typeof res.data.payment_demo_mode !== 'boolean') {
+    return null;
+  }
+  return res.data.payment_demo_mode;
+}
+
+export async function savePaymentDemoMode(
+  db: DbClient,
+  demoMode: boolean,
+): Promise<{ readonly paymentMode: 'live' | 'demo' }> {
+  if (demoMode && !isProductionDemoAllowed()) {
+    throw new ValidationError(
+      'DEMO_BLOCKED_IN_PRODUCTION',
+      'Demo mode cannot be enabled in production unless PAYMENT_DEMO_ALLOW_PROD=true is set on the server.',
+    );
+  }
+  const rowRes = (await db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;
+  const id = rowRes.data?.id;
+  if (!id) throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing.');
+  const saved = await db
+    .from('platform_settings')
+    .update({ payment_demo_mode: demoMode, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (saved.error) {
+    if (missingColumn(saved.error)) {
+      throw new ValidationError(
+        'PAYMENT_MODE_NEEDS_MIGRATION',
+        'Apply migration 0038 before switching payment mode from Settings, or update PAYMENT_SANDBOX on the server.',
+      );
+    }
+    throw new AppError('SETTINGS_UPDATE_FAILED', saved.error.message, 500);
+  }
+  return { paymentMode: paymentSandboxEnabled(demoMode) ? 'demo' : 'live' };
 }
 
 export async function readPlatformExtraSettings(db: DbClient): Promise<PlatformExtraSettings> {
@@ -174,17 +223,29 @@ export async function savePaymentsSection(
   }
   const addressCheck = input.address.trim() ? prepareBep20Address(input.address) : null;
 
+  const existingRow = (await db
+    .from('platform_settings')
+    .select('id, platform_usdt_wallet_bep20')
+    .limit(1)
+    .maybeSingle()) as QueryResult<{ id?: string; platform_usdt_wallet_bep20?: string | null } | null>;
+  const id = existingRow.data?.id;
+  if (!id) {
+    throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing.');
+  }
+  const existingAddress = existingRow.data?.platform_usdt_wallet_bep20 ?? null;
+  const effectiveAddress = addressCheck?.address ?? existingAddress;
+  if (input.bep20Enabled && (!effectiveAddress || !normalizeEthAddress(effectiveAddress))) {
+    throw new ValidationError(
+      'BEP20_ADDRESS_REQUIRED',
+      'Save a valid BEP20 receiving address before enabling BEP20 payments.',
+    );
+  }
+
   // Group 1: core payment method & public address
   await updatePaymentSettings(db, {
     bep20Enabled: input.bep20Enabled,
     ...(addressCheck?.address ? { platformUsdtWalletBep20: addressCheck.address } : {}),
   });
-
-  const rowRes = (await db.from('platform_settings').select('id').limit(1).maybeSingle()) as QueryResult<{ id?: string } | null>;
-  const id = rowRes.data?.id;
-  if (!id) {
-    throw new ValidationError('PLATFORM_SETTINGS_MISSING', 'Platform settings are missing.');
-  }
 
   // Group 2: chain confirmations & top-up window (0035)
   const policySaved = await db

@@ -35,6 +35,12 @@ export type PlatformIntelligencePayload = {
   readonly status: 'operational' | 'degraded';
   readonly degraded: boolean;
   readonly timedOut: boolean;
+  /**
+   * ready: memories loaded. loading: the bank is slow and nothing is cached
+   * yet (not a failure). unavailable: Hindsight returned an error.
+   * not_configured: HINDSIGHT_ENABLED / HINDSIGHT_API_KEY / HINDSIGHT_API_URL missing.
+   */
+  readonly bankState: MemoryBankState;
   readonly platformIntelligence: string | null;
   readonly recentEvents: readonly PublicMemory[];
   readonly evidence: readonly PublicMemory[];
@@ -47,13 +53,45 @@ export type PlatformIntelligencePayload = {
   readonly typeCounts: Readonly<Record<MemoryCategory, number>>;
 };
 
+export type MemoryBankState = 'ready' | 'loading' | 'unavailable' | 'not_configured';
+
+const EMPTY_TYPE_COUNTS: Readonly<Record<MemoryCategory, number>> = {
+  all: 0,
+  decision: 0,
+  experience: 0,
+  observation: 0,
+  fact: 0,
+};
+
+/** Payload for a recall that produced nothing. A timeout is "loading", never "unavailable". */
+export function payloadForFailure(kind: 'timeout' | 'error' | 'not_configured'): PlatformIntelligencePayload {
+  const bankState: MemoryBankState =
+    kind === 'timeout' ? 'loading' : kind === 'not_configured' ? 'not_configured' : 'unavailable';
+  return {
+    memoryCount: 0,
+    rawCount: 0,
+    hiddenNoiseCount: 0,
+    duplicateCount: 0,
+    status: kind === 'timeout' ? 'operational' : 'degraded',
+    degraded: kind !== 'timeout',
+    timedOut: kind === 'timeout',
+    bankState,
+    platformIntelligence: null,
+    recentEvents: [],
+    evidence: [],
+    pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
+    typeCounts: EMPTY_TYPE_COUNTS,
+  };
+}
+
 type CachedSnapshot = {
   readonly bankId: string;
   readonly fetchedAt: number;
   readonly raw: readonly PublicMemory[];
 };
 
-const CACHE_TTL_MS = 30_000;
+/** Fresh window. Older snapshots are still served when a refresh is slow or fails. */
+const CACHE_TTL_MS = 5 * 60_000;
 let snapshotCache: CachedSnapshot | null = null;
 
 export function readFreshPlatformCache(bankId: string, now: number = Date.now()): readonly PublicMemory[] | null {

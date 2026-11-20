@@ -16,10 +16,19 @@ import { getTenantByUserId } from '@/modules/tenants';
 
 export const dynamic = 'force-dynamic';
 
+const ChatIdSchema = z
+  .string()
+  .trim()
+  .regex(/^-?[0-9]{5,20}$/, 'Use the numeric chat id Telegram shows for your account.');
+
 const Body = z.object({
   text: z.string().trim().min(1).max(4096),
   imageUrl: z.string().trim().max(500).optional().default(''),
-  chatId: z.string().trim().regex(/^-?\d{5,20}$/, 'Use the numeric chat id Telegram shows for your account.'),
+  chatId: ChatIdSchema,
+});
+
+const SaveChatIdBody = z.object({
+  chatId: ChatIdSchema,
 });
 
 async function tokenFor(db: ReturnType<typeof asDbClient>, role: 'owner' | 'reseller', userId: string): Promise<string> {
@@ -64,6 +73,29 @@ export async function POST(request: Request): Promise<Response> {
       reason: 'studio test send',
     });
     return jsonSuccess({ sent: true });
+  } catch (error: unknown) {
+    return handleRouteError(error);
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    const session = await requireUser();
+    const role = session.profile.role;
+    if (role !== 'owner' && role !== 'reseller') throw new AuthError('FORBIDDEN', 'You cannot save a test chat id', 403);
+    await assertRateLimit(`studio-test-chat:${session.user.id}`, 20);
+    const body = SaveChatIdBody.parse(await readJsonBody(request));
+    const db = asDbClient(session.admin);
+    const saved = await db.from('profiles').update({ telegram_chat_id: body.chatId }).eq('id', session.user.id);
+    if (saved.error) throw new AppError('TEST_CHAT_FAILED', saved.error.message, 500);
+    await db.from('audit_log').insert({
+      actor_id: session.user.id,
+      action: 'profile.telegram_chat_id',
+      target_type: 'profile',
+      target_id: session.user.id,
+      reason: 'Saved Telegram test chat id',
+    });
+    return jsonSuccess({ saved: true, chatId: body.chatId });
   } catch (error: unknown) {
     return handleRouteError(error);
   }

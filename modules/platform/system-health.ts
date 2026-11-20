@@ -13,6 +13,7 @@ import {
 } from '@/lib/display-labels';
 import { AppError } from '@/lib/errors';
 import { formatUsdt } from '@/lib/money';
+import { ownerBotDisplayName, resolveBotLiveStatus } from '@/lib/owner-bot';
 import {
   isOrderCanceled,
   isOrderDelivered,
@@ -260,7 +261,7 @@ function describeAfterVal(action: string, afterVal: unknown): string {
 function minorAmount(value: unknown): string {
   try {
     const minor = BigInt(typeof value === 'string' || typeof value === 'number' ? value : 0);
-    return `${formatUsdt(minor)} USDT`;
+    return formatUsdt(minor);
   } catch {
     return '0.00 USDT';
   }
@@ -409,37 +410,33 @@ export async function readSystemHealth(
     };
   });
 
+  // Orders (loaded before Bots so we can compute 24h bot activity)
+  const orders = records(ordersRes as QueryResult<unknown>, 'SYSTEM_HEALTH_ORDERS_FAILED');
+
   // Bots
   const bots: SystemHealthBotRow[] = [];
-  let ownerState = 'Disconnected';
-  let ownerTone: HealthTone = 'warn';
-  let ownerDetail: string | null = 'Connect the owner bot in Bots.';
-  if (ownerTokenState.status === 'decrypt_failed') {
-    ownerState = 'Token unreadable';
-    ownerTone = 'fault';
-    ownerDetail = BOT_TOKEN_DECRYPT_ERROR_MESSAGE;
-  } else if (ownerPaused) {
-    ownerState = 'Paused';
-    ownerTone = 'warn';
-    ownerDetail = 'Paused from the dashboard.';
-  } else if (settings.ownerBotStatus === 'connected') {
-    ownerState = 'Connected';
-    ownerTone = 'ok';
-    ownerDetail = 'Owner store bot active';
-  } else if (settings.ownerBotStatus === 'error') {
-    ownerState = 'Error';
-    ownerTone = 'fault';
-    ownerDetail = 'Telegram rejected the token or webhook check failed.';
-  }
+  const ownerOrderLatest = maxIso(
+    ...orders
+      .filter((row) => !row.tenant_id && str(row.channel) !== 'reseller_bot')
+      .map((row) => str(row.created_at) || null),
+  );
+  const ownerLive = resolveBotLiveStatus({
+    storedStatus: settings.ownerBotStatus,
+    paused: ownerPaused,
+    decryptFailed: ownerTokenState.status === 'decrypt_failed',
+    lastUpdateAt: ownerOrderLatest,
+    now,
+    decryptErrorMessage: BOT_TOKEN_DECRYPT_ERROR_MESSAGE,
+  });
   bots.push({
     id: 'owner',
-    username: settings.ownerBotUsername ? `@${settings.ownerBotUsername.replace(/^@/, '')}` : 'Owner bot',
+    username: ownerBotDisplayName(settings.ownerBotUsername),
     storeName: sanitizeCopy(settings.platformName, 'Black Tier Circle'),
     roleLabel: 'Owner bot',
-    stateLabel: ownerState,
-    tone: ownerTone,
+    stateLabel: ownerLive.status,
+    tone: ownerLive.tone,
     lastHealthAt: settings.ownerBotLastHealthAt ? settings.ownerBotLastHealthAt.toISOString() : null,
-    detail: ownerDetail,
+    detail: ownerLive.detail,
   });
 
   let resellerLastHealth: string | null = null;
@@ -448,30 +445,30 @@ export async function readSystemHealth(
     const lastHealthAt = str(row.last_health_at) || null;
     resellerLastHealth = maxIso(resellerLastHealth, lastHealthAt);
     const usernameRaw = str(row.username);
-    let stateLabel = 'Disconnected';
-    let tone: HealthTone = 'neutral';
-    let detail = 'Waiting for bot setup.';
-    if (status === 'connected') {
-      stateLabel = 'Connected';
-      tone = 'ok';
-      detail = 'Webhook healthy';
-    } else if (status === 'error') {
-      stateLabel = 'Error';
-      tone = 'fault';
-      detail = 'Webhook check failed. Re-set webhook in Bots.';
-    }
+    const tenantIdRow = str(row.tenant_id);
+    const botOrderLatest = maxIso(
+      ...orders
+        .filter((o) => str(o.tenant_id) === tenantIdRow)
+        .map((o) => str(o.created_at) || null),
+    );
+    const botLive = resolveBotLiveStatus({
+      storedStatus: status,
+      paused: status === 'paused',
+      lastUpdateAt: botOrderLatest,
+      now,
+    });
     bots.push({
       id: str(row.id),
       username: usernameRaw ? `@${usernameRaw.replace(/^@/, '')}` : 'Reseller bot',
-      storeName: tenantNames.get(str(row.tenant_id)) ?? 'Reseller store',
+      storeName: tenantNames.get(tenantIdRow) ?? 'Reseller store',
       roleLabel: 'Reseller bot',
-      stateLabel,
-      tone,
+      stateLabel: botLive.status,
+      tone: botLive.tone,
       lastHealthAt,
-      detail,
+      detail: botLive.detail,
     });
   }
-  const healthyBots = bots.filter((b) => b.stateLabel === 'Connected').length;
+  const healthyBots = bots.filter((b) => b.stateLabel === 'Online' || b.stateLabel === 'Idle').length;
 
   // Cron heartbeats + domain fallbacks
   const attempts = records(attemptsRes as QueryResult<unknown>, 'SYSTEM_HEALTH_ATTEMPTS_FAILED');
@@ -560,7 +557,6 @@ export async function readSystemHealth(
   ];
 
   // Job queue & failed jobs from orders + optional broadcasts + supplier sync errors
-  const orders = records(ordersRes as QueryResult<unknown>, 'SYSTEM_HEALTH_ORDERS_FAILED');
   const productIds = [...new Set(orders.map((o) => str(o.product_id)).filter(Boolean))].slice(0, 120);
   const productTitles = new Map<string, string>();
   if (productIds.length > 0) {

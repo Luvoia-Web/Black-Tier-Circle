@@ -692,7 +692,7 @@ function SupportInbox({
                       ) : !confirmReplace ? (
                         <Button
                           variant="secondary"
-                          disabled={replaceMode === 'manual' && !replaceContent.trim()}
+                          disabled={replaceReason.trim().length < 5 || (replaceMode === 'manual' && !replaceContent.trim())}
                           onClick={() => setConfirmReplace(true)}
                         >
                           Prepare replacement

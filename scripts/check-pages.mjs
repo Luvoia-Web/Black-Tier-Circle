@@ -32,7 +32,7 @@ const shotDir = path.join(root, '.cursor', 'e2e', 'shots');
 const ownerRoutes = routesFor('owner');
 const resellerRoutes = routesFor('reseller');
 
-const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync suppliers|sync|run now|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|save code|update code|edit code|schedule broadcast|confirm send|review send|cancel broadcast|update points|add freebie|activate|deactivate|move up|remove chat|test key|mark /i;
+const SKIP_CONTROL = /delete|disconnect|revoke|pause|resume|connect|sync suppliers|sync|run now|publish|save|send|rotate|credit|debit|approve|reject|decline|suspend|reactivate|refund|complete|fail|resubmit|reconcile|archive|restore|ban\b|block|unblock|close thread|reopen thread|replace|prepare replacement|confirm replace|create invite|reset override|create token|redeem|override|confirm override|sign out|log out|switch theme|decrease|increase|webhook|invite|retry|confirm retry|apply|cancel|verify|note|rename|reprice|export|download|broadcast|turn on|turn off|add code|save code|update code|edit code|schedule broadcast|confirm send|review send|cancel broadcast|update points|add freebie|activate|deactivate|move up|remove chat|test key|mark |live payments|demo mode/i;
 
 function loadEnv(text) {
   const env = {};
@@ -53,6 +53,7 @@ function problemsIn(body, errors, failedNetwork) {
   if (/arrives in a later step|later step|full layout|coming soon|full charts arrive/i.test(body)) problems.push('placeholder text');
   if (/<\/?[a-z][^>\n]{0,40}>/i.test(body)) problems.push('raw HTML tag');
   if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(body)) problems.push('raw ISO timestamp');
+  if (/USDT\s+USDT/.test(body)) problems.push('duplicated USDT USDT');
   const cleaned = body
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/\S+@\S+/g, ' ')
@@ -266,6 +267,12 @@ async function openRoute(context, role, route, width, serverLog) {
   }
   if (expected === '/marketing') {
     if (/Customer id/i.test(body)) problems.push('raw Customer id field on marketing');
+  }
+  if (expected === '/resellers' && role === 'owner') {
+    if (!/Paid orders/i.test(body)) problems.push('missing Paid orders label on resellers');
+  }
+  if (expected === '/bot-studio' || expected === '/catalog') {
+    if (/(?:^|\s)\[K(?:\s|$)/.test(body)) problems.push('broken bracket initials [K');
   }
   if (expected === '/discounts') {
     if (/Amount in minor units/i.test(body)) problems.push('raw minor units label on discounts');

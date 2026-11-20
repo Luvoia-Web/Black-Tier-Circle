@@ -582,8 +582,8 @@ export async function listBroadcastJobs(
     .limit(25);
   query = tenantId ? query.eq('tenant_id', tenantId) : query.is('tenant_id', null);
   const result = (await query) as QueryResult<unknown>;
-  if (missing(result.error)) {
-    return { needsMigration: true, jobs: [] };
+  if (result.error) {
+    throw new AppError('BROADCASTS_READ_FAILED', result.error.message, 500);
   }
   return {
     needsMigration: false,
@@ -649,9 +649,6 @@ export async function scheduleBroadcast(
     })
     .select('id')
     .maybeSingle()) as QueryResult<unknown>;
-  if (missing(saved.error)) {
-    throw new ValidationError('BROADCAST_NEEDS_MIGRATION', 'Scheduled broadcasts need migration 0037.');
-  }
   if (saved.error) {
     throw new ValidationError('BROADCAST_SCHEDULE_FAILED', 'The broadcast could not be scheduled.');
   }
@@ -684,9 +681,6 @@ export async function cancelScheduledBroadcast(
     .eq('status', 'scheduled');
   query = tenantId ? query.eq('tenant_id', tenantId) : query.is('tenant_id', null);
   const saved = await query;
-  if (missing(saved.error)) {
-    throw new ValidationError('BROADCAST_NEEDS_MIGRATION', 'Scheduled broadcasts need migration 0037.');
-  }
   if (saved.error) {
     throw new ValidationError('BROADCAST_CANCEL_FAILED', 'The broadcast could not be canceled.');
   }
@@ -708,8 +702,8 @@ export async function processDueBroadcasts(db: DbClient, now: Date = new Date(),
     .lte('scheduled_for', now.toISOString())
     .order('scheduled_for', { ascending: true })
     .limit(10)) as QueryResult<unknown>;
-  if (missing(due.error)) {
-    return { needsMigration: true, processed: 0, results: [] };
+  if (due.error) {
+    throw new AppError('BROADCASTS_DUE_READ_FAILED', due.error.message, 500);
   }
   const rows = records(due);
   const results = [];

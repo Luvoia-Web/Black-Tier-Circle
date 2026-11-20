@@ -120,7 +120,7 @@ describe('Phase K — Walkthrough #23 launch checklist payment mode', () => {
         },
       ],
     });
-    vi.stubEnv('PAYMENT_PROVIDER_MODE', 'demo');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
 
     const demoItems = await evaluateLaunchChecklist(demoDb);
     const demoPay = demoItems.find((item) => item.id === 'pay_mode');
@@ -128,6 +128,7 @@ describe('Phase K — Walkthrough #23 launch checklist payment mode', () => {
     expect(demoPay?.label).toBe('Payment mode: Demo');
     expect(demoPay?.passing).toBe(false);
 
+    vi.stubEnv('PAYMENT_SANDBOX', 'false');
     const liveDb = createMemoryDb({
       platform_settings: [
         {
@@ -427,7 +428,7 @@ describe('Phase K — readSystemHealth & API route RBAC', () => {
         },
       ],
     });
-    vi.stubEnv('PAYMENT_PROVIDER_MODE', 'demo');
+    vi.stubEnv('PAYMENT_SANDBOX', 'true');
 
     const payload = await readSystemHealth(db, now);
 

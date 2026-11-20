@@ -5,7 +5,7 @@
 ## 1. Repository & Handoff Pointers
 
 - **Git repo root:** `/Users/kushchaudhari/Black Tier Circle/Black-Tier-Circle` (the parent directory holds older/untracked files and duplicate design-reference assets — always run commands and edits inside `Black-Tier-Circle/`).
-- **Current handoff file:** `.cursor/handoff-step3.md` — Phases `0`, `1`, `A`, `B`, `C`, `D`, `D2`, `E` are **DONE**. **Next phase is `F` (Customers and support)**, followed by `G` (Resellers), `H` (Wallets & Payments), `I` (Analytics, Intelligence, Remy), `J` (Marketing, Discounts, Broadcasts), `K` (System health), `L` (Security), `M` (Reseller experience), `N` (Fresh-start SQL fixes), `O` (Final proof).
+- **Current handoff file:** `.cursor/handoff-step3.md` — Phases `0`, `1`, `A`, `B`, `C`, `D`, `D2`, `E`, `P0`, `F`, `G`, `H`, `I`, `J`, `K`, `M`, `A-fix` are **DONE**. **Next phase is `L` (Security)**, followed by `N` (Fresh-start SQL fixes) and `O` (Final proof). Migrations `0034`–`0037` are applied in production; next free migration is `0038`.
 - **Historical handoffs & specs:**
   - `.cursor/handoff-step1.md` — Step 1 (feature ledger, rose-glass tokens, shell/liquid pill, Remy restore, kit/charts, error surfacing, harness, Overview).
   - `.cursor/handoff-step2.md` — Step 2 (migration 0033, Orders + owner replace, Products Catalogue/Inventory/Pricing, Suppliers, `.or()` removal & pinned `safeSupplierFetch`, mockup alignment).

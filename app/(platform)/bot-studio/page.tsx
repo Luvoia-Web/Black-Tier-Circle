@@ -4,6 +4,8 @@
  * Bot Studio. Tabs match the product mockup. The saved value is the Telegram HTML subset.
  */
 
+import { productInitials } from '@/lib/product-labels';
+import { ownerBotDisplayName } from '@/lib/owner-bot';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GripVertical } from 'lucide-react';
@@ -241,7 +243,7 @@ function StudioView(): JSX.Element {
       emoji: '🎬',
       description: 'Instant digital subscriptions.',
       count: String(store.data?.products.length ?? 4),
-      store: store.data?.bot.username ? `@${store.data.bot.username}` : 'Black Tier Circle',
+      store: ownerBotDisplayName(store.data?.bot.username),
       balance: '12.00 USDT',
       product: chosen?.title ?? 'Sample',
       quantity: '1',
@@ -628,7 +630,7 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
             {image ? (
               <img src={image} alt="" className="h-[132px] w-full object-cover" />
             ) : showCard ? (
-              <div className="grid h-[132px] place-items-center bg-[#5a2038] text-[34px] font-medium text-[#f3d5e0]">{(chosen?.title ?? 'Sample').slice(0, 2).toUpperCase()}</div>
+              <div className="grid h-[132px] place-items-center bg-[#5a2038] text-[34px] font-medium text-[#f3d5e0]">{productInitials(chosen?.title ?? 'Sample')}</div>
             ) : null}
             <div className="px-3 py-2" dangerouslySetInnerHTML={{ __html: htmlToNodes(bubbleHtml) }} />
             <p className="px-3 pb-2 text-right text-[11px] text-[#6d8296]">18:42</p>

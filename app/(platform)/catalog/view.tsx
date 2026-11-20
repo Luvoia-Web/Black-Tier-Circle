@@ -5,6 +5,7 @@
  * are the other tabs on this workspace.
  */
 
+import { productInitials } from '@/lib/product-labels';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Download, LayoutGrid, List, Pause, Percent, Plus, Send, Tag, Trash2 } from 'lucide-react';
@@ -61,12 +62,6 @@ function money(minor: string): string {
   } catch {
     return '0.00';
   }
-}
-
-function initials(title: string): string {
-  const parts = title.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  const letters = parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : (parts[0] ?? 'PR').slice(0, 2);
-  return letters.toUpperCase();
 }
 
 function tile(title: string): string {
@@ -413,7 +408,7 @@ function ProductCard({ row, role, selected, onToggle, onOpen, onSaved }: { reado
         {row.imageUrl ? (
           <span className="block h-full w-full bg-cover bg-center" style={{ backgroundImage: `url(${JSON.stringify(row.imageUrl)})` }} />
         ) : (
-          <span className="grid h-full w-full place-items-center text-[28px] font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{initials(row.title)}</span>
+          <span className="grid h-full w-full place-items-center text-[28px] font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{productInitials(row.title)}</span>
         )}
         <input type="checkbox" aria-label={`Select ${row.title}`} checked={selected} className="absolute left-2 top-2 h-4 w-4" onClick={(event) => event.stopPropagation()} onChange={onToggle} />
       </button>
@@ -431,7 +426,7 @@ function ProductCard({ row, role, selected, onToggle, onOpen, onSaved }: { reado
 
 function ProductTable({ rows, role, selected, onSelected, onOpen, onSaved }: { readonly rows: readonly CatalogRow[]; readonly role: 'owner' | 'reseller'; readonly selected: ReadonlySet<string>; readonly onSelected: (next: ReadonlySet<string>) => void; readonly onOpen: (row: CatalogRow) => void; readonly onSaved: () => void }): JSX.Element {
   const columns: Column<CatalogRow>[] = [
-    { id: 'title', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md text-xs font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{initials(row.title)}</span>{row.title}</span> },
+    { id: 'title', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md text-xs font-medium text-[#5a2038]" style={{ background: tile(row.title) }}>{productInitials(row.title)}</span>{row.title}</span> },
     { id: 'category', header: 'Category', render: (row) => row.category || '—' },
     { id: 'delivery', header: 'Delivery', render: (row) => row.deliveryLabel },
     ...(role === 'owner' ? [{ id: 'supplier', header: 'Supplier', render: (row: CatalogRow) => row.supplierName }] : []),

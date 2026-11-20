@@ -263,3 +263,124 @@ export function isResellerOrderChannel(channel: OrderChannel): boolean {
 export function isGenericDeliveryResult(result: string): boolean {
   return GENERIC_DELIVERY_RESULTS.has(result);
 }
+
+/**
+ * Formats an event detail note in sentence case (first letter capitalised).
+ */
+export function toSentenceCase(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+export type OrderDrawerActions = {
+  readonly isDelivered: boolean;
+  readonly canCancel: boolean;
+  readonly canMarkFulfilled: boolean;
+  readonly canRefund: boolean;
+  readonly canReplace: boolean;
+};
+
+/**
+ * Determines which owner actions are shown in the order drawer.
+ * Delivered orders hide Cancel and Mark fulfilled.
+ */
+export function availableOrderDrawerActions(order: {
+  readonly deliveryStatus: string;
+}): OrderDrawerActions {
+  const isDelivered = order.deliveryStatus === 'sent';
+  return {
+    isDelivered,
+    canCancel: !isDelivered,
+    canMarkFulfilled: !isDelivered,
+    canRefund: true,
+    canReplace: isDelivered,
+  };
+}
+
+export type RawTimelineEvent = {
+  readonly track: string;
+  readonly to: string;
+  readonly label: string;
+  readonly at: string;
+  readonly note: string | null;
+};
+
+/**
+ * Normalizes the order timeline:
+ * - Formats detail notes in sentence case
+ * - Labels a failed supplier attempt as "Supplier attempt failed, retried" when a later attempt succeeded
+ * - Ensures a delivered order always ends with a "Delivered" event
+ */
+export function buildOrderTimeline(
+  rawEvents: readonly RawTimelineEvent[],
+  opts: {
+    readonly deliveryStatus: string;
+    readonly deliveredAt: string;
+    readonly supplierReason: string | null;
+  },
+): OrderDetailEvent[] {
+  const isDelivered = opts.deliveryStatus === 'sent';
+  const hasLaterSuccess = (index: number): boolean => {
+    if (isDelivered) return true;
+    for (let i = index + 1; i < rawEvents.length; i += 1) {
+      const next = rawEvents[i];
+      if (!next) continue;
+      if (
+        (next.track === 'fulfillment' && next.to === 'ready') ||
+        (next.track === 'delivery' && next.to === 'sent')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const events: OrderDetailEvent[] = rawEvents.map((ev, index) => {
+    const failed = ev.to === 'failed' || ev.to === 'unreachable' || ev.to === 'expired' || ev.to === 'outcome_unknown';
+    const done = ev.to === 'verified' || ev.to === 'sent' || ev.to === 'ready';
+    const isSupplierFailureRetried =
+      ev.track === 'fulfillment' &&
+      (ev.to === 'failed' || ev.to === 'outcome_unknown') &&
+      hasLaterSuccess(index);
+    return {
+      label: isSupplierFailureRetried ? 'Supplier attempt failed, retried' : ev.label,
+      at: ev.at,
+      tone: isSupplierFailureRetried ? 'neutral' : failed ? 'fault' : done ? 'ok' : 'neutral',
+      note: toSentenceCase(ev.note),
+    };
+  });
+
+  if (opts.supplierReason) {
+    const cleanReason = toSentenceCase(opts.supplierReason);
+    if (cleanReason && !events.some((event) => event.note === cleanReason)) {
+      const last = events.length > 0 ? events[events.length - 1] : undefined;
+      events.push({
+        label: isDelivered ? 'Supplier attempt failed, retried' : 'Supplier rejected the order',
+        at: last?.at ?? opts.deliveredAt,
+        tone: isDelivered ? 'neutral' : 'fault',
+        note: cleanReason,
+      });
+    }
+  }
+
+  if (isDelivered) {
+    const existingDeliveredIdx = events.findIndex((ev) => ev.label.toLowerCase() === 'delivered');
+    if (existingDeliveredIdx === -1) {
+      events.push({
+        label: 'Delivered',
+        at: opts.deliveredAt,
+        tone: 'ok',
+        note: null,
+      });
+    } else if (existingDeliveredIdx !== events.length - 1) {
+      const [deliveredEvent] = events.splice(existingDeliveredIdx, 1);
+      if (deliveredEvent) {
+        events.push({ ...deliveredEvent, label: 'Delivered', tone: 'ok' });
+      }
+    }
+  }
+
+  return events;
+}

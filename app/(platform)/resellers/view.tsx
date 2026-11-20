@@ -673,7 +673,7 @@ export function ResellersView(): JSX.Element {
                     <th className="py-2 pr-3 font-normal">Store</th>
                     <th className="px-2 py-2 font-normal">Status</th>
                     <th className="px-2 py-2 text-right font-normal">Revenue · {range}</th>
-                    <th className="px-2 py-2 text-right font-normal">Orders</th>
+                    <th className="px-2 py-2 text-right font-normal">Paid orders</th>
                     <th className="px-2 py-2 text-right font-normal">Buyers</th>
                     <th className="px-2 py-2 text-right font-normal">Wallet</th>
                     <th className="px-2 py-2 text-right font-normal">Owes you</th>

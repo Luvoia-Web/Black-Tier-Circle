@@ -26,9 +26,8 @@ function pluralBuyers(count: number): string {
 }
 
 function stateTone(state: BotCard['connectionState']): 'ok' | 'warn' | 'fault' | 'neutral' {
-  if (state === 'Connected') return 'ok';
-  if (state === 'Paused') return 'warn';
-  if (state === 'Disconnected') return 'neutral';
+  if (state === 'Online') return 'ok';
+  if (state === 'Idle' || state === 'Paused') return 'warn';
   return 'fault';
 }
 
@@ -80,7 +79,9 @@ function BotsView(): JSX.Element {
           <article key={bot.id} className="glass-card space-y-2 rounded-lg p-4">
             <div className="flex items-start justify-between gap-2">
               <button type="button" className="text-left" onClick={() => open(bot.id)}>
-                <p className="text-sm text-ink">@{bot.username || 'unnamed'}</p>
+                <p className="text-sm text-ink">
+                  {bot.username.startsWith('@') || bot.username === 'Owner bot' ? bot.username : `@${bot.username || 'unnamed'}`}
+                </p>
                 <p className="text-xs text-ink-faint">{bot.store} · {bot.owner}</p>
               </button>
               <StatusPill tone={stateTone(bot.connectionState)}>{bot.connectionState}</StatusPill>

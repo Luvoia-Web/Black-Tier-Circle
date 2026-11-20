@@ -654,6 +654,7 @@ export function WalletsView(): JSX.Element {
                         <button
                           key={chip.id || 'all'}
                           type="button"
+                          aria-pressed={tokenStatusFilter === chip.id}
                           onClick={() => setTokenStatusFilter(chip.id)}
                           className={`rounded-pill px-2.5 py-1 text-xs transition ${
                             tokenStatusFilter === chip.id ? 'bg-rose text-white' : 'border border-stroke text-ink-soft hover:text-ink'

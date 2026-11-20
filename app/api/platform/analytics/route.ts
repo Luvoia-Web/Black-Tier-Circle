@@ -34,7 +34,7 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
     const range = parseAnalyticsRange(new URL(request.url).searchParams.get('range'));
-    const payload = await readAnalytics(db, { role, tenantId }, range);
+    const payload = await readAnalytics(db, { role, tenantId, timezone: session.profile.timezone }, range);
     return jsonSuccess(payload, 200, { cache: 'none' });
   } catch (error: unknown) {
     return handleRouteError(error);

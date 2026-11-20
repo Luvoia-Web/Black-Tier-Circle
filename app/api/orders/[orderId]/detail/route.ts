@@ -14,7 +14,7 @@ import { AppError, AuthError } from '@/lib/errors';
 import { handleRouteError, jsonSuccess } from '@/lib/http';
 import { formatUsdt } from '@/lib/money';
 import { displayOrderEventLabel, displayOrderEventNote } from '@/lib/display-labels';
-import { isGenericDeliveryResult, type OrderDetailEvent, type OrderDetailPayload } from '@/lib/order-detail';
+import { buildOrderTimeline, isGenericDeliveryResult, type OrderDetailEvent, type OrderDetailPayload } from '@/lib/order-detail';
 import type { QueryResult } from '@/lib/supabase/query';
 import type { DbClient } from '@/lib/supabase/query';
 import { getCustomerById } from '@/modules/bots';
@@ -95,7 +95,10 @@ async function buildOrderDetail(
   const attempt = fulfillment.fulfillmentAttempts[0] ?? null;
   const claim = payment.claim;
   const labels = await sourceAndChannel(db, order.tenantId, order.channel, isReseller ? null : product.supplierId, isReseller);
-  const [events, replacementOpen] = await Promise.all([loadEvents(db, order.id, attempt?.error ?? null), openReplacement(db, order.id)]);
+  const [events, replacementOpen] = await Promise.all([
+    loadEvents(db, order, attempt?.error ?? null),
+    openReplacement(db, order.id),
+  ]);
   return {
     order: { ...serializeOrder(order), channelLabel: labels.channelLabel },
     product: {
@@ -220,36 +223,32 @@ function serializeOrder(order: Order): Omit<OrderDetailPayload['order'], 'channe
  * @param artifactPath - Stored file ref / supplier ref, if any
  * @param deliveryAttempts - Delivery attempts newest-first
  */
-async function loadEvents(db: DbClient, orderId: string, supplierReason: string | null): Promise<OrderDetailEvent[]> {
-  const result = (await db.from('order_events').select('track, to_status, note, created_at').eq('order_id', orderId).order('created_at', { ascending: true }).limit(12)) as QueryResult<unknown>;
+async function loadEvents(db: DbClient, order: Order, supplierReason: string | null): Promise<OrderDetailEvent[]> {
+  const result = (await db.from('order_events').select('track, to_status, note, created_at').eq('order_id', order.id).order('created_at', { ascending: true }).limit(20)) as QueryResult<unknown>;
   if (result.error) {
     throw new AppError('ORDER_DETAIL_FAILED', result.error.message, 500);
   }
-  if (!Array.isArray(result.data)) return supplierReason ? [{ label: 'Supplier update', at: new Date().toISOString(), tone: 'fault' as const, note: supplierReason }] : [];
-  const events = result.data
+  const rawEvents = (Array.isArray(result.data) ? result.data : [])
     .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
     .map((row) => {
       const to = typeof row.to_status === 'string' ? row.to_status : '';
       const track = typeof row.track === 'string' ? row.track : '';
       const note = displayOrderEventNote(typeof row.note === 'string' ? row.note : null);
-      const at = typeof row.created_at === 'string' ? row.created_at : new Date().toISOString();
-      const failed = to === 'failed' || to === 'unreachable' || to === 'expired';
-      const done = to === 'verified' || to === 'sent' || to === 'ready';
+      const at = typeof row.created_at === 'string' ? row.created_at : order.createdAt.toISOString();
       return {
+        track,
+        to,
         label: eventLabel(track, to),
         at,
-        tone: failed ? 'fault' as const : done ? 'ok' as const : 'neutral' as const,
         note,
       };
     });
-  if (supplierReason) {
-    const cleanReason = displayOrderEventNote(supplierReason) ?? supplierReason;
-    if (!events.some((event) => event.note === cleanReason)) {
-      const last = events.length > 0 ? events[events.length - 1] : undefined;
-      events.push({ label: 'Supplier rejected the order', at: last?.at ?? new Date().toISOString(), tone: 'fault', note: cleanReason });
-    }
-  }
-  return events;
+  const cleanSupplierReason = supplierReason ? (displayOrderEventNote(supplierReason) ?? supplierReason) : null;
+  return buildOrderTimeline(rawEvents, {
+    deliveryStatus: order.deliveryStatus,
+    deliveredAt: order.updatedAt.toISOString(),
+    supplierReason: cleanSupplierReason,
+  });
 }
 
 function eventLabel(track: string, to: string): string {

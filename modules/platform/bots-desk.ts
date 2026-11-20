@@ -3,6 +3,11 @@
  */
 
 import { AppError } from '@/lib/errors';
+import {
+  ownerBotDisplayName,
+  resolveBotLiveStatus,
+  type BotLiveStatus,
+} from '@/lib/owner-bot';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 import { telegramGetMe, telegramGetWebhookInfo } from '@/integrations/telegram/api';
 import { decryptBotToken } from '@/integrations/telegram/webhook';
@@ -13,12 +18,7 @@ import {
   readOwnerBotTokenState,
 } from '@/modules/platform';
 
-export type BotConnectionState =
-  | 'Connected'
-  | 'Paused'
-  | 'Disconnected'
-  | 'Error'
-  | 'Token unreadable';
+export type BotConnectionState = BotLiveStatus;
 
 export type BotCard = {
   readonly id: string;
@@ -111,26 +111,33 @@ function resolveState(
   tokenValid: boolean | null,
   webhookSet: boolean | null,
   webhookError: string | null,
+  lastUpdateAt: string | null,
 ): { readonly connectionState: BotConnectionState; readonly connectionDetail: string | null } {
-  if (decryptFailed) {
-    return { connectionState: 'Token unreadable', connectionDetail: BOT_TOKEN_DECRYPT_ERROR_MESSAGE };
+  const result = resolveBotLiveStatus({
+    storedStatus,
+    paused,
+    decryptFailed,
+    tokenValid,
+    webhookSet,
+    webhookError,
+    lastUpdateAt,
+    decryptErrorMessage: BOT_TOKEN_DECRYPT_ERROR_MESSAGE,
+  });
+  return { connectionState: result.status, connectionDetail: result.detail };
+}
+
+function newestTimestamp(values: readonly (string | null | undefined)[]): string | null {
+  let best: string | null = null;
+  let bestMs = -Infinity;
+  for (const v of values) {
+    if (!v) continue;
+    const ms = Date.parse(v);
+    if (Number.isFinite(ms) && ms > bestMs) {
+      bestMs = ms;
+      best = v;
+    }
   }
-  if (paused || storedStatus === 'paused') {
-    return { connectionState: 'Paused', connectionDetail: 'Paused from the dashboard.' };
-  }
-  if (storedStatus === 'disconnected') {
-    return { connectionState: 'Disconnected', connectionDetail: null };
-  }
-  if (storedStatus === 'error' || tokenValid === false) {
-    return {
-      connectionState: 'Error',
-      connectionDetail: webhookError || 'Telegram rejected the token or reported a webhook error.',
-    };
-  }
-  if (webhookSet === false) {
-    return { connectionState: 'Error', connectionDetail: 'Webhook is not registered with Telegram.' };
-  }
-  return { connectionState: 'Connected', connectionDetail: webhookError };
+  return best;
 }
 
 export async function readBots(
@@ -167,6 +174,8 @@ export async function readBots(
         ? await probe(tokenState.token)
         : { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: null, webhookError: null };
     const effectiveStatus = paused ? 'paused' : settings.ownerBotStatus;
+    const mine = orders.filter((row) => text(row.tenant_id) === '' && text(row.channel) !== 'reseller_bot');
+    const ownerLastActivity = newestTimestamp(mine.slice(0, 10).map((row) => text(row.created_at)));
     const resolved = resolveState(
       settings.ownerBotStatus,
       paused,
@@ -174,18 +183,18 @@ export async function readBots(
       health.tokenValid,
       health.webhookSet,
       health.webhookError,
+      ownerLastActivity,
     );
-    const mine = orders.filter((row) => text(row.tenant_id) === '' && text(row.channel) !== 'reseller_bot');
     const ownerBuyers = customers.filter((row) => text(row.bot_id) === '').length;
     cards.push(
       cardFor(
         'owner',
-        settings.ownerBotUsername ?? 'owner',
+        ownerBotDisplayName(settings.ownerBotUsername),
         'Owner store',
         'Owner',
         effectiveStatus,
         resolved,
-        health,
+        { ...health, lastUpdate: ownerLastActivity ?? health.lastUpdate },
         mine,
         ownerBuyers,
         sinceMs,
@@ -212,7 +221,8 @@ export async function readBots(
         }
       }
       const storedStatus = text(bot.status) || 'disconnected';
-      const resolvedBot = resolveState(storedStatus, storedStatus === 'paused', decryptFailed, null, null, null);
+      const botLastActivity = newestTimestamp(related.slice(0, 10).map((row) => text(row.created_at)));
+      const resolvedBot = resolveState(storedStatus, storedStatus === 'paused', decryptFailed, null, null, null, botLastActivity);
       cards.push(
         cardFor(
           text(bot.id),
@@ -221,7 +231,7 @@ export async function readBots(
           text(owner?.display_name) || 'Reseller',
           storedStatus,
           resolvedBot,
-          { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: text(bot.last_health_at) || null, webhookError: null },
+          { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: botLastActivity ?? (text(bot.last_health_at) || null), webhookError: null },
           related,
           buyers,
           sinceMs,
@@ -255,7 +265,8 @@ export async function readBots(
         }
       }
       const storedStatus = text(bot.status) || 'disconnected';
-      const resolvedBot = resolveState(storedStatus, storedStatus === 'paused', decryptFailed, null, null, null);
+      const botLastActivity = newestTimestamp(related.slice(0, 10).map((row) => text(row.created_at)));
+      const resolvedBot = resolveState(storedStatus, storedStatus === 'paused', decryptFailed, null, null, null, botLastActivity);
       cards.push(
         cardFor(
           text(bot.id),
@@ -264,7 +275,7 @@ export async function readBots(
           'You',
           storedStatus,
           resolvedBot,
-          { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: text(bot.last_health_at) || null, webhookError: null },
+          { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: botLastActivity ?? (text(bot.last_health_at) || null), webhookError: null },
           related,
           buyers,
           sinceMs,
@@ -366,7 +377,7 @@ export async function readBotDetail(
   const health: ProbeResult = token
     ? await probe(token)
     : { tokenValid: null, webhookSet: null, pendingUpdates: null, lastUpdate: card.lastUpdate, webhookError: null };
-  const resolved = resolveState(card.status, card.status === 'paused', decryptFailed, health.tokenValid, health.webhookSet, health.webhookError);
+  const resolved = resolveState(card.status, card.status === 'paused', decryptFailed, health.tokenValid, health.webhookSet, health.webhookError, card.lastUpdate);
 
   let ordersQuery = db
     .from('orders')

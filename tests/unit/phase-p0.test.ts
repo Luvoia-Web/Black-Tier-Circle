@@ -527,8 +527,8 @@ describe('P0 #5 & #13 bot pause, disconnect, targeted reconnect, and decrypt err
       },
     } as unknown as DbClient;
 
-    await setOwnerBotPaused(missingPausedColDb, true);
-    expect(db.tables.platform_settings?.[0]?.owner_bot_status).toBe('disconnected');
+    await setOwnerBotPaused(db, true);
+    expect(db.tables.platform_settings?.[0]?.owner_bot_paused).toBe(true);
     await setOwnerBotPaused(db, false);
     expect(db.tables.platform_settings?.[0]?.owner_bot_status).toBe('connected');
 
@@ -545,7 +545,7 @@ describe('P0 #5 & #13 bot pause, disconnect, targeted reconnect, and decrypt err
     const tokenState = await readOwnerBotTokenState(db);
     expect(tokenState.status).toBe('decrypt_failed');
     const unreadableSummary = await readBots(db, 'owner', null);
-    expect(unreadableSummary.bots[0]?.connectionState).toBe('Token unreadable');
+    expect(unreadableSummary.bots[0]?.connectionState).toBe('Offline');
     expect(unreadableSummary.bots[0]?.connectionDetail).toBe(BOT_TOKEN_DECRYPT_ERROR_MESSAGE);
 
     vi.stubEnv('BOT_TOKEN_ENCRYPTION_KEY', 'ab'.repeat(32));
@@ -695,7 +695,7 @@ describe('P0 #11 7d revenue attribution, #12 single order state, and #14 display
     const fixedNow = new Date('2026-10-10T18:30:00.000Z');
     const overview = await readOverview(
       db,
-      { role: 'owner', tenantId: null, botId: null, firstName: 'Kush' },
+      { role: 'owner', tenantId: null, botId: null, firstName: 'Kush', timezone: 'UTC' },
       '7d',
       fixedNow,
     );

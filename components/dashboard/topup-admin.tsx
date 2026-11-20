@@ -40,6 +40,15 @@ type Payload = {
 
 const STATUSES = ['all', 'pending', 'credited', 'expired', 'failed', 'rejected'] as const;
 
+const STATUS_OPTIONS: readonly { readonly value: (typeof STATUSES)[number]; readonly label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'credited', label: 'Credited' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
 function statusClass(status: string): string {
   if (status === 'credited') {
     return 'bg-[var(--green-soft)] text-[var(--green)]';
@@ -209,9 +218,9 @@ export function TopupAdmin({ hideHealth = false }: { readonly hideHealth?: boole
               setStatus(event.target.value as (typeof STATUSES)[number]);
             }}
           >
-            {STATUSES.map((item) => (
-              <option key={item} value={item}>
-                {item}
+            {STATUS_OPTIONS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
               </option>
             ))}
           </select>

@@ -5,6 +5,7 @@
  * A cost preview uses the same markup guard as supplier re-pricing.
  */
 
+import { productInitials } from '@/lib/product-labels';
 import { useState, type FormEvent } from 'react';
 import { AlertTriangle, Boxes, Wallet } from 'lucide-react';
 import { Button, DataTable, ErrorState, SelectField, Skeleton, StatTile, TextField, type Column } from '@/components/platform/ui';
@@ -24,11 +25,6 @@ function money(minor: string): string {
   }
 }
 
-function initials(title: string): string {
-  const parts = title.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : (parts[0] ?? 'PR').slice(0, 2)).toUpperCase();
-}
-
 export function InventorySection({ attention, onAttention }: { readonly attention: boolean; readonly onAttention: (on: boolean) => void }): JSX.Element {
   const page = useData<InventoryPage>(`/api/platform/catalog?section=inventory${attention ? '&attention=1' : ''}`);
   if (page.loading && !page.data) return <Skeleton className="h-40 w-full" />;
@@ -36,7 +32,7 @@ export function InventorySection({ attention, onAttention }: { readonly attentio
   const data = page.data;
   if (!data) return <Skeleton className="h-40 w-full" />;
   const columns: Column<InventoryRow>[] = [
-    { id: 'product', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-rose/15 text-xs text-ink">{initials(row.title)}</span>{row.title}</span> },
+    { id: 'product', header: 'Product', render: (row) => <span className="inline-flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-rose/15 text-xs text-ink">{productInitials(row.title)}</span>{row.title}</span> },
     { id: 'level', header: 'Level', render: (row) => <Level row={row} /> },
     { id: 'sold', header: 'Sold, 30 days', numeric: true, render: (row) => String(row.sold30) },
     { id: 'days', header: 'Days left', numeric: true, render: (row) => row.daysLeft === null ? '—' : String(row.daysLeft) },

@@ -324,6 +324,10 @@ export async function ownerReplace(
 ): Promise<{ readonly support: 'posted' | 'none' | 'needs-migration'; readonly threadId: string | null }> {
   const place = deps.place ?? placeNewSupplierItem;
   const deliver = deps.deliver ?? ((database, item) => deliverReplacementItem(database, item));
+  const cleanReason = (input.reason ?? '').trim();
+  if (cleanReason.length < 5) {
+    throw new ValidationError('REPLACEMENT_REASON_REQUIRED', 'Enter a reason of at least 5 characters before replacing.');
+  }
   const order = (await db.from('orders').select('id, customer_id, tenant_id, product_id, quantity, delivery_status, metadata').eq('id', input.orderId).maybeSingle()) as QueryResult<unknown>;
   const row = order.data && typeof order.data === 'object' ? (order.data as Record<string, unknown>) : null;
   if (order.error || !row) {

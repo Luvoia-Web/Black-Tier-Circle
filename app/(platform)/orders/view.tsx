@@ -4,12 +4,14 @@
  * Orders, as in the reference: tiles, chips, a dense table, and the drawer.
  */
 
+import { productInitials } from '@/lib/product-labels';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Calendar, Coins, Download, RefreshCw, ShoppingBag, Store, Zap } from 'lucide-react';
 import { useSetDrawerBody } from '@/components/platform/drawer-body';
-import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, StatTile, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
+import { Button, DataTable, ErrorState, Modal, Pagination, RelativeTime, SelectField, Skeleton, StatTile, StatusPill, TextAreaField, TextField, type Column } from '@/components/platform/ui';
 import { displayOrderEventNote } from '@/lib/display-labels';
+import { availableOrderDrawerActions } from '@/lib/order-detail';
 import { orderCanRetry, orderDisplayStatus } from '@/lib/order-state';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
@@ -73,12 +75,6 @@ const TILES = [
   'linear-gradient(145deg,#efe6ff,#d6c4ff)',
   'linear-gradient(145deg,#ffe1e1,#ffbdbd)',
 ];
-
-function initials(title: string): string {
-  const parts = title.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  const letters = parts.length > 1 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : (parts[0] ?? 'PR').slice(0, 2);
-  return letters.toUpperCase();
-}
 
 function tile(title: string): string {
   let hash = 0;
@@ -235,7 +231,7 @@ export function OrdersView(): JSX.Element {
       header: 'Product',
       render: (row) => (
         <span className="flex items-center gap-2">
-          <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-[11px] font-medium text-[#5a2038]" style={{ background: tile(row.productTitle) }}>{initials(row.productTitle)}</span>
+          <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md text-[11px] font-medium text-[#5a2038]" style={{ background: tile(row.productTitle) }}>{productInitials(row.productTitle)}</span>
           <span>
             <span className="block text-ink">{row.productTitle}</span>
             <span className="block text-xs text-ink-faint">× {row.quantity}</span>
@@ -462,7 +458,11 @@ function OrderDrawer({
   const [reason, setReason] = useState('');
   const [content, setContent] = useState('');
   const [manualItem, setManualItem] = useState('');
+  const [replaceReason, setReplaceReason] = useState('');
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
   const status = orderDisplayStatus(order);
+  const actions = availableOrderDrawerActions(order);
   const buyer = detail.customer?.username ? `@${detail.customer.username}` : detail.customer?.firstName || 'Buyer';
 
   async function act(name: string, url: string, body?: unknown): Promise<void> {
@@ -523,22 +523,55 @@ function OrderDrawer({
       {viewer === 'owner' ? (
         <div className="space-y-2">
           <Button className="w-full" loading={busy === 'retry'} onClick={() => void act('retry', API_ROUTES.fulfillmentRetryDelivery(order.id))}>Retry delivery</Button>
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="secondary" loading={busy === 'refund'} onClick={() => void act('refund', API_ROUTES.orderRefund(order.id))}>Refund to wallet</Button>
-            <Button variant="destructive" loading={busy === 'cancel'} onClick={() => void act('cancel', API_ROUTES.orderCancel(order.id), { reason: 'Cancelled from the order drawer' })}>Cancel</Button>
+          <div className={actions.canCancel ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
+            <Button
+              variant="secondary"
+              loading={busy === 'refund'}
+              onClick={() => {
+                setRefundReason('');
+                setRefundOpen(true);
+              }}
+            >
+              Refund to wallet
+            </Button>
+            {actions.canCancel ? (
+              <Button variant="destructive" loading={busy === 'cancel'} onClick={() => void act('cancel', API_ROUTES.orderCancel(order.id), { reason: 'Cancelled from the order drawer' })}>
+                Cancel
+              </Button>
+            ) : null}
           </div>
-          <Button variant="secondary" loading={busy === 'fulfill'} onClick={() => void act('fulfill', API_ROUTES.fulfillmentManualComplete(order.id), { note: note || 'Marked fulfilled' })}>Mark fulfilled</Button>
-          {order.deliveryStatus === 'sent' ? (
+          {actions.canMarkFulfilled ? (
+            <Button variant="secondary" loading={busy === 'fulfill'} onClick={() => void act('fulfill', API_ROUTES.fulfillmentManualComplete(order.id), { note: note || 'Marked fulfilled' })}>
+              Mark fulfilled
+            </Button>
+          ) : null}
+          {actions.canReplace ? (
             detail.replacementOpen ? (
               <Button variant="secondary" disabled>Replacement already open</Button>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 rounded-xl border border-stroke p-3">
+                <p className="text-xs font-medium text-ink">Warranty replacement</p>
+                <TextAreaField
+                  id={`replace-reason-${order.id}`}
+                  label="Replacement reason (required)"
+                  value={replaceReason}
+                  onChange={(event) => setReplaceReason(event.target.value)}
+                  hint="Recorded in audit log and posted to the linked support thread (min 5 characters)."
+                />
                 {detail.canReplaceFromSupplier ? (
                   <Button
                     variant="secondary"
                     className="w-full"
+                    disabled={replaceReason.trim().length < 5}
                     loading={busy === 'replace-supplier'}
-                    onClick={() => void act('replace-supplier', '/api/platform/replacements', { decision: 'replace', mode: 'supplier', orderId: order.id, note: note || 'Owner replacement' })}
+                    onClick={() =>
+                      void act('replace-supplier', '/api/platform/replacements', {
+                        decision: 'replace',
+                        mode: 'supplier',
+                        orderId: order.id,
+                        note: replaceReason.trim(),
+                      })
+                    }
                   >
                     New item from supplier
                   </Button>
@@ -547,14 +580,56 @@ function OrderDrawer({
                 <Button
                   variant="secondary"
                   className="w-full"
+                  disabled={replaceReason.trim().length < 5 || manualItem.trim().length === 0}
                   loading={busy === 'replace-manual'}
-                  onClick={() => void act('replace-manual', '/api/platform/replacements', { decision: 'replace', mode: 'manual', orderId: order.id, content: manualItem, note: note || 'Owner replacement' })}
+                  onClick={() =>
+                    void act('replace-manual', '/api/platform/replacements', {
+                      decision: 'replace',
+                      mode: 'manual',
+                      orderId: order.id,
+                      content: manualItem,
+                      note: replaceReason.trim(),
+                    })
+                  }
                 >
                   Send manually
                 </Button>
               </div>
             )
           ) : null}
+          <Modal
+            open={refundOpen}
+            title="Confirm refund to wallet"
+            onClose={() => setRefundOpen(false)}
+          >
+            <div className="space-y-3">
+              <p className="text-sm text-ink-soft">
+                Refund <strong className="font-num text-ink">{money(order.quotedRetailPrice)}</strong> to {buyer}&apos;s wallet? This action is logged in the audit trail.
+              </p>
+              <TextAreaField
+                id={`refund-reason-${order.id}`}
+                label="Refund reason (required)"
+                value={refundReason}
+                onChange={(event) => setRefundReason(event.target.value)}
+                hint="At least 5 characters."
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setRefundOpen(false)}>Close</Button>
+                <Button
+                  variant="destructive"
+                  disabled={refundReason.trim().length < 5}
+                  loading={busy === 'refund'}
+                  onClick={() => {
+                    void act('refund', API_ROUTES.orderRefund(order.id), { reason: refundReason.trim() }).then(() => {
+                      setRefundOpen(false);
+                    });
+                  }}
+                >
+                  Confirm refund
+                </Button>
+              </div>
+            </div>
+          </Modal>
           <TextAreaField id={`note-${order.id}`} label="Note" value={note} onChange={(event) => setNote(event.target.value)} />
           <Button variant="ghost" loading={busy === 'note'} onClick={() => void act('note', API_ROUTES.orderNote(order.id), { note })}>Add note</Button>
           {detail.paymentClaim ? (

@@ -6,8 +6,9 @@
  * @module Launch
  */
 
-import { isPaymentLive, isPlatformPaymentConfigured } from '@/lib/payment-config';
+import { isPaymentLive, isPlatformPaymentConfigured, paymentSandboxEnabled } from '@/lib/payment-config';
 import { getPlatformSettings } from '@/modules/platform';
+import { readPaymentDemoMode } from '@/modules/platform/settings-extra';
 import type { DbClient } from '@/lib/supabase/query';
 import { getBotConnection } from '@/modules/bots';
 import { getProductWithAssets, listProducts } from '@/modules/catalog';
@@ -35,6 +36,32 @@ function envReal(name: string): boolean {
 function minLen(name: string, min: number): boolean {
   const value = process.env[name];
   return Boolean(value && value.length >= min);
+}
+
+/**
+ * True only for an https, non-localhost production domain.
+ */
+export function isProductionAppUrl(raw: string | undefined): boolean {
+  if (!raw || raw.trim().length === 0) return false;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === '[::1]' ||
+      host.endsWith('.local') ||
+      host.endsWith('.localhost')
+    ) {
+      return false;
+    }
+    return host.includes('.');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -102,11 +129,17 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
     webhookSecretsSet = false;
   }
 
-  const settings = await getPlatformSettings(supabase);
-  const paymentLive = isPlatformPaymentConfigured(settings);
+  const [settings, dbDemoMode] = await Promise.all([
+    getPlatformSettings(supabase),
+    readPaymentDemoMode(supabase),
+  ]);
+  const demoActive = paymentSandboxEnabled(dbDemoMode);
+  const paymentLive = !demoActive && isPlatformPaymentConfigured(settings);
   const binanceLive = isPaymentLive(settings);
   const ownerConnected = settings.ownerBotStatus === 'connected';
   const paymentMethodEnabled = settings.binancePayEnabled || settings.bep20Enabled;
+  const appUrlRaw = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrlValid = isProductionAppUrl(appUrlRaw);
   const items: LaunchCheck[] = [
     {
       id: 'env_supabase_url',
@@ -154,17 +187,27 @@ export async function evaluateLaunchChecklist(supabase: DbClient): Promise<Launc
       id: 'env_app_url',
       label: 'NEXT_PUBLIC_APP_URL set to production domain',
       group: 'environment',
-      passing: envSet('NEXT_PUBLIC_APP_URL'),
-      detail: process.env.NEXT_PUBLIC_APP_URL ?? 'Missing',
+      passing: appUrlValid,
+      detail: !appUrlRaw
+        ? 'Missing'
+        : appUrlValid
+          ? appUrlRaw
+          : `${appUrlRaw} — must use https on a non-localhost domain`,
     },
     {
       id: 'pay_mode',
-      label: `Payment mode: ${paymentLive ? 'Live' : 'Demo'}`,
+      label: demoActive
+        ? 'Payment mode: Demo'
+        : paymentLive
+          ? 'Payment mode: Live'
+          : 'Payment mode: Live (no method configured)',
       group: 'payment',
       passing: paymentLive,
-      detail: paymentLive
-        ? 'Real BEP20 USDT / Binance Pay verification active'
-        : 'Demo mode auto-credits wallets without chain verification. Enable live verification before launch.',
+      detail: demoActive
+        ? 'Demo mode allows simulated payments without chain verification. Switch to Live in Settings → Payments before launch.'
+        : paymentLive
+          ? 'Real BEP20 USDT / Binance Pay verification active'
+          : 'Enable USDT BEP20 with a valid address or Binance Pay in Settings → Payments.',
     },
     {
       id: 'pay_method',

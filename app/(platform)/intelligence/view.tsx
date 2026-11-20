@@ -20,7 +20,34 @@ import { displayMemoryType, formatPlainDatesInText } from '@/lib/display-labels'
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
 import type { PublicMemory } from '@/lib/hindsight';
-import type { MemoryCategory, PlatformIntelligencePayload } from '@/modules/platform/intelligence';
+import type { MemoryBankState, MemoryCategory, PlatformIntelligencePayload } from '@/modules/platform/intelligence';
+
+const BANK_LABEL: Readonly<
+  Record<MemoryBankState, { value: string; hint: string; tone: 'mint' | 'amber' | 'danger'; title: string; message: string }>
+> = {
+  ready: { value: 'Answering', hint: 'Hindsight connected', tone: 'mint', title: '', message: '' },
+  loading: {
+    value: 'Loading',
+    hint: 'The bank is slow to answer',
+    tone: 'amber',
+    title: 'Memory is still loading',
+    message: 'The memory bank took longer than 8 seconds. Nothing is wrong yet. Try again in a moment.',
+  },
+  unavailable: {
+    value: 'Unavailable',
+    hint: 'Hindsight returned an error',
+    tone: 'danger',
+    title: 'Memory is not answering',
+    message: 'The memory bank returned an error. The rest of the dashboard keeps working.',
+  },
+  not_configured: {
+    value: 'Not set up',
+    hint: 'Hindsight keys are missing',
+    tone: 'amber',
+    title: 'Memory is not set up',
+    message: 'Set HINDSIGHT_ENABLED, HINDSIGHT_API_KEY and HINDSIGHT_API_URL on the server to turn memory on.',
+  },
+};
 
 const PROMPTS = [
   'What should the platform watch this week?',
@@ -152,10 +179,10 @@ export function IntelligenceView(): JSX.Element {
             />
             <StatTile
               label="Memory bank"
-              value={data.degraded ? 'Unavailable' : 'Answering'}
-              hint={data.timedOut ? 'Fast fallback active' : 'Hindsight connected'}
+              value={BANK_LABEL[data.bankState].value}
+              hint={data.timedOut && data.bankState === 'ready' ? 'Showing the saved snapshot' : BANK_LABEL[data.bankState].hint}
               icon={ShieldCheck}
-              tone={data.degraded ? 'danger' : 'mint'}
+              tone={BANK_LABEL[data.bankState].tone}
             />
             <StatTile
               label="Evidence citations"
@@ -206,10 +233,10 @@ export function IntelligenceView(): JSX.Element {
             </Button>
           </form>
 
-          {data.degraded ? (
+          {data.bankState !== 'ready' ? (
             <EmptyState
-              title="Memory is not answering"
-              message="The bank timed out or is unavailable. The rest of the dashboard keeps working cleanly."
+              title={BANK_LABEL[data.bankState].title}
+              message={BANK_LABEL[data.bankState].message}
               action={
                 <Button
                   variant="secondary"
@@ -235,7 +262,7 @@ export function IntelligenceView(): JSX.Element {
             </article>
           ) : null}
 
-          {!data.degraded ? (
+          {data.bankState === 'ready' ? (
             <article className="glass-card space-y-3 rounded-lg p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm text-ink">Recent events</h2>

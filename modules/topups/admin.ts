@@ -50,10 +50,42 @@ export type TopupHealth = {
   readonly cryptoEnabled: boolean;
   readonly notice: string | null;
   readonly provider: 'ok' | 'down';
+  readonly providerDetail: string;
   readonly confirmations: number;
   readonly expiryMinutes: number;
   readonly overrideActive: boolean;
 };
+
+/**
+ * Plain-English explanation for the BEP20 verifier state.
+ * Never prints env var values or secrets.
+ */
+export function describeVerifierStatus(input: {
+  readonly hasAddress: boolean;
+  readonly provider: 'ok' | 'down';
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}): string {
+  if (!input.hasAddress) {
+    return 'No receiving BEP20 address saved in Settings → Payments.';
+  }
+  const env = input.env ?? process.env;
+  const hasCustomRpc = Boolean(env.BSC_RPC_URLS && env.BSC_RPC_URLS.trim().length > 0);
+  const rawKey = env.ETHERSCAN_API_KEY?.trim() ?? '';
+  const hasEtherscan = rawKey.length > 0 && !rawKey.toUpperCase().startsWith('PLACEHOLDER');
+  if (input.provider === 'ok') {
+    return hasCustomRpc ? 'Connected via BSC_RPC_URLS' : 'Connected via public BSC RPC';
+  }
+  const parts: string[] = [];
+  if (!hasCustomRpc) {
+    parts.push('BSC_RPC_URLS is not set (default public RPCs failed)');
+  } else {
+    parts.push('BSC_RPC_URLS endpoints did not respond');
+  }
+  if (!hasEtherscan) {
+    parts.push('ETHERSCAN_API_KEY is missing');
+  }
+  return parts.join('; ') + '.';
+}
 
 function asMinor(value: unknown): bigint {
   if (typeof value === 'bigint') {
@@ -155,6 +187,7 @@ export async function topupHealth(
     cryptoEnabled: payee.enabled,
     notice: payee.notice,
     provider,
+    providerDetail: describeVerifierStatus({ hasAddress: payee.address !== null, provider }),
     confirmations: policy.confirmations,
     expiryMinutes: policy.expiryMinutes,
     overrideActive: policy.overrideActive,
