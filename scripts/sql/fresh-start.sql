@@ -269,7 +269,24 @@ where tenant_id in (select id from _reseller_tenants);
 delete from public.broadcasts
 where tenant_id in (select id from _reseller_tenants);
 
--- Clear reseller profile references on kept owner rows before deleting reseller auth users.
+delete from public.freebies
+where tenant_id in (select id from _reseller_tenants);
+
+-- Clear or reassign reseller profile references on kept owner rows before deleting
+-- reseller tenants and auth users. Nullable FKs are nulled; NOT NULL FKs are reassigned
+-- to the primary owner profile so neither FK nor NOT NULL constraints can fail.
+update public.ledger_transactions
+set actor_id = null
+where actor_id in (select id from _reseller_profiles);
+
+update public.api_keys
+set revoked_by = null
+where revoked_by in (select id from _reseller_profiles);
+
+update public.api_keys
+set created_by = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+where created_by in (select id from _reseller_profiles);
+
 update public.store_config
 set updated_by = null
 where updated_by in (select id from _reseller_profiles);
@@ -279,7 +296,7 @@ set saved_by = null
 where saved_by in (select id from _reseller_profiles);
 
 update public.broadcasts
-set created_by = null
+set created_by = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
 where created_by in (select id from _reseller_profiles);
 
 update public.audit_log
@@ -295,10 +312,9 @@ set redeemed_by = null
 where redeemed_by in (select id from _reseller_profiles);
 
 update public.topup_tokens
-set created_by = (select id from public.profiles where role = 'owner' limit 1)
+set created_by = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
 where created_by in (select id from _reseller_profiles);
 
--- Reseller freebies cascade from the tenant. Owner freebies stay.
 delete from public.tenants
 where id in (select id from _reseller_tenants);
 

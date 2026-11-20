@@ -83,6 +83,12 @@ insert into public.api_keys
 select * from fresh_start_backup.api_keys b
 where not exists (select 1 from public.api_keys k where k.id = b.id);
 
+update public.api_keys k
+set created_by = b.created_by,
+    revoked_by = b.revoked_by
+from fresh_start_backup.api_keys b
+where k.id = b.id;
+
 insert into public.webhook_endpoints
 select * from fresh_start_backup.webhook_endpoints b
 where not exists (select 1 from public.webhook_endpoints w where w.id = b.id);
@@ -122,6 +128,11 @@ where not exists (select 1 from public.replacement_requests r where r.id = b.id)
 insert into public.ledger_transactions
 select * from fresh_start_backup.ledger_transactions b
 where not exists (select 1 from public.ledger_transactions l where l.id = b.id);
+
+update public.ledger_transactions l
+set actor_id = b.actor_id
+from fresh_start_backup.ledger_transactions b
+where l.id = b.id;
 
 insert into public.wallet_topups
 select * from fresh_start_backup.wallet_topups b

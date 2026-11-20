@@ -67,4 +67,24 @@ describe('Phase N — fresh-start.sql and fresh-start-undo.sql safety invariants
     expect(undo).toMatch(/insert into public\.notifications/i);
     expect(undo).toMatch(/insert into public\.invitations/i);
   });
+
+  it('nulls ledger_transactions.actor_id & api_keys.revoked_by, reassigns NOT NULL profile FKs, and mirrors in undo', () => {
+    // Nullable FKs nulled before deleting reseller auth users
+    expect(sql).toMatch(/update public\.ledger_transactions\s+set actor_id = null\s+where actor_id in \(select id from _reseller_profiles\)/i);
+    expect(sql).toMatch(/update public\.api_keys\s+set revoked_by = null\s+where revoked_by in \(select id from _reseller_profiles\)/i);
+
+    // NOT NULL profile FKs reassigned to owner (never nulled)
+    expect(sql).toMatch(/update public\.api_keys\s+set created_by = \(select id from public\.profiles where role = 'owner'/i);
+    expect(sql).toMatch(/update public\.topup_tokens\s+set created_by = \(select id from public\.profiles where role = 'owner'/i);
+    expect(sql).toMatch(/update public\.broadcasts\s+set created_by = \(select id from public\.profiles where role = 'owner'/i);
+    expect(sql).not.toMatch(/update public\.broadcasts\s+set created_by = null/i);
+
+    // Reseller freebies deleted explicitly
+    expect(sql).toMatch(/delete from public\.freebies\s+where tenant_id in \(select id from _reseller_tenants\)/i);
+
+    // Undo mirrors actor_id, revoked_by, and created_by restorations
+    expect(undo).toMatch(/update public\.ledger_transactions l\s+set actor_id = b\.actor_id/i);
+    expect(undo).toMatch(/update public\.api_keys k\s+set created_by = b\.created_by,\s+revoked_by = b\.revoked_by/i);
+    expect(undo).toMatch(/update public\.broadcasts x\s+set created_by = b\.created_by/i);
+  });
 });
