@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Megaphone } from 'lucide-react';
 import { GrowthPanel } from '@/components/growth/growth-panel';
 import type { GrowthPayload } from '@/components/growth/types';
@@ -58,11 +59,19 @@ export function MarketingView(): JSX.Element {
 
   return (
     <section className="space-y-6">
-      <header>
-        <h1 className="text-[30px] font-medium tracking-tight text-ink">Marketing</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          Referral rewards, points adjustments, freebies, and store banner announcements.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[30px] font-medium tracking-tight text-ink">Marketing</h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            Referral rewards, points adjustments, freebies, and store banner announcements.
+          </p>
+        </div>
+        <Link
+          href="/broadcasts"
+          className="inline-flex h-9 items-center rounded-xl border border-white/12 bg-white/[0.06] px-3.5 text-xs font-medium text-ink transition hover:bg-white/10"
+        >
+          Broadcasts
+        </Link>
       </header>
 
       {growth.loading && !growth.data ? (

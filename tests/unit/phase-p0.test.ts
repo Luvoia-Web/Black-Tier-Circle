@@ -631,6 +631,7 @@ describe('P0 #8 legacy redirects', () => {
       'security',
       'danger',
       'account',
+      'reseller-store',
       'keys',
       'webhooks',
     ]);

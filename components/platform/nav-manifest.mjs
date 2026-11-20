@@ -105,7 +105,12 @@ export const resellerNav = [
   {
     id: 'settings',
     href: '/settings',
-    panels: ['/settings?section=account', '/settings?section=keys', '/settings?section=webhooks'],
+    panels: [
+      '/settings?section=account',
+      '/settings?section=reseller-store',
+      '/settings?section=keys',
+      '/settings?section=webhooks',
+    ],
   },
 ];
 

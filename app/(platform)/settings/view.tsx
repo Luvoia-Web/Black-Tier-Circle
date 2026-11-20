@@ -70,6 +70,7 @@ const OWNER_SECTIONS = [
 
 const RESELLER_SECTIONS = [
   { id: 'account', label: 'Account' },
+  { id: 'reseller-store', label: 'Store & payments' },
   { id: 'keys', label: 'API keys' },
   { id: 'webhooks', label: 'Webhooks' },
 ] as const;
@@ -164,9 +165,10 @@ function SettingsBody(): JSX.Element {
         {section === 'security' ? <SecurityForm rows={loaded.audit ?? []} onDone={savedNote} /> : null}
         {section === 'danger' ? <DangerForm onDone={savedNote} /> : null}
         {section === 'account' ? <AccountForm name={loaded.displayName} email={loaded.email} onDone={savedNote} /> : null}
+        {section === 'reseller-store' && loaded.role === 'reseller' ? <ResellerStoreForm onDone={savedNote} /> : null}
         {section === 'keys' ? <KeysForm onDone={savedNote} /> : null}
         {section === 'webhooks' ? <WebhooksForm onDone={savedNote} /> : null}
-        {loaded.role === 'reseller' && !['account', 'keys', 'webhooks'].includes(section) ? <p className="text-sm text-ink-soft">This section is set by the platform owner.</p> : null}
+        {loaded.role === 'reseller' && !['account', 'reseller-store', 'keys', 'webhooks'].includes(section) ? <p className="text-sm text-ink-soft">This section is set by the platform owner.</p> : null}
       </div>
     </div>
   );
@@ -621,20 +623,163 @@ function AccountForm({ name, email, onDone }: { readonly name: string; readonly 
   const [displayName, setName] = useState(name);
   const [currentPassword, setCurrent] = useState('');
   const [password, setPassword] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [deletionBusy, setDeletionBusy] = useState(false);
+
+  async function uploadAvatar(file: File | null): Promise<void> {
+    if (!file) return;
+    setAvatarBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(API_ROUTES.resellerProfileAvatar, { method: 'POST', body: form });
+      const json = (await res.json().catch(() => null)) as { success?: boolean; error?: { message?: string } } | null;
+      if (!res.ok || !json?.success) {
+        onDone(json?.error?.message || 'Avatar upload failed.');
+      } else {
+        onDone('Avatar updated.');
+      }
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function requestDeletion(): Promise<void> {
+    setDeletionBusy(true);
+    const result = await runAction(API_ROUTES.resellerProfileDeletion, { method: 'POST' });
+    setDeletionBusy(false);
+    onDone(result.ok ? 'Account deletion request sent to the platform owner.' : result.error.message);
+  }
+
   return (
     <div className="space-y-4">
       <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfile, { method: 'PATCH', body: { displayName } }).then((result) => onDone(result.ok ? 'Profile saved.' : result.error.message)); }}>
         <h2 className="text-base font-medium text-ink">Account</h2>
         <p className="text-sm text-ink-soft">{email}</p>
         <label className="block text-xs text-ink-faint">Display name<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={displayName} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="block text-xs text-ink-faint">
+          Profile avatar (JPG, PNG, or WebP, max 2 MB)
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={avatarBusy}
+            className="mt-1 block w-full text-xs text-ink-soft file:mr-3 file:rounded-lg file:border file:border-stroke file:bg-white/[0.06] file:px-3 file:py-1.5 file:text-xs file:text-ink"
+            onChange={(event) => void uploadAvatar(event.target.files?.[0] ?? null)}
+          />
+        </label>
         <Button type="submit">Save profile</Button>
       </form>
       <form className="glass-card space-y-4 rounded-2xl p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); void runAction(API_ROUTES.resellerProfilePassword, { method: 'PATCH', body: { currentPassword, newPassword: password, confirmPassword: password } }).then((result) => onDone(result.ok ? 'Password changed.' : result.error.message)); }}>
+        <h2 className="text-base font-medium text-ink">Password</h2>
         <label className="block text-xs text-ink-faint">Current password<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="password" value={currentPassword} onChange={(event) => setCurrent(event.target.value)} /></label>
         <label className="block text-xs text-ink-faint">New password<input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         <Button type="submit" disabled={password.length < 8 || currentPassword.length < 1}>Change password</Button>
       </form>
+      <article className="glass-card space-y-3 rounded-2xl p-5 sm:p-6">
+        <h2 className="text-base font-medium text-ink">Account deletion</h2>
+        <p className="text-sm text-ink-soft">
+          Ask the platform owner to review and close your reseller account. Your store stays active until the owner approves it.
+        </p>
+        <Button variant="secondary" loading={deletionBusy} onClick={() => void requestDeletion()}>
+          Delete account request
+        </Button>
+      </article>
     </div>
+  );
+}
+
+type ResellerSettingsPayload = {
+  readonly settings: {
+    readonly storeName: string | null;
+    readonly storeStatus: 'open' | 'maintenance';
+    readonly maintenanceMsg: string | null;
+    readonly supportContact: string | null;
+    readonly useOwnUsdtWallet: boolean;
+    readonly usdtWalletBep20: string | null;
+  };
+  readonly tenant: {
+    readonly displayName: string;
+  };
+};
+
+function ResellerStoreForm({ onDone }: { readonly onDone: (note: string) => void }): JSX.Element {
+  const remote = useData<ResellerSettingsPayload>(API_ROUTES.resellerSettings);
+  const [storeName, setStoreName] = useState('');
+  const [supportContact, setSupportContact] = useState('');
+  const [storeStatus, setStoreStatus] = useState<'open' | 'maintenance'>('open');
+  const [maintenanceMsg, setMaintenanceMsg] = useState('');
+  const [useOwnWallet, setUseOwnWallet] = useState(false);
+  const [bep20Address, setBep20Address] = useState('');
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!remote.data || hydrated) return;
+    setStoreName(remote.data.settings.storeName ?? remote.data.tenant.displayName ?? '');
+    setSupportContact(remote.data.settings.supportContact ?? '');
+    setStoreStatus(remote.data.settings.storeStatus === 'maintenance' ? 'maintenance' : 'open');
+    setMaintenanceMsg(remote.data.settings.maintenanceMsg ?? '');
+    setUseOwnWallet(remote.data.settings.useOwnUsdtWallet === true);
+    setBep20Address(remote.data.settings.usdtWalletBep20 ?? '');
+    setHydrated(true);
+  }, [remote.data, hydrated]);
+
+  if (remote.loading && !remote.data) return <Skeleton className="h-44 w-full" />;
+  if (remote.error && !remote.data) return <ErrorState message={remote.error.message} onRetry={remote.refetch} />;
+
+  return (
+    <form
+      className="glass-card space-y-4 rounded-2xl p-5 sm:p-6"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void runAction(API_ROUTES.resellerSettings, {
+          method: 'PATCH',
+          body: {
+            storeName: storeName.trim() || undefined,
+            supportContact: supportContact.trim() || null,
+            storeStatus,
+            maintenanceMsg: maintenanceMsg.trim() || null,
+            useOwnUsdtWallet: useOwnWallet,
+            ...(bep20Address.trim() ? { usdtWalletBep20: bep20Address.trim() } : {}),
+          },
+        }).then((result) => {
+          onDone(result.ok ? 'Store settings saved.' : result.error.message);
+          if (result.ok) remote.refetch();
+        });
+      }}
+    >
+      <h2 className="text-base font-medium text-ink">Store & payments</h2>
+      <p className="text-sm text-ink-soft">
+        Fields locked by the platform owner policy stay protected automatically.
+      </p>
+      <label className="block text-xs text-ink-faint">
+        Store name
+        <input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={storeName} onChange={(event) => setStoreName(event.target.value)} />
+      </label>
+      <label className="block text-xs text-ink-faint">
+        Support contact
+        <input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" placeholder="@support or link" value={supportContact} onChange={(event) => setSupportContact(event.target.value)} />
+      </label>
+      <div className="space-y-2 border-t border-white/10 pt-3">
+        <p className="text-xs text-ink-faint">Store status</p>
+        <label className="flex items-center gap-2 text-sm text-ink"><input type="radio" checked={storeStatus === 'open'} onChange={() => setStoreStatus('open')} /> Open</label>
+        <label className="flex items-center gap-2 text-sm text-ink"><input type="radio" checked={storeStatus === 'maintenance'} onChange={() => setStoreStatus('maintenance')} /> Maintenance</label>
+        <label className="block text-xs text-ink-faint">
+          Maintenance message
+          <input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" value={maintenanceMsg} onChange={(event) => setMaintenanceMsg(event.target.value)} />
+        </label>
+      </div>
+      <div className="space-y-2 border-t border-white/10 pt-3">
+        <label className="flex items-center gap-2 text-sm text-ink">
+          <input type="checkbox" checked={useOwnWallet} onChange={(event) => setUseOwnWallet(event.target.checked)} />
+          Use my own BEP20 USDT receiving address
+        </label>
+        <label className="block text-xs text-ink-faint">
+          BEP20 receiving address
+          <input className="mt-1 h-9 w-full rounded-xl border border-stroke bg-white/[0.04] px-3 text-sm text-ink" placeholder="0x..." value={bep20Address} onChange={(event) => setBep20Address(event.target.value)} />
+        </label>
+      </div>
+      <Button type="submit">Save store settings</Button>
+    </form>
   );
 }
 
