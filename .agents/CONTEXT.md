@@ -104,6 +104,6 @@ All commands run from `Black-Tier-Circle/`:
 
 ## 8. Launch Readiness Notes (Post-Phase O)
 
-- All Phase P0–O functional, security, visual, cron-timing, and fresh-start items are closed (`60` unit test files / `452` tests passing; `npm run check:pages` `216/216` PASS).
+- All Phase P0–O functional, security, visual, cron-timing, fresh-start, and pre-launch items are closed (`61` unit test files / `457` tests passing; `npm run check:pages` `216/216` PASS). Remy AI is grounded in live scoped DB facts via `modules/platform/remy-context.ts`.
 - **Pre-push git hygiene:** `.cursor/design-reference/` and `.cursor/e2e/` are never committed. 20 earlier unpushed commits still carry `Co-authored-by` trailers; strip them before pushing using the exact `git filter-branch` command in `.cursor/release-checklist.md`.
 - **Historical migration note:** `0020_bot_improvements.sql:4` contains a trailing `[]` typo (already applied in production; left untouched per immutability rule).

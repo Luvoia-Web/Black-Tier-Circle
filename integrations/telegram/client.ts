@@ -547,6 +547,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
     const value = BigInt(config.pointValueMinor);
     const text = referralHomeText({
       template: config.templates.home,
+      storeName: current.storeName,
       link,
       invited: summary.invited,
       pending: summary.pending,
@@ -645,7 +646,7 @@ export function createBotEngine(botToken: string, context: BotEngineContext): Bo
       }
     }
     keyboard.text('Back', 'refer:').text('Home', 'home:');
-    await show(bot, screen, freebieListText(config.templates.freebies, items), keyboard, 'HTML');
+    await show(bot, screen, freebieListText(config.templates.freebies, items, current.storeName), keyboard, 'HTML');
   }
 
   async function claimOneFreebie(screen: Screen, freebieId: string): Promise<void> {

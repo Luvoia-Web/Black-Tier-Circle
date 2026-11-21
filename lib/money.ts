@@ -100,6 +100,21 @@ export function subtractUsdt(leftMinor: bigint, rightMinor: bigint): bigint {
 }
 
 /**
+ * Formats minor units for editable USDT form inputs without trailing decimal zeros.
+ * Never uses floating-point math. When `treatDustAsZero` is true, 0 or 1 minor unit
+ * (e.g. legacy 1-unit sentinel) renders as "0".
+ */
+export function formatUsdtInput(
+  minor: bigint,
+  options?: { readonly treatDustAsZero?: boolean },
+): string {
+  if (minor === 0n || (options?.treatDustAsZero === true && minor === 1n)) {
+    return '0';
+  }
+  return minorToUsdt(minor).replace(/\.?0+$/, '');
+}
+
+/**
  * Formats minor units for UI display with a currency label.
  *
  * @param minor - Amount in USDT minor units

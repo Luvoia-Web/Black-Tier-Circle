@@ -5,7 +5,6 @@
  */
 
 import { productInitials } from '@/lib/product-labels';
-import { ownerBotDisplayName } from '@/lib/owner-bot';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GripVertical } from 'lucide-react';
@@ -22,6 +21,7 @@ import { renderTemplate } from '@/modules/store-config/template';
 type HistoryRow = { readonly version: number; readonly savedAt: string };
 type StorePayload = {
   readonly role: 'owner' | 'reseller';
+  readonly storeName?: string;
   readonly studio: { readonly config: StoreConfig; readonly version: number; readonly defaults: StoreConfig };
   readonly products: readonly PreviewProduct[];
   readonly bot: { readonly username: string | null; readonly status: string };
@@ -236,6 +236,7 @@ function StudioView(): JSX.Element {
   const limit = image ? 1024 : 4096;
 
   const chosen = store.data?.products.find((product) => product.id === productId) ?? store.data?.products[0];
+  const resolvedStoreName = store.data?.storeName?.trim() || 'Black Tier Circle';
   const filled = useMemo(() => {
     if (!draft || !surface) return '';
     return renderTemplate(surface.read(draft), {
@@ -243,7 +244,7 @@ function StudioView(): JSX.Element {
       emoji: '🎬',
       description: 'Instant digital subscriptions.',
       count: String(store.data?.products.length ?? 4),
-      store: ownerBotDisplayName(store.data?.bot.username),
+      store: resolvedStoreName,
       balance: '12.00 USDT',
       product: chosen?.title ?? 'Sample',
       quantity: '1',
@@ -260,7 +261,7 @@ function StudioView(): JSX.Element {
       group: linkPreviewLine(draft.links.group),
       website: linkPreviewLine(draft.links.website),
     });
-  }, [draft, surface, chosen, store.data?.bot.username, store.data?.products.length]);
+  }, [draft, surface, chosen, resolvedStoreName, store.data?.products.length]);
 
   if (store.loading && !draft) return <Skeleton className="h-40 w-full" />;
   if (store.error && !draft) return <ErrorState message={store.error.message} requestId={store.error.requestId} detail={store.error.detail} onRetry={store.refetch} />;
@@ -411,7 +412,7 @@ function StudioView(): JSX.Element {
             <Button type="submit" disabled={!/^-?\d{5,20}$/.test(chatId.trim())}>Send test to my Telegram</Button>
           </form>
         </div>
-        <Preview light={light} setLight={setLight} draft={draft} filled={filled} chosen={chosen} productId={productId} products={loaded.products} rows={rows} section={section} image={image || (section === 'card' ? chosen?.imageUrl ?? '' : '')} onProduct={setProductId} />
+        <Preview light={light} setLight={setLight} storeName={resolvedStoreName} draft={draft} filled={filled} chosen={chosen} productId={productId} products={loaded.products} rows={rows} section={section} image={image || (section === 'card' ? chosen?.imageUrl ?? '' : '')} onProduct={setProductId} />
       </div>
       {dirty ? (
         <div className="sticky bottom-3 flex flex-wrap items-center gap-3 rounded-2xl border border-white/14 bg-[rgb(30_16_24/0.92)] px-4 py-2.5">
@@ -589,9 +590,10 @@ function LinksEditor({ draft, setDraft }: { readonly draft: StoreConfig; readonl
   );
 }
 
-function Preview({ light, setLight, draft, filled, chosen, productId, products, rows, section, image, onProduct }: {
+function Preview({ light, setLight, storeName, draft, filled, chosen, productId, products, rows, section, image, onProduct }: {
   readonly light: boolean;
   readonly setLight: (next: boolean) => void;
+  readonly storeName: string;
   readonly draft: StoreConfig;
   readonly filled: string;
   readonly chosen: PreviewProduct | undefined;
@@ -609,6 +611,7 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
   const bubbleHtml = showCard && chosen
     ? productCardText(toShop(chosen, image), draft.catalog.templates, undefined, draft.productCard)
     : filled;
+  const avatarInitial = storeName.trim().charAt(0).toUpperCase() || 'B';
   return (
     <aside className="glass-card space-y-3 rounded-lg p-4 xl:sticky xl:top-4">
       <div className="flex items-center justify-between gap-2">
@@ -619,9 +622,9 @@ function Preview({ light, setLight, draft, filled, chosen, productId, products, 
       <p className="text-xs text-ink-faint">Sample buyer Asha. {chosen?.sample ? 'Sample product, because this store has nothing to preview.' : chosen?.title}</p>
       <div className={`rounded-[28px] border p-2.5 ${light ? 'border-black/10 bg-[#d6e4ef]' : 'border-white/10 bg-[#0e1621]'}`}>
         <div className="flex items-center gap-2 border-b border-white/10 px-2 py-2">
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-rose/40 text-xs text-ink">B</span>
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-rose/40 text-xs text-ink">{avatarInitial}</span>
           <div>
-            <p className={`text-sm font-medium ${ink}`}>Black Tier Circle</p>
+            <p className={`text-sm font-medium ${ink}`}>{storeName}</p>
             <p className="text-[11px] text-[#6c9bd1]">bot</p>
           </div>
         </div>

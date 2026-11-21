@@ -6,12 +6,13 @@
  */
 
 import { useState } from 'react';
-import { Button, DataTable, ErrorState, Pagination, RelativeTime, SelectField, Skeleton, Sparkline, StatusPill, TextField, type Column } from '@/components/platform/ui';
+import { Button, DataTable, ErrorState, Modal, Pagination, RelativeTime, SelectField, Skeleton, Sparkline, StatusPill, TextField, type Column } from '@/components/platform/ui';
 import { displayDeliveryType, displaySupplierOrderStatus } from '@/lib/display-labels';
 import { runAction } from '@/lib/hooks/use-action';
 import { useData } from '@/lib/hooks/use-data';
+import { formatUsdt } from '@/lib/money';
 import { API_ROUTES } from '@/lib/navigation';
-import type { SupplierDesk } from '@/modules/platform/supplier-desk';
+import type { SupplierDesk, SupplierOrderRow } from '@/modules/platform/supplier-desk';
 
 type BalanceRow = {
   readonly supplierId: string;
@@ -285,10 +286,20 @@ function Import({ supplierId, suppliers, onSupplier }: { readonly supplierId: st
   );
 }
 
+function formatMinorCost(value: string): string {
+  try {
+    return formatUsdt(BigInt(value));
+  } catch {
+    return '0.00 USDT';
+  }
+}
+
 function Orders(): JSX.Element {
   const desk = useData<SupplierDesk>('/api/platform/catalog?section=suppliers');
   const [delivery, setDelivery] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingResubmit, setPendingResubmit] = useState<SupplierOrderRow | null>(null);
+  const [resubmitting, setResubmitting] = useState(false);
   if (desk.loading && !desk.data) return <Skeleton className="h-32 w-full" />;
   if (desk.error || !desk.data || !Array.isArray(desk.data.orders)) return <ErrorState message={desk.error?.message ?? 'Supplier orders did not load.'} onRetry={desk.refetch} />;
   async function act(orderId: string, kind: 'complete' | 'fail' | 'resubmit' | 'reconcile'): Promise<void> {
@@ -301,6 +312,16 @@ function Orders(): JSX.Element {
     setNotice(result.ok ? 'Saved.' : result.error.message);
     if (result.ok) desk.refetch();
   }
+  async function confirmResubmit(): Promise<void> {
+    if (!pendingResubmit) return;
+    setResubmitting(true);
+    try {
+      await act(pendingResubmit.orderId, 'resubmit');
+    } finally {
+      setResubmitting(false);
+      setPendingResubmit(null);
+    }
+  }
   return (
     <div className="space-y-3">
       <p className="text-sm text-ink-soft">{desk.data.pendingOrders} orders are still with a supplier. {desk.data.note}</p>
@@ -309,24 +330,72 @@ function Orders(): JSX.Element {
       <DataTable
         caption="Supplier orders"
         columns={[
-          { id: 'order', header: 'Order', render: (row) => <a className="font-mono underline" href={`/orders?order=${row.orderId}`}>{row.orderId.slice(0, 8)}</a> },
-          { id: 'status', header: 'Status', render: (row) => displaySupplierOrderStatus(row.status) },
+          { id: 'order', header: 'Order', render: (row) => <a className="font-mono underline" href={`/orders?order=${row.orderId}`}>{row.orderId.slice(0, 8).toUpperCase()}</a> },
+          {
+            id: 'status',
+            header: 'Status',
+            render: (row) => (
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <StatusPill tone={row.orderDelivered ? 'ok' : row.status === 'failed' ? 'fault' : 'warn'}>
+                  {displaySupplierOrderStatus(row.status)}
+                </StatusPill>
+                {row.orderDelivered && row.attemptStatus === 'failed' ? (
+                  <span className="text-xs text-ink-faint">Prior attempt failed</span>
+                ) : null}
+              </span>
+            ),
+          },
           { id: 'error', header: 'Error', render: (row) => row.error ?? '—' },
           { id: 'when', header: 'Started', render: (row) => row.startedAt ? <RelativeTime value={row.startedAt} /> : '—' },
-          { id: 'actions', header: 'Actions', render: (row) => (
-            <span className="flex flex-wrap gap-1">
-              <Button variant="secondary" onClick={() => void act(row.orderId, 'complete')}>Complete</Button>
-              <Button variant="secondary" onClick={() => void act(row.orderId, 'fail')}>Fail</Button>
-              <Button variant="secondary" onClick={() => void act(row.orderId, 'resubmit')}>Resubmit</Button>
-              <Button variant="secondary" onClick={() => void act(row.orderId, 'reconcile')}>Reconcile</Button>
-            </span>
-          ) },
+          {
+            id: 'actions',
+            header: 'Actions',
+            render: (row) => {
+              if (row.orderDelivered || (!row.canComplete && !row.canFail && !row.canResubmit && !row.canReconcile)) {
+                return <span className="text-xs text-ink-faint">History only</span>;
+              }
+              return (
+                <span className="flex flex-wrap gap-1">
+                  {row.canComplete ? <Button variant="secondary" onClick={() => void act(row.orderId, 'complete')}>Complete</Button> : null}
+                  {row.canFail ? <Button variant="secondary" onClick={() => void act(row.orderId, 'fail')}>Fail</Button> : null}
+                  {row.canResubmit ? <Button variant="secondary" onClick={() => setPendingResubmit(row)}>Resubmit</Button> : null}
+                  {row.canReconcile ? <Button variant="secondary" onClick={() => void act(row.orderId, 'reconcile')}>Reconcile</Button> : null}
+                </span>
+              );
+            },
+          },
         ]}
         rows={desk.data.orders}
-        rowKey={(row) => row.orderId}
+        rowKey={(row) => row.attemptId}
         emptyTitle="No supplier orders"
         emptyMessage="Orders sent to a supplier will show up here."
       />
+      <Modal
+        open={pendingResubmit !== null}
+        title="Confirm supplier resubmit"
+        onClose={() => { if (!resubmitting) setPendingResubmit(null); }}
+      >
+        {pendingResubmit ? (
+          <div className="space-y-4 text-sm text-ink-soft">
+            <p>
+              Resubmitting places a new supplier purchase for order{' '}
+              <span className="font-mono text-ink">{pendingResubmit.orderId.slice(0, 8).toUpperCase()}</span>{' '}
+              ({pendingResubmit.productTitle} × {pendingResubmit.quantity}).
+            </p>
+            <div className="rounded-lg border border-white/10 bg-black/25 px-3 py-2.5">
+              <p className="text-xs text-ink-faint">Supplier cost</p>
+              <p className="mt-0.5 font-num text-base font-medium text-ink">{formatMinorCost(pendingResubmit.supplierCostMinor)}</p>
+            </div>
+            <p className="text-xs text-ink-faint">
+              Only confirm if you are sure the previous attempt was not billed or delivered by the supplier.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" disabled={resubmitting} onClick={() => setPendingResubmit(null)}>Cancel</Button>
+              <Button loading={resubmitting} onClick={() => void confirmResubmit()}>Confirm resubmit</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

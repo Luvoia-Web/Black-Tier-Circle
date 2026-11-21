@@ -4,11 +4,22 @@
  */
 
 import { AppError } from '@/lib/errors';
+import { isOrderCanceled, isOrderDelivered, NOT_DELIVERED_STATUSES } from '@/lib/order-state';
 import type { DbClient, QueryResult } from '@/lib/supabase/query';
 
 export type SupplierOrderRow = {
+  readonly attemptId: string;
   readonly orderId: string;
+  readonly productTitle: string;
+  readonly quantity: number;
   readonly status: string;
+  readonly attemptStatus: string;
+  readonly orderDelivered: boolean;
+  readonly supplierCostMinor: string;
+  readonly canComplete: boolean;
+  readonly canFail: boolean;
+  readonly canResubmit: boolean;
+  readonly canReconcile: boolean;
   readonly error: string | null;
   readonly startedAt: string;
 };
@@ -43,6 +54,13 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function minorOrNull(value: unknown): bigint | null {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return BigInt(value.trim());
+  return null;
+}
+
 function statsFor(attempts: readonly Record<string, unknown>[]): { readonly errorRate: number | null; readonly averageMinutes: number | null } {
   let failed = 0;
   let timed = 0;
@@ -63,16 +81,17 @@ function statsFor(attempts: readonly Record<string, unknown>[]): { readonly erro
 }
 
 export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
-  const attempts = records((await db.from('fulfillment_attempts').select('order_id, status, error, started_at, completed_at').eq('method', 'supplier').order('started_at', { ascending: false }).limit(1000)) as QueryResult<unknown>);
+  const attempts = records((await db.from('fulfillment_attempts').select('id, order_id, status, error, started_at, completed_at').eq('method', 'supplier').order('started_at', { ascending: false }).limit(1000)) as QueryResult<unknown>);
   const orderIds = [...new Set(attempts.map((row) => text(row.order_id)).filter(Boolean))];
   const orders = orderIds.length === 0
     ? []
-    : records((await db.from('orders').select('id, product_id, fulfillment_status').in('id', orderIds)) as QueryResult<unknown>);
+    : records((await db.from('orders').select('id, product_id, quantity, quoted_wholesale_price, payment_status, fulfillment_status, delivery_status').in('id', orderIds)) as QueryResult<unknown>);
   const productIds = [...new Set(orders.map((row) => text(row.product_id)).filter(Boolean))];
   const products = productIds.length === 0
     ? []
-    : records((await db.from('products').select('id, supplier_id').in('id', productIds)) as QueryResult<unknown>);
-  const statusById = new Map(orders.map((row) => [text(row.id), text(row.fulfillment_status)]));
+    : records((await db.from('products').select('id, title, supplier_id, supplier_price_minor').in('id', productIds)) as QueryResult<unknown>);
+  const orderById = new Map(orders.map((row) => [text(row.id), row]));
+  const productById = new Map(products.map((row) => [text(row.id), row]));
   const productByOrder = new Map(orders.map((row) => [text(row.id), text(row.product_id)]));
   const supplierByProduct = new Map(products.map((row) => [text(row.id), text(row.supplier_id)]));
   const bySupplier = new Map<string, Record<string, unknown>[]>();
@@ -94,14 +113,59 @@ export async function readSupplierDesk(db: DbClient): Promise<SupplierDesk> {
     series.push(value);
     trend.set(id, series);
   }
-  const pending = records((await db.from('orders').select('id').in('fulfillment_status', ['supplier_pending', 'processing', 'outcome_unknown']).limit(500)) as QueryResult<unknown>);
+  const pending = records((await db.from('orders').select('id').in('fulfillment_status', ['supplier_pending', 'processing', 'outcome_unknown']).in('delivery_status', [...NOT_DELIVERED_STATUSES]).limit(500)) as QueryResult<unknown>);
+  const seenOrders = new Set<string>();
   return {
-    orders: attempts.slice(0, 40).map((row) => ({
-      orderId: text(row.order_id),
-      status: statusById.get(text(row.order_id)) || text(row.status) || 'pending',
-      error: text(row.error) || null,
-      startedAt: text(row.started_at),
-    })).filter((row) => row.orderId),
+    orders: attempts.slice(0, 40).map((row, index) => {
+      const orderId = text(row.order_id);
+      const isLatestAttempt = orderId.length > 0 && !seenOrders.has(orderId);
+      if (orderId) seenOrders.add(orderId);
+      const order = orderById.get(orderId);
+      const tracks = {
+        paymentStatus: text(order?.payment_status),
+        fulfillmentStatus: text(order?.fulfillment_status),
+        deliveryStatus: text(order?.delivery_status),
+      };
+      const orderDelivered = isOrderDelivered(tracks);
+      const orderCanceled = isOrderCanceled(tracks);
+      const activeFulfillment = tracks.fulfillmentStatus;
+      const attemptStatus = text(row.status) || 'pending';
+      const quantity = Math.max(1, Number(order?.quantity ?? 1) || 1);
+      const product = productById.get(text(order?.product_id));
+      const unitSupplierPrice = minorOrNull(product?.supplier_price_minor);
+      const wholesaleMinor = minorOrNull(order?.quoted_wholesale_price) ?? 0n;
+      const supplierCostMinor = (
+        unitSupplierPrice !== null ? unitSupplierPrice * BigInt(quantity) : wholesaleMinor
+      ).toString();
+      const waitingOnSupplier =
+        isLatestAttempt &&
+        !orderDelivered &&
+        !orderCanceled &&
+        (activeFulfillment === 'outcome_unknown' || activeFulfillment === 'supplier_pending');
+      const canResubmit =
+        isLatestAttempt &&
+        !orderDelivered &&
+        !orderCanceled &&
+        (activeFulfillment === 'outcome_unknown' ||
+          activeFulfillment === 'failed' ||
+          activeFulfillment === 'supplier_pending');
+      return {
+        attemptId: text(row.id) || `${orderId}:${text(row.started_at)}:${index}`,
+        orderId,
+        productTitle: text(product?.title) || 'Product',
+        quantity,
+        status: orderDelivered ? 'delivered' : activeFulfillment || attemptStatus,
+        attemptStatus,
+        orderDelivered,
+        supplierCostMinor,
+        canComplete: waitingOnSupplier,
+        canFail: waitingOnSupplier,
+        canResubmit,
+        canReconcile: waitingOnSupplier,
+        error: text(row.error) || null,
+        startedAt: text(row.started_at),
+      };
+    }).filter((row) => row.orderId),
     health: suppliers.map((row) => {
       const stats = statsFor(bySupplier.get(text(row.id)) ?? []);
       return {

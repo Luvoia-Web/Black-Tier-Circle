@@ -35,6 +35,7 @@ export function shareUrl(link: string): string {
 
 export function referralHomeText(input: {
   readonly template: string;
+  readonly storeName?: string;
   readonly link: string | null;
   readonly invited: number;
   readonly pending: number;
@@ -43,7 +44,7 @@ export function referralHomeText(input: {
   readonly walletMinor: bigint;
   readonly nextLine: string | null;
 }): string {
-  const intro = renderTemplate(input.template, {});
+  const intro = renderTemplate(input.template, input.storeName ? { store: input.storeName } : {});
   const linkLine = input.link ? `<code>${escapeHtml(input.link)}</code>` : 'Your link will appear when the bot username is set.';
   const parts = [
     intro,
@@ -91,8 +92,8 @@ export function redeemedText(template: string, points: number, amountMinor: bigi
   return lines(renderTemplate(template, { points: String(points), amount: formatUsdt(amountMinor) }));
 }
 
-export function freebieListText(template: string, items: readonly FreebieLine[]): string {
-  const intro = renderTemplate(template, {});
+export function freebieListText(template: string, items: readonly FreebieLine[], storeName?: string): string {
+  const intro = renderTemplate(template, storeName ? { store: storeName } : {});
   if (items.length === 0) {
     return lines(`${intro}\nNo freebies yet.`);
   }

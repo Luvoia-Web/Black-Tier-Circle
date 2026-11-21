@@ -57,7 +57,7 @@ export const DEFAULT_REFERRAL_CONFIG: ReferralConfig = {
   pointsPerReferral: 1,
   pointValueMinor: '200000',
   minRedeemPoints: 5,
-  minQualifyingOrderMinor: '1',
+  minQualifyingOrderMinor: '0',
   dailyRewardCap: 20,
   freebiesEnabled: false,
   redeemEnabled: true,

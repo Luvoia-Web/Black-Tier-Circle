@@ -311,6 +311,7 @@ const SUPPLIER_ORDER_STATUSES: Readonly<Record<string, string>> = {
   supplier_pending: 'Sent to supplier',
   outcome_unknown: 'Outcome unknown',
   ready: 'Ready',
+  delivered: 'Delivered',
   failed: 'Failed',
   canceled: 'Cancelled',
   queued: 'Queued',

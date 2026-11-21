@@ -49,7 +49,7 @@ const SAMPLE: PreviewProduct = {
 
 export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, userId: string) {
   const scopedTenantId = tenantIdForStudio(role, tenantId);
-  const [studio, products, status, bot, history, testChat, menuToggles] = await Promise.all([
+  const [studio, products, status, bot, history, testChat, menuToggles, storeName] = await Promise.all([
     readStudio(db, role, scopedTenantId),
     previewProducts(db, role, scopedTenantId),
     role === 'owner' ? ownerStatus(db) : resellerStatus(db, scopedTenantId),
@@ -57,8 +57,21 @@ export async function readStore(db: DbClient, role: 'owner' | 'reseller', tenant
     versions(db, scopedTenantId),
     readTestChat(db, userId),
     readBotMenuToggles(db),
+    resolveStudioStoreName(db, role, scopedTenantId),
   ]);
-  return { role, studio, products, ...status, bot, history, testChat, menuToggles };
+  return { role, storeName, studio, products, ...status, bot, history, testChat, menuToggles };
+}
+
+export async function resolveStudioStoreName(
+  db: DbClient,
+  role: 'owner' | 'reseller',
+  tenantId: string | null,
+): Promise<string> {
+  const [platform, tenant] = await Promise.all([
+    getPlatformSettings(db),
+    role === 'reseller' && tenantId ? getTenantSettings(db, tenantId) : Promise.resolve(null),
+  ]);
+  return tenant?.storeName?.trim() || platform.platformName?.trim() || 'Black Tier Circle';
 }
 
 export async function readStoreVersion(db: DbClient, role: 'owner' | 'reseller', tenantId: string | null, version: number) {

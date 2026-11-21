@@ -921,6 +921,9 @@ export async function markSupplierManuallyCompleted(
     throw new FulfillmentError('DELIVERY_DATA_REQUIRED', 'Delivery data is required');
   }
   const order = await getOrder(supabase, orderId);
+  if (order.deliveryStatus === 'sent') {
+    throw new FulfillmentError('ORDER_ALREADY_DELIVERED', 'This order is already delivered', 409);
+  }
   if (order.fulfillmentStatus !== 'outcome_unknown' && order.fulfillmentStatus !== 'supplier_pending') {
     throw new FulfillmentError('NOT_SUPPLIER_PENDING', 'This order is not waiting on supplier fulfillment');
   }
@@ -954,6 +957,9 @@ export async function markSupplierManuallyFailed(
   note?: string,
 ): Promise<void> {
   const order = await getOrder(supabase, orderId);
+  if (order.deliveryStatus === 'sent') {
+    throw new FulfillmentError('ORDER_ALREADY_DELIVERED', 'This order is already delivered', 409);
+  }
   if (order.fulfillmentStatus !== 'outcome_unknown' && order.fulfillmentStatus !== 'supplier_pending') {
     throw new FulfillmentError('NOT_SUPPLIER_PENDING', 'This order is not waiting on supplier fulfillment');
   }
@@ -987,6 +993,9 @@ export async function resubmitSupplierOrder(
   actorId: string,
 ): Promise<void> {
   const order = await getOrder(supabase, orderId);
+  if (order.deliveryStatus === 'sent') {
+    throw new FulfillmentError('ORDER_ALREADY_DELIVERED', 'This order is already delivered and cannot be re-submitted', 409);
+  }
   if (order.fulfillmentStatus === 'outcome_unknown') {
     await recordTransition(supabase, orderId, 'fulfillment', 'outcome_unknown', 'supplier_pending', {
       actorId,

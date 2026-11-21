@@ -22,7 +22,7 @@ import {
   TextField,
   notify,
 } from '@/components/platform/ui';
-import { minorToUsdt, usdtToMinor } from '@/lib/money';
+import { formatUsdtInput, usdtToMinor } from '@/lib/money';
 import type { PeoplePayload, PersonRow } from '@/modules/platform/people';
 import type { ReferralConfig } from '@/modules/store-config/types';
 
@@ -64,15 +64,15 @@ type SettingsDraft = {
   readonly dailyRewardCap: string;
 };
 
-function draftFrom(config: ReferralConfig): SettingsDraft {
+export function referralDraftFrom(config: ReferralConfig): SettingsDraft {
   return {
     enabled: config.enabled,
     freebiesEnabled: config.freebiesEnabled,
     redeemEnabled: config.redeemEnabled,
     pointsPerReferral: String(config.pointsPerReferral),
-    pointValue: minorToUsdt(BigInt(config.pointValueMinor)).replace(/0+$/, '').replace(/\.$/, ''),
+    pointValue: formatUsdtInput(BigInt(config.pointValueMinor)),
     minRedeemPoints: String(config.minRedeemPoints),
-    minOrder: minorToUsdt(BigInt(config.minQualifyingOrderMinor)).replace(/0+$/, '').replace(/\.$/, ''),
+    minOrder: formatUsdtInput(BigInt(config.minQualifyingOrderMinor), { treatDustAsZero: true }),
     dailyRewardCap: String(config.dailyRewardCap),
   };
 }
@@ -135,7 +135,7 @@ export function GrowthPanel({ base }: { readonly base: string }): JSX.Element {
         return;
       }
       setOverview(overviewJson.data);
-      setDraft(draftFrom(overviewJson.data.settings.config.referrals));
+      setDraft(referralDraftFrom(overviewJson.data.settings.config.referrals));
       setRows(referralJson.data.rows);
       setTotal(referralJson.data.total);
       setFreebies(freebieJson.data.freebies);
@@ -187,9 +187,9 @@ export function GrowthPanel({ base }: { readonly base: string }): JSX.Element {
         freebiesEnabled: draft.freebiesEnabled,
         redeemEnabled: draft.redeemEnabled,
         pointsPerReferral: Number(draft.pointsPerReferral),
-        pointValueMinor: usdtToMinor(draft.pointValue || '0').toString(),
+        pointValueMinor: usdtToMinor(draft.pointValue.trim() || '0').toString(),
         minRedeemPoints: Number(draft.minRedeemPoints),
-        minQualifyingOrderMinor: usdtToMinor(draft.minOrder || '0').toString(),
+        minQualifyingOrderMinor: usdtToMinor(draft.minOrder.trim() || '0').toString(),
         dailyRewardCap: Number(draft.dailyRewardCap),
       };
       const response = await fetch(base, {

@@ -15,40 +15,13 @@ import {
   retainCommerceExperience,
   type MemoryEvidence,
 } from '@/lib/hindsight';
-import { DEMO_CUSTOMER_ID, DEMO_TENANT_ID } from '@/lib/intelligence-demo';
 import { handleRouteError, readJsonBody } from '@/lib/http';
 import { consumeRateLimit } from '@/lib/rate-limiter';
+import { buildRemyLiveContext, buildRemySystemPrompt } from '@/modules/platform/remy-context';
 import { getTenantByUserId } from '@/modules/tenants';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
-
-function buildSystemPrompt(role: 'owner' | 'reseller'): string {
-  const scopeNote =
-    role === 'owner'
-      ? 'You are speaking with the platform owner. You can discuss supplier sync, reseller management, BEP20 verification, warranty replacements, and overall platform metrics.'
-      : 'You are speaking with an active reseller store operator. Focus only on their own store: setting retail margins, connecting their Telegram bot, Bot Studio customization, redeeming top-up tokens, buyer support, and API keys/webhooks.';
-
-  return `You are Remy, the AI assistant for Black Tier Circle, a multi-tenant Telegram commerce platform for digital products.
-
-${scopeNote}
-
-Key facts about Black Tier Circle:
-- Buyers top up USDT (BEP20) or use wallet balance inside Telegram bots; orders are fulfilled from connected suppliers
-- Owner adds catalogue products and manages supplier integrations; resellers set retail margins above wholesale
-- Warranty replacements are owner-only through Support — buyers never see a Replace button in Telegram bots
-- Reseller wholesale wallet top-ups use owner-issued top-up tokens redeemed in Wallets & ledger
-
-Always be helpful, concise, and specific to the Black Tier Circle platform.
-
-IMPORTANT FORMATTING RULES:
-- Never use markdown tables, JSON blocks, code blocks, or bullet lists with dashes
-- Write in plain conversational paragraphs only
-- Use numbered lists sparingly, only when listing steps
-- Keep responses under 150 words unless the user asks for detail
-- Sound like a knowledgeable human assistant, not a documentation page
-If you don't know something specific to this user's account, say so and suggest checking the relevant dashboard section.`;
-}
 
 const BodySchema = z.object({
   messages: z
@@ -82,15 +55,23 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const userMessage = [...body.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
-    const memory = await loadCustomerMemory(session, userMessage);
     const chatRole = session.profile.role === 'reseller' ? 'reseller' : 'owner';
-    const basePrompt = buildSystemPrompt(chatRole);
-    const system = memory.memories.length > 0
-      ? `${basePrompt}\n\nCustomer memory context (use this to personalize your response):\n${memory.memories
-          .slice(0, 5)
-          .map((item) => `- ${item.text}`)
-          .join('\n')}`
-      : basePrompt;
+    const db = asDbClient(session.admin);
+    let scopedTenantId: string | null = null;
+    if (chatRole === 'reseller') {
+      const reseller = await requireReseller();
+      scopedTenantId = reseller.tenant.id;
+    }
+
+    const [liveContext, memory] = await Promise.all([
+      buildRemyLiveContext(db, {
+        role: chatRole,
+        tenantId: scopedTenantId,
+        timezone: session.profile.timezone,
+      }),
+      loadCustomerMemory(session, userMessage, scopedTenantId),
+    ]);
+    const system = buildRemySystemPrompt(chatRole, liveContext, memory.memories);
 
     const upstream = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -209,23 +190,21 @@ export async function POST(request: Request): Promise<Response> {
 async function loadCustomerMemory(
   session: Awaited<ReturnType<typeof requireRole>>,
   userMessage: string,
+  resellerTenantId: string | null,
 ): Promise<{ tenantId: string | null; bankId: string | null; memories: MemoryEvidence[]; notice: string | null }> {
   const missing = memoryConfigNotice();
-  let tenantId: string | null = null;
+  let tenantId: string | null = resellerTenantId;
   const customerId = session.user.id;
-  try {
-    if (session.profile.role === 'reseller') {
-      const reseller = await requireReseller();
-      tenantId = reseller.tenant.id;
-    } else {
+  if (!tenantId && session.profile.role !== 'reseller') {
+    try {
       const tenant = await getTenantByUserId(asDbClient(session.admin), session.user.id);
       tenantId = tenant.id;
+    } catch {
+      tenantId = null;
     }
-  } catch {
-    tenantId = null;
   }
 
-  if (tenantId && userMessage.trim().length > 0) {
+  if (tenantId && userMessage.trim().length > 0 && !missing) {
     const bankId = resolveCustomerMemoryBank(tenantId, customerId);
     try {
       const memories = await recallCustomerExperience(bankId, userMessage, {
@@ -239,26 +218,6 @@ async function loadCustomerMemory(
       return {
         tenantId,
         bankId,
-        memories: [],
-        notice: 'The memory service did not respond. Remy will answer without recalled memory.',
-      };
-    }
-  }
-
-  if (process.env.NODE_ENV !== 'production' && userMessage.trim().length > 0 && !missing) {
-    const bankId = resolveCustomerMemoryBank(DEMO_TENANT_ID, DEMO_CUSTOMER_ID);
-    try {
-      const memories = await recallCustomerExperience(bankId, userMessage, {
-        budget: 'low',
-        timeoutMs: 1200,
-      });
-      if (memories.length > 0) {
-        return { tenantId, bankId, memories, notice: null };
-      }
-    } catch {
-      return {
-        tenantId,
-        bankId: null,
         memories: [],
         notice: 'The memory service did not respond. Remy will answer without recalled memory.',
       };
